@@ -13,6 +13,7 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 = playable at `npm run dev` and on GitHub Pages with ≥ 55 fps, e2e smoke green.
 
 ## Configuration notes
+- Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`): `grok` ×2 (C3), `opus` ×2 (claude, login_auth, C3),
   `ds` ×2 (pi → DeepSeek V4 Flash on DeepInfra, C2). `glm` parked: DeepInfra
   only has GLM-5.2 (user: too slow; also 400'd via pi) — enable when GLM-5.3
@@ -38,9 +39,12 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - 2026-08-23 — Pure builders return `MeshData` (typed arrays) so geometry is unit-tested in node; browser-only code is thin and covered by the e2e smoke + PM visual review.
 - 2026-08-23 — GLM worker dropped (user), Opus worker added (user: "quota to burn").
 - 2026-08-23 — Integration ticket T-0010 is C3 (grok/opus only): most judgment lives there.
+- 2026-08-24 — **Single-branch mode** (`staging = false`). Staging mode diverged `main`/`staging` on the very first accept (board commit lands on main, merge on staging → `--ff-only` can never advance main) AND worker worktrees are cut from HEAD=main, so the whole fan-out started without T-0001's files. Killed the 6 attempts (KILL.<instance>, strike-free), merged staging into main (77c4ca2), deleted the six stale branches/worktrees and the staging branch, lifted STOP. PM verifies every landing in-container before accept instead.
+- 2026-08-24 — Process rule: COMMIT the board/scaffold BEFORE moving tickets into todo/ — workers claim within seconds and cut worktrees from HEAD.
 
 ## Board snapshot
-- 2026-08-23 23:55 — wave 1 planned: T-0001 (P0 bootstrap) → T-0002…T-0009 fan-out (data, buildings, roads/ground, ascii, collision, controls, HUD) + T-0012 (Pages) → T-0010 (integration, C3) → T-0011 (e2e). Nothing landed yet.
+- 2026-08-23 23:55 — wave 1 planned: T-0001 (P0 bootstrap) → T-0002…T-0009 fan-out (data, buildings, roads/ground, ascii, collision, controls, HUD) + T-0012 (Pages) → T-0010 (integration, C3) → T-0011 (e2e).
+- 2026-08-24 00:10 — T-0001 accepted (ds-1, clean). Fan-out restarted after the staging incident; 6 instances on 9 claimable tickets.
 
 ## Next actions
 1. Review T-0001 when it lands (check `scripts/*.sh` verbatim, playwright pin, lockfile) — accepting it releases the fan-out.

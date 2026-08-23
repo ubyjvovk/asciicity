@@ -4,7 +4,7 @@
 
 test_cmd = "bash scripts/test.sh"          # self-bootstrapping: npm ci if needed, then vitest run "$@"
 verify_cmds = ["bash scripts/check.sh"]   # full gate on the host: install, typecheck, unit, build, e2e
-staging = true
+staging = false                           # single-branch: accepts merge into main (staging mode diverged main/staging on every accept — 2026-08-24)
 quiet_load = 10.0                         # 12-core host shared with the worker containers
 debounce_s = 60
 artifact_globs = ["e2e/__shots__/*.png", "test-results/**/*.png"]
