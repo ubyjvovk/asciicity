@@ -59,4 +59,10 @@ export interface CityData {
   buildings: Building[];
   roads: Road[];
   places: Place[];
+  /**
+   * Optional water polygons (the Thames, docks) as rings in local metres —
+   * same ring rules as `Building.poly` (≥ 3 points, first not repeated).
+   * Absent or empty when the producer has none. Added 2026-08-24 (T-0023).
+   */
+  water?: Vec2[][];
 }

@@ -37,7 +37,8 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
   "bbox": [-0.106, 51.506, -0.070, 51.521],
   "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]] } ],
-  "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ]
+  "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
+  "water":     [ [[x,z],[x,z],[x,z]] ]          // optional, rings (T-0023)
 }
 ```
 
@@ -49,6 +50,7 @@ Rules every producer must follow and `validateCity` must enforce:
 - `roads[].pts`: ≥ 2 points. `cls` ∈ `RoadClass`.
 - `places[]`: finite `x`/`z`, non-empty `name`.
 - `id` unique within each array.
+- `water` (optional): array of rings obeying the `poly` rules; may be absent or empty.
 
 ## OSM → JSON conversion rules (`scripts/osm-convert.mjs`)
 
