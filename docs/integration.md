@@ -81,6 +81,28 @@ per-frame allocations are made inside `main.ts`.
 | `cell`      | `?cell=8x16`   | Overrides the ASCII cell size (`cellW × cellH` in pixels). |
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
+| `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
+                 coordinate instead of Bank (ignored with `synthetic`). |
+
+### Spawn presets (`?at=<name>`)
+
+`?at=` accepts a preset name (case-insensitive, trimmed) or a
+`lon,lat[,bearing]` coordinate. Preset keys and labels:
+
+| Key          | Lon      | Lat      | Bearing° | Label                                      |
+|--------------|----------|----------|----------|--------------------------------------------|
+| `bank`       | −0.0887  | 51.5133  | 270      | Bank junction                              |
+| `stpauls`    | −0.0950  | 51.5139  | 270      | Cheapside, facing St Paul's                |
+| `gherkin`    | −0.0800  | 51.5132  | 0        | St Mary Axe, facing the Gherkin            |
+| `monument`   | −0.0859  | 51.5098  | 0        | Monument                                   |
+| `tower`      | −0.0760  | 51.5095  | 180      | Tower Hill                                 |
+| `barbican`   | −0.0930  | 51.5185  | 0        | Barbican                                   |
+| `liverpoolst`| −0.0830  | 51.5178  | 90       | Liverpool Street                           |
+| `leadenhall` | −0.0845  | 51.5128  | 90       | Leadenhall Market                          |
+
+Coordinate form: `?at=lon,lat[,bearing]`, e.g. `?at=-0.0984,51.5138,90`
+(bearing in degrees; defaults to 0 / north if omitted). Presets and
+coordinates are ignored when `?synthetic=1`.
 
 Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
 

@@ -9,6 +9,7 @@ import './style.css';
 import type { CityData, Vec2 } from './data/types';
 import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
+import { resolveSpawn } from './data/spawn';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
 import { makeRoadsObject } from './world/roads';
@@ -48,9 +49,6 @@ const OVERLAY_ID = 'overlay';
 /** Eye height in metres (docs/architecture.md §3). */
 const EYE_HEIGHT = 1.7;
 
-/** Maximum +x offset (metres) the spawn search will scan when (0,0) is blocked. */
-const SPAWN_MAX = 200;
-
 /** Refresh the HUD once every N rendered frames. */
 const HUD_INTERVAL = 4;
 
@@ -65,12 +63,14 @@ interface UrlOptions {
   cellH: number | undefined;
   crt: boolean;
   minimap: boolean;
+  at: string | null;
 }
 
-/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0`. Malformed values are ignored. */
+/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0&at=...`. Malformed values are ignored. */
 export function parseUrlOptions(search: string): UrlOptions {
   const params = new URLSearchParams(search);
   const synthetic = params.get('synthetic') === '1';
+  const at = params.get('at');
   const seedRaw = params.get('seed');
   const seedParsed = seedRaw !== null && seedRaw !== '' ? Number(seedRaw) : NaN;
   const seed = Number.isFinite(seedParsed) ? seedParsed : undefined;
@@ -88,7 +88,7 @@ export function parseUrlOptions(search: string): UrlOptions {
   }
   const crt = params.get('crt') !== '0';
   const minimap = params.get('minimap') !== '0';
-  return { synthetic, seed, cellW, cellH, crt, minimap };
+  return { synthetic, seed, cellW, cellH, crt, minimap, at };
 }
 
 /** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
@@ -102,16 +102,6 @@ async function chooseCity(opts: UrlOptions): Promise<CityData> {
     console.warn('city.json load failed, using synthetic city:', err);
     return syntheticCity(opts.seed);
   }
-}
-
-/** Walk +x in 1 m steps from `(0,0)` until `blocked` returns false; else 0. */
-function findSpawnX(collision: CollisionGrid): number {
-  const probe: Vec2 = [0, 0];
-  for (let x = 0; x <= SPAWN_MAX; x++) {
-    probe[0] = x;
-    if (!collision.blocked(probe)) return x;
-  }
-  return 0;
 }
 
 async function main(): Promise<void> {
@@ -164,10 +154,16 @@ async function main(): Promise<void> {
   if (opts.cellH !== undefined) asciiOpts.cellH = opts.cellH;
   const ascii = new AsciiRenderer(renderer, asciiOpts);
 
+  // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
+  // otherwise resolve `?at=` (preset or coordinate) against the city origin,
+  // walking +x if the point is blocked inside a building.
+  const spawn = opts.synthetic
+    ? { x: 0, z: 0, yaw: -Math.PI / 2 }
+    : resolveSpawn(opts.at, city.origin, (p: Vec2) => collision.blocked(p));
   const state: PlayerState = {
-    x: findSpawnX(collision),
-    z: 0,
-    yaw: -Math.PI / 2,
+    x: spawn.x,
+    z: spawn.z,
+    yaw: spawn.yaw,
     pitch: 0,
   };
 
