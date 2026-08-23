@@ -1,0 +1,21 @@
+/* NAVIGATION panel internals: green monospace on black. Imported by hud.ts. */
+
+.hud-title,
+.hud-rows,
+.hud-help {
+  margin: 0;
+  padding: 0;
+  font-family: monospace;
+  font-size: 13px;
+  color: #48e06a;
+  background: #000;
+}
+
+.hud-title {
+  color: #8aff9e;
+}
+
+.hud-help {
+  color: #2a8040;
+  margin-top: 0.6em;
+}
