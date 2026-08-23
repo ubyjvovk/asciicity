@@ -88,6 +88,14 @@ export function yawToBearingDeg(yaw: number): number {
 }
 
 /**
+ * True when a single mouse-delta event is larger than `limit` on either axis
+ * (exclusive). Used to drop pointer-lock entry jumps and stray spikes.
+ */
+export function isMouseSpike(dx: number, dy: number, limit = 300): boolean {
+  return Math.abs(dx) > limit || Math.abs(dy) > limit;
+}
+
+/**
  * Derive directional axes from the set of currently held `KeyboardEvent.code`s.
  * Opposite keys cancel to 0; releasing one of a pair leaves the other active.
  */
@@ -118,6 +126,8 @@ export class Controls {
   private sprint = false;
   private lookDx = 0;
   private lookDy = 0;
+  /** Drop the first `mousemove` after pointer lock is acquired. */
+  private skipNextMove = false;
 
   /**
    * Construct a Controls from keys/mouse targeting `target`; `target` is also
@@ -130,6 +140,7 @@ export class Controls {
     window.addEventListener('blur', this.onBlur);
     target.addEventListener('click', this.onClick);
     document.addEventListener('mousemove', this.onMouseMove);
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
   }
 
   /** Return the current input and zero the accumulated look deltas. */
@@ -154,6 +165,7 @@ export class Controls {
     window.removeEventListener('blur', this.onBlur);
     this.target.removeEventListener('click', this.onClick);
     document.removeEventListener('mousemove', this.onMouseMove);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
   }
 
   private recompute(): void {
@@ -184,10 +196,20 @@ export class Controls {
     this.target.requestPointerLock();
   };
 
-  private onMouseMove = (e: MouseEvent): void => {
+  private onPointerLockChange = (): void => {
     if (document.pointerLockElement === this.target) {
-      this.lookDx += e.movementX;
-      this.lookDy += e.movementY;
+      this.skipNextMove = true;
     }
+  };
+
+  private onMouseMove = (e: MouseEvent): void => {
+    if (document.pointerLockElement !== this.target) return;
+    if (this.skipNextMove) {
+      this.skipNextMove = false;
+      return;
+    }
+    if (isMouseSpike(e.movementX, e.movementY)) return;
+    this.lookDx += e.movementX;
+    this.lookDy += e.movementY;
   };
 }

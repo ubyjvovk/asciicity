@@ -29,6 +29,7 @@ export const MOUSE_SENS = 0.0025;       // rad/px
 export function stepPlayer(s, i, dt, resolve): PlayerState
 export function yawToBearingDeg(yaw): number   // 0 ≤ result < 360
 export function axesFromHeld(held): Pick<InputState, 'forward' | 'strafe' | 'turn' | 'sprint'>
+export function isMouseSpike(dx, dy, limit = 300): boolean  // |dx| > limit || |dy| > limit
 export class Controls { constructor(target: HTMLElement); readInput(): InputState; dispose(): void }
 ```
 
@@ -71,10 +72,26 @@ module for the pure parts.
 - `keydown` auto-repeat is ignored (`e.repeat` guard).
 - Clicking `target` calls `target.requestPointerLock()` (pointer lock).
 - `mousemove` accumulates `movementX`/`movementY` into `lookDx`/`lookDy` **only
-  while** `document.pointerLockElement === target`.
+  while** `document.pointerLockElement === target`, after the pointer-lock
+  entry skip and spike filter below.
 - `readInput()` returns the current directional state and the accumulated look
   deltas, then zeroes the look deltas (they are consumed per frame).
-- `dispose()` removes every listener — safe to call on teardown.
+- `dispose()` removes every listener — including `pointerlockchange` — safe
+  to call on teardown.
+
+## Pointer-lock entry
+
+When pointer lock is acquired, Chromium delivers a first `mousemove` whose
+`movementX`/`movementY` equals the jump from the last pointer position
+(observed: 640/360 px in headless tests). `Controls` listens for `document`
+`pointerlockchange`; when `document.pointerLockElement === target` it sets a
+private `skipNextMove` flag. The next locked `mousemove` clears that flag
+and returns without accumulating.
+
+Independently, any single-event delta that `isMouseSpike(dx, dy)` reports
+(`|dx| > 300` or `|dy| > 300`; the default limit is exclusive) is discarded
+so a stray large jump cannot spin the camera. A custom `limit` may be passed
+to the helper; `Controls` uses the default.
 
 ## Held-key model
 
