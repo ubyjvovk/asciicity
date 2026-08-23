@@ -1,7 +1,8 @@
 /**
- * Unit tests for `src/player/controls.ts` (T-0008, T-0013): the pure
- * `stepPlayer` integration, `yawToBearingDeg`, and `axesFromHeld`. The DOM
- * `Controls` class is browser-only and covered by the e2e smoke + PM review.
+ * Unit tests for `src/player/controls.ts` (T-0008, T-0013, T-0019): the pure
+ * `stepPlayer` integration, `yawToBearingDeg`, `axesFromHeld`, and
+ * `isMouseSpike`. The DOM `Controls` class is browser-only and covered by
+ * the e2e smoke + PM review.
  */
 import { describe, expect, it } from 'vitest';
 import type { Vec2 } from '../src/data/types';
@@ -12,6 +13,7 @@ import {
   TURN_SPEED,
   WALK_SPEED,
   axesFromHeld,
+  isMouseSpike,
   stepPlayer,
   yawToBearingDeg,
 } from '../src/player/controls';
@@ -202,5 +204,29 @@ describe('axesFromHeld', () => {
 
   it('ArrowUp counts as forward', () => {
     expect(axesFromHeld(new Set(['ArrowUp'])).forward).toBe(1);
+  });
+});
+
+describe('isMouseSpike', () => {
+  it('isMouseSpike(640, 360) true', () => {
+    expect(isMouseSpike(640, 360)).toBe(true);
+  });
+
+  it('isMouseSpike(20, -15) false', () => {
+    expect(isMouseSpike(20, -15)).toBe(false);
+  });
+
+  it('isMouseSpike(301, 0) true', () => {
+    expect(isMouseSpike(301, 0)).toBe(true);
+  });
+
+  it('isMouseSpike(0, 300) false (limit is exclusive)', () => {
+    expect(isMouseSpike(0, 300)).toBe(false);
+  });
+
+  it('custom limit honoured', () => {
+    expect(isMouseSpike(50, 0, 40)).toBe(true);
+    expect(isMouseSpike(40, 0, 40)).toBe(false);
+    expect(isMouseSpike(0, -41, 40)).toBe(true);
   });
 });
