@@ -32,6 +32,13 @@ URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
 - `?cell=WxH` — override the ASCII cell size in pixels, e.g. `?cell=8x16`.
 - `?crt=0` — disable the CRT scanline / vignette overlay (on by default).
 - `?minimap=0` — disable the heading-up minimap under the HUD rows (on by default).
+- `?at=<name>` — spawn at a landmark preset (`bank`, `stpauls`, `gherkin`,
+  `monument`, `tower`, `barbican`, `liverpoolst`, `leadenhall`) or at a
+  coordinate `?at=lon,lat[,bearing]`, e.g. `?at=gherkin` or
+  `?at=-0.0984,51.5138,90`. Ignored with `?synthetic=1`.
+
+See [`docs/integration.md`](docs/integration.md) for the full parameter list
+and preset table.
 
 The NAVIGATION panel shows SECTOR, WORLD position, BEARING with 8-way
 compass, ZONE (nearest named road or place), LANDMARK (named building in
