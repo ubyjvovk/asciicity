@@ -7,8 +7,30 @@ TypeScript and three.js; deployed as static files to GitHub Pages.
 ## Running
 
 ```sh
-npm run dev        # start the Vite dev server
+npm run dev        # start the Vite dev server (http://127.0.0.1:5173)
 ```
+
+## How to play
+
+Open the served URL, click the `CLICK TO ENTER` overlay to enter the world;
+the browser will grab pointer lock so mouse movement steers the view. Press
+`Escape` to release the pointer — a smaller `CLICK TO RESUME` overlay lets you
+re-enter.
+
+- `W` / `↑` — forward, `S` / `↓` — back
+- `A` / `D` — strafe left / right
+- `←` / `→` — turn left / right
+- `Shift` — sprint
+- Mouse — look
+
+URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
+
+- `?synthetic=1` — skip `city.json` and use the deterministic synthetic grid.
+- `?seed=N` — seed passed to `syntheticCity(seed)`.
+- `?cell=WxH` — override the ASCII cell size in pixels, e.g. `?cell=8x16`.
+
+The NAVIGATION panel shows SECTOR, WORLD position, BEARING with 8-way
+compass, ZONE (nearest named road or place), and FPS (1 s moving average).
 
 ## Tests
 

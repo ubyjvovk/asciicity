@@ -1,6 +1,7 @@
 /* Global reset and full-viewport retro terminal look. */
 :root {
   --hud-green: #48e06a;
+  --hud-border: #1f5a2a;
 }
 
 html,
@@ -19,7 +20,8 @@ body {
   height: 100vh;
 }
 
-/* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black. */
+/* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black
+   with a 1 px dark-green border. */
 #hud {
   position: fixed;
   top: 0;
@@ -30,9 +32,11 @@ body {
   color: var(--hud-green);
   font-family: monospace;
   white-space: pre-wrap;
+  border: 1px solid var(--hud-border);
+  box-sizing: border-box;
 }
 
-/* Centred full-screen overlay. */
+/* Centred full-screen overlay: green on black, monospace, click to dismiss. */
 #overlay {
   position: fixed;
   inset: 0;
@@ -41,5 +45,31 @@ body {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.85);
+  color: var(--hud-green);
   font-family: monospace;
+  text-align: center;
+  cursor: pointer;
+  z-index: 10;
+}
+
+#overlay h1 {
+  font-size: 48px;
+  letter-spacing: 0.2em;
+  margin: 0 0 0.5em 0;
+}
+
+#overlay p {
+  font-size: 18px;
+  letter-spacing: 0.15em;
+  margin: 0;
+}
+
+/* Compact "CLICK TO RESUME" variant shown after pointer-lock loss. */
+#overlay.resume {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+#overlay.resume p {
+  font-size: 14px;
+  letter-spacing: 0.1em;
 }
