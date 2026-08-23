@@ -74,10 +74,15 @@ does not re-bucket or allocate typed arrays.
 | Layer        | Style                                      |
 |--------------|--------------------------------------------|
 | Background   | filled black `#000`                        |
-| Roads        | 1 px strokes `#2a8040`                     |
-| Buildings    | filled polygons `#1f5a2a`; named `#48e06a` |
+| Buildings    | filled polygons `#143019`; named `#245c2f` |
+| Roads        | 1 px strokes `#3fb85a`                     |
 | Player       | filled 6 px triangle `#8aff9e` at centre   |
 | North marker | letter `N`, `#8aff9e`, 10 px monospace     |
+
+Buildings draw first and roads stroke on top, so the street pattern reads
+clearly against the darker footprints — in the real City of London roughly a
+third of buildings are named, so the previous bright fills swamped the road
+network.
 
 The player triangle points up when `headingUp`; otherwise it is rotated by
 `yaw` (canvas `rotate`, which is clockwise, matching yaw 0 = north / yaw
