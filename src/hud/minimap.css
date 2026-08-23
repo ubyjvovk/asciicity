@@ -1,0 +1,8 @@
+/* Heading-up minimap canvas. Imported by minimap.ts. Lives under #hud. */
+
+.minimap {
+  display: block;
+  margin-top: 8px;
+  border: 1px solid #1f5a2a;
+  image-rendering: pixelated;
+}
