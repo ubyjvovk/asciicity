@@ -3,7 +3,7 @@
  * imported here (it pulls in CSS).
  */
 import { describe, expect, it } from 'vitest';
-import type { Place, Road } from '../src/data/types';
+import type { Building, Place, Road } from '../src/data/types';
 import { formatBearing, formatWorld, hudRow, sectorOf } from '../src/hud/format';
 import { ZoneIndex } from '../src/hud/zone';
 
@@ -63,6 +63,15 @@ describe('hudRow', () => {
   });
 });
 
+function building(partial: Omit<Building, 'id' | 'h'> & { id?: number; h?: number }): Building {
+  return { id: partial.id ?? 1, h: partial.h ?? 20, ...partial };
+}
+
+// Centroid of the supplied square footprint ring.
+function square(cx: number, cz: number, half = 10): Building['poly'] {
+  return [[cx - half, cz - half], [cx + half, cz - half], [cx + half, cz + half], [cx - half, cz + half]];
+}
+
 function road(partial: Omit<Road, 'id' | 'cls'> & { id?: number; cls?: Road['cls'] }): Road {
   return { id: partial.id ?? 1, cls: partial.cls ?? 'residential', ...partial };
 }
@@ -114,5 +123,57 @@ describe('ZoneIndex', () => {
     expect(index.nearestRoad(0, 0)).toBeNull();
     expect(index.nearestPlace(0, 0)).toBeNull();
     expect(index.zoneLabel(0, 0)).toBe('CITY');
+  });
+});
+
+describe('nearestLandmark', () => {
+  it('a named building 30 m straight ahead (yaw 0) is returned', () => {
+    const buildings = [building({ name: 'St Paul\'s', poly: square(0, -30) })];
+    const index = new ZoneIndex([], [], 50, buildings);
+    const hit = index.nearestLandmark(0, 0, 0);
+    expect(hit).not.toBeNull();
+    expect(hit?.name).toBe('St Paul\'s');
+    expect(hit?.dist).toBeCloseTo(30);
+  });
+
+  it('the same building with yaw π (facing away) is not returned', () => {
+    const buildings = [building({ name: 'St Paul\'s', poly: square(0, -30) })];
+    const index = new ZoneIndex([], [], 50, buildings);
+    expect(index.nearestLandmark(0, 0, Math.PI)).toBeNull();
+  });
+
+  it('an unnamed building ahead is ignored', () => {
+    const buildings = [building({ poly: square(0, -30) })];
+    const index = new ZoneIndex([], [], 50, buildings);
+    expect(index.nearestLandmark(0, 0, 0)).toBeNull();
+  });
+
+  it('a named building 120 m ahead is ignored (beyond maxDist)', () => {
+    const buildings = [building({ name: 'Far Tower', poly: square(0, -120) })];
+    const index = new ZoneIndex([], [], 50, buildings);
+    expect(index.nearestLandmark(0, 0, 0)).toBeNull();
+  });
+
+  it('of two named buildings ahead the nearer is returned', () => {
+    const buildings = [
+      building({ name: 'Far', poly: square(0, -30) }),
+      building({ name: 'Near', poly: square(0, -10) }),
+    ];
+    const index = new ZoneIndex([], [], 50, buildings);
+    const hit = index.nearestLandmark(0, 0, 0);
+    expect(hit?.name).toBe('Near');
+    expect(hit?.dist).toBeCloseTo(10);
+  });
+
+  it('a building 30 m ahead but 60° off-heading is ignored', () => {
+    // Centroid at (26, −15): 30 m away at 60° from north (yaw 0).
+    const buildings = [building({ name: 'Off Axis', poly: square(26, -15) })];
+    const index = new ZoneIndex([], [], 50, buildings);
+    expect(index.nearestLandmark(0, 0, 0)).toBeNull();
+  });
+
+  it('nearestLandmark returns null when the index was built without buildings', () => {
+    const index = new ZoneIndex([], []);
+    expect(index.nearestLandmark(0, 0, 0)).toBeNull();
   });
 });
