@@ -63,7 +63,7 @@ src/world/collision.ts     pointInPolygon, distToSegment, class CollisionGrid { 
 src/player/controls.ts     PlayerState, InputState, stepPlayer(...) (pure), class Controls (DOM), yawToBearingDeg(yaw)
 src/render/scene.ts        makeRenderer(canvas), makeScene(), makeCamera() — lights, fog, camera constants (§6)
 src/render/ascii.ts        DEFAULT_RAMP, glyphIndex(lum, count, gamma) (pure), buildGlyphAtlas(...), class AsciiRenderer
-src/hud/format.ts          formatBearing, formatWorld, sectorOf, padRow (pure)
+src/hud/format.ts          formatBearing, formatWorld, sectorOf, hudRow (pure)
 src/hud/zone.ts            class ZoneIndex { nearestRoad, nearestPlace, zoneLabel }
 src/hud/hud.ts             class Hud { constructor(root: HTMLElement); update(v: HudValues) }
 scripts/test.sh            npm ci if node_modules missing, then `vitest run "$@"`
