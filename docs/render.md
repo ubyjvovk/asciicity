@@ -78,3 +78,22 @@ Any tweak to the tint math (`tint = c / max(lum, 0.02)`, then
 `tint * clamp(lum * 1.8 + 0.35, 0.0, 1.0)`) or the glyph-index formula
 (`floor(clamp(pow(lum, gamma), 0, 1) * (glyphCount - 1) + 0.5)`) requires a
 matching update to `glyphIndex` in TS and its unit tests.
+
+## CRT overlay (`src/render/crt.ts` + `crt.css`)
+
+The retro-terminal finish is a pure CSS layer that sits above the canvas and
+never captures mouse events. `mountCrt(parent)` appends a
+`<div class="crt" aria-hidden="true">` with two children — `.crt-scan` and
+`.crt-glow` — and returns the outer div. It imports `./crt.css`; wiring it
+into `main.ts`/`index.html` is a later ticket.
+
+| Layer       | Element       | What it does                                                        |
+|-------------|---------------|---------------------------------------------------------------------|
+| Container   | `.crt`        | `position: fixed; inset: 0; pointer-events: none; z-index: 5` — full-screen, click-through, above the canvas. |
+| Scanlines   | `.crt-scan`   | `repeating-linear-gradient` 3px bands with `mix-blend-mode: multiply` for faint horizontal lines. |
+| Vignette + glow | `.crt-glow` | Inset box-shadow: a dark 140px vignette around the edges plus a soft 24px green `rgba(72,224,106,.1)` phosphor bloom. |
+
+Nothing animates, so no `prefers-reduced-motion` handling is needed. To
+disable it once wired, drop the `mountCrt` call (a `?crt=0` switch is planned
+for a later ticket) or remove the element from the DOM — there is no runtime
+toggle yet.
