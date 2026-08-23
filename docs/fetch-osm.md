@@ -34,19 +34,23 @@ prints a one-line reason, exits non-zero, and never leaves a partial file.
 ## The summary line
 
 ```
-city.json: N buildings, M roads, K places, S KB (skipped R relations)
+city.json: N buildings, M roads, K places, W water, S KB (skipped R relations, dropped D open water chains)
 ```
 
-- **N / M / K** — building, road, and place counts written to the file.
+- **N / M / K / W** — building, road, place, and water-ring counts written to
+  the file.
 - **S KB** — minified file size in kibibytes.
 - **R skipped relations** — multipolygon `building` relations that could not
   be emitted, i.e. whose building footprint is assembled from more than one
   `outer` way (see Limitations).
+- **D dropped open water chains** — open water ways that could not be chained
+  into a closed ring (their endpoints matched nothing), so they were dropped.
 
 ## Conversion behaviour
 
 Handled by the pure module `scripts/osm-convert.mjs` (`convertOverpass`,
-`heightOf`, `roadClassOf`, `project`), exactly per `docs/data-format.md`:
+`heightOf`, `roadClassOf`, `project`, `assembleRings`, `clipRingToBox`),
+exactly per `docs/data-format.md`:
 
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
@@ -55,8 +59,31 @@ Handled by the pure module `scripts/osm-convert.mjs` (`convertOverpass`,
   (e.g. `steps`) dropped; ways with < 2 distinct points dropped.
 - **Places** — `place` nodes, `railway=station`, and named
   `tourism=attraction` nodes, deduplicated by name (first wins).
+- **Water** — standalone `natural=water` / `waterway=riverbank` ways plus the
+  `outer` members of their relations are assembled into rings, projected to
+  local metres, clipped to the bbox expanded by 300 m, and cleaned/dropped
+  like building rings (but with a 25 m² area floor).
 - Coordinates are projected to local metres and rounded to 0.1 m; the output
   is minified JSON.
+
+## Water
+
+Water (the Thames on the bbox's south edge, plus docks) is emitted as flat
+blue `water: Vec2[][]` rings (`water` is omitted when empty). The Thames
+relation extends far beyond the bbox, so rings are clipped down to it:
+
+1. `assembleRings` — closed ways become rings directly; open ways are chained
+   greedily by matching endpoints (equal lon/lat within `1e-7`) until they
+   close; open chains that cannot close are dropped and counted as
+   `dropped open water chains`.
+2. Each ring is projected to local metres and rounded to 0.1 m (same cleaning
+   as buildings: consecutive duplicates and a repeated closing point are
+   dropped).
+3. `clipRingToBox` Sutherland–Hodgman-clips the ring to the source bbox
+   expanded by 300 m in local metres (so rivers just off the box are kept).
+4. Rings with < 3 points or |area| < 25 m² after clipping are dropped.
+
+Inner rings (islands) are ignored — the outer ring is emitted whole.
 
 ## Ring cleaning
 
@@ -86,7 +113,8 @@ emitted ring passes the validator's per-array id-uniqueness rule.
   not cut a hole in the footprint; the polygon is emitted as the outer ring
   only. City of London has few such buildings, so the visual impact is
   minimal.
-- The Overpass query matches no `note`/`leisure` selectors; only the six
-  selectors in `docs/data-format.md` are fetched.
+- The Overpass query matches no `note`/`leisure` selectors; only the ten
+  selectors in `docs/data-format.md` are fetched (buildings, highways, the
+  three place selectors, and the four water selectors).
 - Data is a one-time snapshot; it refreshes only when someone re-runs
   `npm run fetch-data` and commits the result.

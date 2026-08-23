@@ -132,6 +132,16 @@ export function validateCity(raw: unknown): CityData {
     }
   });
 
+  // water (optional)
+  if (city.water !== undefined) {
+    if (!Array.isArray(city.water)) {
+      throw new Error('water: expected an array');
+    }
+    city.water.forEach((ring, i) => {
+      validatePoly(ring, `water[${i}]`);
+    });
+  }
+
   return raw as CityData;
 }
 

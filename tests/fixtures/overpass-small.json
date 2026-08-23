@@ -200,6 +200,54 @@
       "lat": 51.51331,
       "lon": -0.08871,
       "tags": { "railway": "station", "name": "Bank Station" }
+    },
+    {
+      "type": "way",
+      "id": 30,
+      "tags": { "natural": "water" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5133, "lon": -0.0877 },
+        { "lat": 51.5143, "lon": -0.0877 },
+        { "lat": 51.5143, "lon": -0.0887 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "relation",
+      "id": 1000,
+      "tags": { "type": "multipolygon", "natural": "water" },
+      "members": [
+        {
+          "type": "way",
+          "ref": 1001,
+          "role": "outer",
+          "geometry": [
+            { "lat": 51.5133, "lon": -0.0915 },
+            { "lat": 51.5138, "lon": -0.0905 },
+            { "lat": 51.5133, "lon": -0.0895 }
+          ]
+        },
+        {
+          "type": "way",
+          "ref": 1002,
+          "role": "outer",
+          "geometry": [
+            { "lat": 51.5133, "lon": -0.0895 },
+            { "lat": 51.5128, "lon": -0.0905 },
+            { "lat": 51.5133, "lon": -0.0915 }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 31,
+      "tags": { "natural": "water" },
+      "geometry": [
+        { "lat": 51.5140, "lon": -0.0930 },
+        { "lat": 51.5145, "lon": -0.0925 }
+      ]
     }
   ]
 }
