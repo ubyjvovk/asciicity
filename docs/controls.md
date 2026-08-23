@@ -28,6 +28,7 @@ export const TURN_SPEED = Math.PI / 2;  // rad/s
 export const MOUSE_SENS = 0.0025;       // rad/px
 export function stepPlayer(s, i, dt, resolve): PlayerState
 export function yawToBearingDeg(yaw): number   // 0 ≤ result < 360
+export function axesFromHeld(held): Pick<InputState, 'forward' | 'strafe' | 'turn' | 'sprint'>
 export class Controls { constructor(target: HTMLElement); readInput(): InputState; dispose(): void }
 ```
 
@@ -57,15 +58,15 @@ the camera look applied first.
 `dispose()`. It has **no top-level side effects**, so node can import the
 module for the pure parts.
 
-| Input          | Effect (keydown)                       | On keyup      |
-|----------------|----------------------------------------|---------------|
-| `W` / `↑`      | `forward = 1`                          | `forward = 0` |
-| `S` / `↓`      | `forward = −1`                         | `forward = 0` |
-| `A`            | `strafe = −1` (left)                   | `strafe = 0`  |
-| `D`            | `strafe = +1` (right)                  | `strafe = 0`  |
-| `←`            | `turn = −1` (anticlockwise)            | `turn = 0`    |
-| `→`            | `turn = +1` (clockwise)                | `turn = 0`    |
-| `ShiftLeft`/`ShiftRight` | `sprint = true`               | `sprint = false` |
+| Input          | Effect when held                       |
+|----------------|----------------------------------------|
+| `W` / `↑`      | `forward` contributes `+1`             |
+| `S` / `↓`      | `forward` contributes `−1`             |
+| `A`            | `strafe` contributes `−1` (left)       |
+| `D`            | `strafe` contributes `+1` (right)      |
+| `←`            | `turn` contributes `−1` (anticlockwise)|
+| `→`            | `turn` contributes `+1` (clockwise)    |
+| `ShiftLeft`/`ShiftRight` | `sprint = true`               |
 
 - `keydown` auto-repeat is ignored (`e.repeat` guard).
 - Clicking `target` calls `target.requestPointerLock()` (pointer lock).
@@ -74,6 +75,22 @@ module for the pure parts.
 - `readInput()` returns the current directional state and the accumulated look
   deltas, then zeroes the look deltas (they are consumed per frame).
 - `dispose()` removes every listener — safe to call on teardown.
+
+## Held-key model
+
+Axes are derived from a private `Set` of currently held `KeyboardEvent.code`s,
+not from the last key that went down. Non-repeat `keydown` adds the code,
+`keyup` deletes it, then a private `recompute()` calls `axesFromHeld`:
+
+- `forward = (W|↑ ? 1 : 0) + (S|↓ ? −1 : 0)`
+- `strafe = (D ? 1 : 0) + (A ? −1 : 0)`
+- `turn = (→ ? 1 : 0) + (← ? −1 : 0)`
+- `sprint` is true while `ShiftLeft` or `ShiftRight` is held
+
+Opposite keys cancel to 0. Releasing one key of a pair leaves the other
+active (hold W, press S, release W → still reverse). A `window` `blur`
+listener clears the set and recomputes so keys released while the tab is
+unfocused cannot stick.
 
 ## Changing sensitivity
 
