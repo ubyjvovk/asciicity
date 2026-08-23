@@ -184,7 +184,7 @@ Pipeline per frame: (1) render `scene` into a `WebGLRenderTarget(cols, rows)`
 below to the canvas. The atlas is one row of `count` tiles, each
 `tileW × tileH = 16 × 32` px, glyph drawn white on black, centred, with the
 font above scaled to fit; uploaded as a `CanvasTexture` (`LinearFilter`,
-`flipY = true`). The vertex shader is the trivial `gl_Position = vec4(position.xy, 0.0, 1.0); vUv = uv;`. Fragment shader (GLSL ES 1.0):
+`flipY = true`). The vertex shader is the trivial `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`. Fragment shader (GLSL ES 1.0):
 
 ```glsl
 uniform sampler2D tScene; uniform sampler2D tAtlas;

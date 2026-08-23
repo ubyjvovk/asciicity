@@ -46,6 +46,7 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - 2026-08-23 23:55 — wave 1 planned: T-0001 (P0 bootstrap) → T-0002…T-0009 fan-out (data, buildings, roads/ground, ascii, collision, controls, HUD) + T-0012 (Pages) → T-0010 (integration, C3) → T-0011 (e2e).
 - 2026-08-24 00:10 — T-0001 accepted (ds-1, clean). Fan-out restarted after the staging incident; 6 instances on 9 claimable tickets.
 - 2026-08-24 00:20 — T-0002 (ds-1) and T-0005 (grok-2) accepted first pass; both in-container check.sh green, all enumerated tests present. In flight: T-0003 ds-2, T-0004 grok-1, T-0006 opus-1, T-0007 opus-2, T-0008 ds-1, T-0009 grok-2.
+- 2026-08-24 00:35 — T-0006 (opus-1), T-0007 (opus-2), T-0008 (ds-1) accepted first pass. Wave-2 note: Controls zeroes an axis when either key of the pair lifts (W held + S released ⇒ stop) — polish ticket later (track a held-key Set). In flight: T-0003, T-0004, T-0009, T-0012.
 
 ## Next actions
 1. Review T-0001 when it lands (check `scripts/*.sh` verbatim, playwright pin, lockfile) — accepting it releases the fan-out.
