@@ -28,9 +28,13 @@ URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
 - `?synthetic=1` — skip `city.json` and use the deterministic synthetic grid.
 - `?seed=N` — seed passed to `syntheticCity(seed)`.
 - `?cell=WxH` — override the ASCII cell size in pixels, e.g. `?cell=8x16`.
+- `?crt=0` — disable the CRT scanline / vignette overlay (on by default).
+- `?minimap=0` — disable the heading-up minimap under the HUD rows (on by default).
 
 The NAVIGATION panel shows SECTOR, WORLD position, BEARING with 8-way
-compass, ZONE (nearest named road or place), and FPS (1 s moving average).
+compass, ZONE (nearest named road or place), LANDMARK (named building in
+view, or `-`), FPS (1 s moving average), and a heading-up minimap of nearby
+streets.
 
 ## Tests
 

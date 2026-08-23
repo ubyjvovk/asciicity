@@ -24,8 +24,14 @@ The app runs a single asynchronous `main()` when the module executes.
    - `makeRoadsObject(city.roads)`
    - `makeBuildingsObject(city.buildings, makeWindowTexture())`
 5. **Wire helpers.** `new CollisionGrid(city.buildings)`,
-   `new ZoneIndex(city.roads, city.places)`, `new Controls(canvas)`,
-   `new Hud(hudRoot)`, `new AsciiRenderer(renderer, { cellW?, cellH? })`.
+   `new ZoneIndex(city.roads, city.places, 50, city.buildings)`,
+   `new Controls(canvas)`, `new Hud(hudRoot)`,
+   `new AsciiRenderer(renderer, { cellW?, cellH? })`.
+   When `minimap` is enabled (default), append a `<canvas id="minimap">` to
+   `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
+   and help line — the canvas is not in `index.html` so it stays below those
+   nodes) and construct `new Minimap(canvas, city)`. When `crt` is enabled
+   (default), `mountCrt(document.body)`.
 6. **Pick a spawn.** Start at `(0, 0)`. If `collision.blocked([0, 0])`, walk
    `+x` in 1 m steps up to 200 m and take the first free spot. Initial pose:
    `{ x: spawn, z: 0, yaw: -π/2, pitch: 0 }` (facing west, per §5 step 2).
@@ -55,13 +61,16 @@ The app runs a single asynchronous `main()` when the module executes.
 - Rolling FPS — accumulate frame count and elapsed seconds; when the window
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
 - HUD every 4th frame — mutate a persistent `HudValues` in place with
-  `sectorOf`, `formatWorld`, `formatBearing(yawToBearingDeg(...))`, and
-  `zone.zoneLabel`, then `hud.update(hudValues)`.
+  `sectorOf`, `formatWorld`, `formatBearing(yawToBearingDeg(...))`,
+  `zone.zoneLabel`, and
+  `zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined`,
+  then `hud.update(hudValues)` and, when enabled, `minimap.update(state)`.
 - After the first successful frame, set `api.ready = true`.
 
 The `resolveMove` closure is created once (captures `collision`) so the loop
 does not allocate a fresh arrow per frame. Aside from `stepPlayer`'s returned
-`PlayerState`, no per-frame allocations are made inside `main.ts`.
+`PlayerState` and the `nearestLandmark` result object (every 4th frame), no
+per-frame allocations are made inside `main.ts`.
 
 ## URL parameters
 
@@ -70,8 +79,10 @@ does not allocate a fresh arrow per frame. Aside from `stepPlayer`'s returned
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
 | `cell`      | `?cell=8x16`   | Overrides the ASCII cell size (`cellW × cellH` in pixels). |
+| `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
+| `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
 
-Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12`.
+Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
 
 ## `window.__asciicity`
 
