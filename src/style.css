@@ -1,0 +1,45 @@
+/* Global reset and full-viewport retro terminal look. */
+:root {
+  --hud-green: #48e06a;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: var(--hud-green);
+  overflow: hidden;
+}
+
+/* Canvas fills the viewport. */
+#view {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black. */
+#hud {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  padding: 8px 12px;
+  background: #000;
+  color: var(--hud-green);
+  font-family: monospace;
+  white-space: pre-wrap;
+}
+
+/* Centred full-screen overlay. */
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+  font-family: monospace;
+}
