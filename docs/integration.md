@@ -127,3 +127,12 @@ Layers today are three meshes added to the scene at step 4. To add another
 
 Do not touch `src/world/mesh.ts` or `src/data/types.ts` directly — they are
 PM-owned; propose changes through a ticket instead.
+
+## Assets
+
+- `public/favicon.svg` — the tab/shorthand icon. A 64×64 SVG: black square
+  (`#000`) with a 1 px `#1f5a2a` inner border and a bold monospace `@` glyph
+  in `#48e06a`, centred. Linked from `index.html` via
+  `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`, which Vite
+  rewrites with `base` at build time so it resolves under the GitHub Pages
+  prefix. Kept under 1 KB with no external references.
