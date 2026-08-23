@@ -1,0 +1,181 @@
+{
+  "elements": [
+    {
+      "type": "way",
+      "id": 1,
+      "tags": { "building": "yes", "height": "20 m" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 2,
+      "tags": { "building": "yes", "height": "60 ft" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 3,
+      "tags": { "building": "residential", "building:levels": "5" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 4,
+      "tags": { "building": "church" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 5,
+      "tags": { "building": "part" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0885 },
+        { "lat": 51.5133, "lon": -0.0887 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 6,
+      "tags": { "building": "yes" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 },
+        { "lat": 51.5134, "lon": -0.0885 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 7,
+      "tags": { "building": "yes", "height": "12 m" },
+      "geometry": [
+        { "lat": 51.513300, "lon": -0.088700 },
+        { "lat": 51.513305, "lon": -0.088695 },
+        { "lat": 51.513300, "lon": -0.088695 },
+        { "lat": 51.513300, "lon": -0.088700 }
+      ]
+    },
+    {
+      "type": "relation",
+      "id": 900,
+      "tags": { "type": "multipolygon", "building": "yes", "name": "Guildhall" },
+      "members": [
+        {
+          "type": "way",
+          "ref": 901,
+          "role": "outer",
+          "geometry": [
+            { "lat": 51.5133, "lon": -0.0887 },
+            { "lat": 51.5134, "lon": -0.0886 },
+            { "lat": 51.5134, "lon": -0.0885 },
+            { "lat": 51.5133, "lon": -0.0885 },
+            { "lat": 51.5133, "lon": -0.0887 }
+          ]
+        },
+        {
+          "type": "way",
+          "ref": 902,
+          "role": "inner",
+          "geometry": [
+            { "lat": 51.51333, "lon": -0.08866 },
+            { "lat": 51.51334, "lon": -0.08863 },
+            { "lat": 51.51333, "lon": -0.08863 },
+            { "lat": 51.51333, "lon": -0.08866 }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 10,
+      "tags": { "highway": "primary", "name": "Cheapside" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 11,
+      "tags": { "highway": "secondary_link" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 12,
+      "tags": { "highway": "residential" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 13,
+      "tags": { "highway": "footway" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 14,
+      "tags": { "highway": "steps" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "node",
+      "id": 20,
+      "lat": 51.5133,
+      "lon": -0.0887,
+      "tags": { "place": "suburb", "name": "Bank" }
+    },
+    {
+      "type": "node",
+      "id": 21,
+      "lat": 51.5135,
+      "lon": -0.0885,
+      "tags": { "place": "suburb", "name": "Bank" }
+    },
+    {
+      "type": "node",
+      "id": 22,
+      "lat": 51.51331,
+      "lon": -0.08871,
+      "tags": { "railway": "station", "name": "Bank Station" }
+    }
+  ]
+}
