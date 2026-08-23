@@ -21,7 +21,8 @@ body {
 }
 
 /* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black
-   with a 1 px dark-green border. */
+   with a 1 px dark-green border. Grows downward to fit the HUD rows plus
+   the optional minimap canvas (display:block, 8 px top margin via .minimap). */
 #hud {
   position: fixed;
   top: 0;
@@ -34,6 +35,10 @@ body {
   white-space: pre-wrap;
   border: 1px solid var(--hud-border);
   box-sizing: border-box;
+}
+
+#hud .minimap {
+  display: block;
 }
 
 /* Centred full-screen overlay: green on black, monospace, click to dismiss. */

@@ -1,8 +1,9 @@
 /**
  * AsciiCity bootstrap and frame loop (docs/architecture.md §5). Loads or
  * synthesises the city, builds the three world meshes, wires
- * Controls / Hud / CollisionGrid / ZoneIndex / AsciiRenderer, and runs the
- * animation loop with a live pose exposed on `window.__asciicity`.
+ * Controls / Hud / CollisionGrid / ZoneIndex / Minimap / AsciiRenderer /
+ * CRT overlay, and runs the animation loop with a live pose exposed on
+ * `window.__asciicity`.
  */
 import './style.css';
 import type { CityData, Vec2 } from './data/types';
@@ -21,7 +22,9 @@ import {
 } from './player/controls';
 import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { AsciiRenderer, type AsciiOptions } from './render/ascii';
+import { mountCrt } from './render/crt';
 import { Hud, type HudValues } from './hud/hud';
+import { Minimap } from './hud/minimap';
 import { ZoneIndex } from './hud/zone';
 import { formatBearing, formatWorld, sectorOf } from './hud/format';
 
@@ -60,9 +63,11 @@ interface UrlOptions {
   seed: number | undefined;
   cellW: number | undefined;
   cellH: number | undefined;
+  crt: boolean;
+  minimap: boolean;
 }
 
-/** Parse `?synthetic=1&seed=N&cell=WxH`. Malformed values are ignored. */
+/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0`. Malformed values are ignored. */
 export function parseUrlOptions(search: string): UrlOptions {
   const params = new URLSearchParams(search);
   const synthetic = params.get('synthetic') === '1';
@@ -81,7 +86,9 @@ export function parseUrlOptions(search: string): UrlOptions {
       if (h > 0) cellH = h;
     }
   }
-  return { synthetic, seed, cellW, cellH };
+  const crt = params.get('crt') !== '0';
+  const minimap = params.get('minimap') !== '0';
+  return { synthetic, seed, cellW, cellH, crt, minimap };
 }
 
 /** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
@@ -136,9 +143,21 @@ async function main(): Promise<void> {
   scene.add(makeBuildingsObject(city.buildings, makeWindowTexture()));
 
   const collision = new CollisionGrid(city.buildings);
-  const zone = new ZoneIndex(city.roads, city.places);
+  const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   const controls = new Controls(canvas);
   const hud = new Hud(hudRoot);
+
+  // Canvas is created here (not in index.html) so it lands after Hud's
+  // title / rows / help. Disabled entirely on `?minimap=0`.
+  let minimap: Minimap | undefined;
+  if (opts.minimap) {
+    const miniCanvas = document.createElement('canvas');
+    miniCanvas.id = 'minimap';
+    hudRoot.append(miniCanvas);
+    minimap = new Minimap(miniCanvas, city);
+  }
+
+  if (opts.crt) mountCrt(document.body);
 
   const asciiOpts: Partial<AsciiOptions> = {};
   if (opts.cellW !== undefined) asciiOpts.cellW = opts.cellW;
@@ -234,8 +253,10 @@ async function main(): Promise<void> {
       hudValues.world = formatWorld(state.x, state.z);
       hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
       hudValues.zone = zone.zoneLabel(state.x, state.z);
+      hudValues.landmark = zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined;
       hudValues.fps = api.fps;
       hud.update(hudValues);
+      minimap?.update(state);
     }
 
     if (!api.ready) api.ready = true;
