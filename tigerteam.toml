@@ -1,0 +1,56 @@
+# tigerteam project config — the one committed config file (v4).
+# Resolution chain: defaults -> ~/.tigerteam.toml -> <root>/tigerteam.toml -> --set key=value.
+# NO SECRETS in this file — only env var NAMES. Values live in <root>/.env (gitignored).
+
+test_cmd = "bash scripts/test.sh"          # self-bootstrapping: npm ci if needed, then vitest run "$@"
+verify_cmds = ["bash scripts/check.sh"]   # full gate on the host: install, typecheck, unit, build, e2e
+staging = true
+quiet_load = 10.0                         # 12-core host shared with the worker containers
+debounce_s = 60
+artifact_globs = ["e2e/__shots__/*.png", "test-results/**/*.png"]
+
+[github]
+repo = "ubyjvovk/asciicity"
+token_env = "GITHUB_TOKEN"                # value in <root>/.env
+sync = true                               # one-way board -> issues mirror (tt:* labels)
+sync_interval_s = 120
+watch = true                              # supervisor spools new issues for PM intake
+comment_label = "tt:agent"
+
+[pm]
+nudge = true
+
+[workers]
+max_concurrent = 6                        # 12-core host; each container gets --cpus 2
+image = "tigerteam-agents:base"           # machine-local; also set in ~/.tigerteam.toml
+agents_home = "/home/d/.agents-home"
+secrets_dir = "/home/d/.tigerteam-secrets"
+
+[worker.grok]
+engine = "grok"
+max_complexity = 3                        # earned C3 on the tigerteam board
+ticket_timeout_s = 5400
+scale = 2
+
+[worker.opus]
+engine = "claude"                         # Claude Opus via agents-home login state (user: "quota to burn")
+model = "opus"
+login_auth = true
+max_complexity = 3
+ticket_timeout_s = 5400
+scale = 2
+
+[worker.ds]
+engine = "pi"                             # DeepSeek V4 Flash via DeepInfra (pi catalog in secrets bundle)
+model = "deepseek-ai/DeepSeek-V4-Flash-0731"
+max_complexity = 2
+env_passthrough = ["DEEPINFRA_KEY"]
+scale = 2
+
+# [worker.glm]  — GLM-5.2 on DeepInfra is too slow (user, 2026-08-23); re-enable only
+#                 when DeepInfra ships GLM-5.3. (Also 400'd via pi on 2026-08-23.)
+# engine = "pi"
+# model = "zai-org/GLM-5.3"
+# max_complexity = 2
+# env_passthrough = ["DEEPINFRA_KEY"]
+# scale = 2
