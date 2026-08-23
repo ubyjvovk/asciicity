@@ -10,10 +10,11 @@ export interface HudValues {
   world: string;
   bearing: string;
   zone: string;
+  landmark?: string;
   fps: number;
 }
 
-/** Renders title, five dotted rows, and the help line into a root element. */
+/** Renders title, six dotted rows, and the help line into a root element. */
 export class Hud {
   private readonly rows: HTMLElement;
 
@@ -35,13 +36,14 @@ export class Hud {
     this.rows = rows;
   }
 
-  /** Replace the five row lines from `v`. Touches only `textContent`. */
+  /** Replace the six row lines from `v`. Touches only `textContent`. */
   update(v: HudValues): void {
     this.rows.textContent = [
       `> ${hudRow('SECTOR', v.sector)}`,
       `> ${hudRow('WORLD', v.world)}`,
       `> ${hudRow('BEARING', v.bearing)}`,
       `> ${hudRow('ZONE', v.zone)}`,
+      `> ${hudRow('LANDMARK', v.landmark ?? '-')}`,
       `> ${hudRow('FPS', String(Math.round(v.fps)))}`,
     ].join('\n');
   }

@@ -15,9 +15,10 @@ frame loop is T-0010.
 | WORLD   | `formatWorld(x, z)`               | `1234.50 / -321.00`             |
 | BEARING | `formatBearing(deg)`              | `267 DEG / WEST`                |
 | ZONE    | `ZoneIndex.zoneLabel(x, z)`       | `CHEAPSIDE` / `NEAR BANK` / `CITY` |
+| LANDMARK| `ZoneIndex.nearestLandmark` name  | `ST PAUL'S CATHEDRAL` / `-`        |
 | FPS     | integer (`Math.round`)            | `60`                            |
 
-The `<pre class="hud-rows">` text is those five `hudRow` lines, each prefixed
+The `<pre class="hud-rows">` text is those six `hudRow` lines, each prefixed
 with `> `.
 
 ### `formatBearing`
@@ -72,6 +73,29 @@ South/north: `S` + `r` when `r >= 0`, else `N` + `−r`. Joined with `" / "`.
 
 A long named segment is found from its middle because the expanded bbox
 covers every cell along (and around) it.
+
+## Landmark rules
+
+The `LANDMARK` row names the nearest **named** building the player is facing.
+`ZoneIndex(roads, places, cell = 50, buildings = [])` takes an optional fourth
+argument.
+
+- Only **named** buildings (`name` set) are indexed; each footprint's centroid
+  (mean of `poly` points) is written into its 50 m cell in a separate bucket
+  map from roads.
+- `nearestLandmark(x, z, yaw, maxDist = 80, halfAngle = π/4)` searches the
+  cells around `(x, z)` covering `rings = max(1, ceil(maxDist / cell))`
+  rings. For each named building it computes:
+  - `dist` — Euclidean distance from `(x, z)` to the centroid;
+  - `angle` — the angle between the forward vector `(sin yaw, −cos yaw)` and
+    the vector `(cx − x, cz − z)` from the player to the centroid.
+- A building qualifies when `dist <= maxDist` **and** `angle <= halfAngle`;
+  the nearest qualifying building is returned, else `null`.
+- Unnamed buildings, buildings beyond `maxDist`, and buildings outside the
+  ±`halfAngle` cone of the heading are all ignored.
+
+`Hud.update` renders the `LANDMARK` row (via `hudRow`) after `ZONE` and before
+`FPS`, showing `-` when no landmark is found (`landmark` is undefined).
 
 ## DOM panel
 

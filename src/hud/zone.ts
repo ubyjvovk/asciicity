@@ -1,7 +1,8 @@
 /**
- * Spatial index for the HUD ZONE row: nearest named road, else nearby place.
+ * Spatial index for the HUD ZONE row (nearest named road / place) and the
+ * LANDMARK row (nearest named building in the facing direction).
  */
-import type { Place, Road } from '../data/types';
+import type { Building, Place, Road } from '../data/types';
 
 /** Metres the segment bbox is grown by when inserting into cells. */
 const BBOX_PAD = 30;
@@ -15,6 +16,13 @@ interface Segment {
   az: number;
   bx: number;
   bz: number;
+  name: string;
+}
+
+/** A named building with the centroid of its footprint, as grid-cached point. */
+interface NamedBuilding {
+  cx: number;
+  cz: number;
   name: string;
 }
 
@@ -44,11 +52,30 @@ function distToSegment(
 export class ZoneIndex {
   private readonly cell: number;
   private readonly buckets = new Map<string, Segment[]>();
+  private readonly landmarkBuckets = new Map<string, NamedBuilding[]>();
   private readonly places: Place[];
 
-  constructor(roads: Road[], places: Place[], cell = 50) {
+  constructor(roads: Road[], places: Place[], cell = 50, buildings: Building[] = []) {
     this.cell = cell;
     this.places = places;
+    for (const b of buildings) {
+      if (!b.name || b.poly.length === 0) continue;
+      let cx = 0;
+      let cz = 0;
+      for (const p of b.poly) {
+        cx += p[0];
+        cz += p[1];
+      }
+      cx /= b.poly.length;
+      cz /= b.poly.length;
+      const key = cellKey(Math.floor(cx / cell), Math.floor(cz / cell));
+      let bucket = this.landmarkBuckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        this.landmarkBuckets.set(key, bucket);
+      }
+      bucket.push({ cx, cz, name: b.name });
+    }
     for (const road of roads) {
       if (!road.name) continue;
       const pts = road.pts;
@@ -106,6 +133,45 @@ export class ZoneIndex {
     for (const p of this.places) {
       const dist = Math.hypot(x - p.x, z - p.z);
       if (best === null || dist < best.dist) best = { name: p.name, dist };
+    }
+    return best;
+  }
+
+  /**
+   * Nearest named building whose centroid is within `maxDist` and within
+   * `halfAngle` of the heading, or `null` when there is none.
+   */
+  nearestLandmark(
+    x: number,
+    z: number,
+    yaw: number,
+    maxDist = 80,
+    halfAngle = Math.PI / 4,
+  ): { name: string; dist: number } | null {
+    const cc = Math.floor(x / this.cell);
+    const rr = Math.floor(z / this.cell);
+    const rings = Math.max(1, Math.ceil(maxDist / this.cell));
+    const fx = Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    let best: { name: string; dist: number } | null = null;
+    for (let dc = -rings; dc <= rings; dc++) {
+      for (let dr = -rings; dr <= rings; dr++) {
+        const bucket = this.landmarkBuckets.get(cellKey(cc + dc, rr + dr));
+        if (!bucket) continue;
+        for (const b of bucket) {
+          const dx = b.cx - x;
+          const dz = b.cz - z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > maxDist) continue;
+          let angle = 0;
+          if (dist > 0) {
+            const dot = (fx * dx + fz * dz) / dist;
+            angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+          }
+          if (angle > halfAngle) continue;
+          if (best === null || dist < best.dist) best = { name: b.name, dist };
+        }
+      }
     }
     return best;
   }
