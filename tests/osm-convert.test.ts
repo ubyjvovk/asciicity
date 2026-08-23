@@ -14,6 +14,7 @@ import {
   roadClassOf,
   round1,
 } from '../scripts/osm-convert';
+import { validateCity } from '../src/data/validate';
 
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
 
@@ -98,6 +99,30 @@ describe('osm-convert building selection', () => {
       expect([first[0], first[1]]).not.toEqual([last[0], last[1]]);
     }
   });
+
+  it('rounds a near-duplicate ring cleanly (≥ 3 points, no repeats)', () => {
+    // Building 15 has its second node within ~1 cm of the first and its
+    // penultimate node within ~1 cm of the last; both collapse to duplicates
+    // after 0.1 m rounding and must be dropped while the ring keeps ≥ 3 pts.
+    const b = city.buildings.find((bd) => bd.id === 15);
+    expect(b).toBeDefined();
+    expect(b!.poly.length).toBeGreaterThanOrEqual(3);
+    // No consecutive duplicate points.
+    for (let i = 1; i < b!.poly.length; i++) {
+      expect(b!.poly[i]).not.toEqual(b!.poly[i - 1]);
+    }
+    // First point not repeated as last.
+    expect(b!.poly[0]).not.toEqual(b!.poly[b!.poly.length - 1]);
+  });
+
+  it('highway with consecutive identical nodes loses the duplicate', () => {
+    const r = city.roads.find((rd) => rd.id === 16);
+    expect(r).toBeDefined();
+    // The middle node rounds to the same cell as the first and is dropped;
+    // the polyline keeps its 2 distinct endpoints.
+    expect(r!.pts).toHaveLength(2);
+    expect(r!.pts[0]).not.toEqual(r!.pts[1]);
+  });
 });
 
 describe('osm-convert roadClassOf mapping table + steps', () => {
@@ -177,8 +202,8 @@ describe('osm-convert output invariants', () => {
       new Set(arr.map((x) => x.id)).size === arr.length;
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
-    expect(city.buildings).toHaveLength(5);
-    expect(city.roads).toHaveLength(4);
+    expect(city.buildings).toHaveLength(6);
+    expect(city.roads).toHaveLength(5);
   });
 
   it('round1 rounds to a single decimal', () => {
@@ -223,5 +248,9 @@ describe('committed public/data/city.json', () => {
 
   it('file size is under 6 MB', () => {
     expect(raw.length).toBeLessThan(6 * 1024 * 1024);
+  });
+
+  it('passes validateCity with no throw', () => {
+    expect(() => validateCity(city)).not.toThrow();
   });
 });

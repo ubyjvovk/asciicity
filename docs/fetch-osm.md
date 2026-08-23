@@ -58,6 +58,24 @@ Handled by the pure module `scripts/osm-convert.mjs` (`convertOverpass`,
 - Coordinates are projected to local metres and rounded to 0.1 m; the output
   is minified JSON.
 
+## Ring cleaning
+
+Rounding WGS84 points to 0.1 m can collapse distinct source points onto the
+same cell, which would otherwise leave rings that fail `validateCity` (a
+building whose first point repeats its last, or self-intersecting
+consecutive duplicates). Before a closed building ring is emitted, the
+converter (`toRing`):
+
+1. drops any point equal to the previous point (consecutive duplicates);
+2. keeps dropping the last point while it equals the first;
+3. drops the ring entirely if fewer than 3 points remain or `|area| < 1` m².
+
+The same consecutive-duplicate removal is applied to road polylines, and
+roads left with fewer than 2 points are dropped. A `building` multipolygon
+relation that emits several disjunct outer rings gets a unique id per ring
+(the first keeps the relation id; later ones are `el.id*1000+n`), so every
+emitted ring passes the validator's per-array id-uniqueness rule.
+
 ## Known limitations
 
 - **Multipolygon ring assembly is not done.** A building that spans several

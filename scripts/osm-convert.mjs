@@ -131,8 +131,8 @@ function ringArea(poly) {
 
 /**
  * Convert a closed Overpass geometry list into a local-metre ring: drops the
- * repeated closing point, rounds to 0.1 m, and rejects open/short/degenerate
- * (< 1 m²) rings.
+ * repeated closing point, rounds to 0.1 m, cleans up points that collapse to
+ * duplicates after rounding, and rejects open/short/degenerate (< 1 m²) rings.
  * @param {Array<LatLon>|undefined} geom Overpass `geometry` (lat/lon points)
  * @param {LatLon} origin projection origin
  * @returns {[number,number][]|null} ring of [x,z] pairs, or null if unusable
@@ -146,9 +146,28 @@ function toRing(geom, origin) {
     const [x, z] = project(p.lon, p.lat, origin);
     return [round1(x), round1(z)];
   });
-  if (poly.length < 3) return null;
-  if (ringArea(poly) < 1) return null; // degenerate
-  return poly;
+  // Rounding to 0.1 m can collapse distinct source points onto the same cell;
+  // drop those before emitting so the ring passes `validateCity` and has no
+  // duplicated vertices. (1) any point equal to the previous point; (2) the
+  // last point while it equals the first (this also handles the closing-point
+  // collapse that made buildings[].poly repeat its first point).
+  const cleaned = [];
+  for (const pt of poly) {
+    const prev = cleaned[cleaned.length - 1];
+    if (!prev || prev[0] !== pt[0] || prev[1] !== pt[1]) cleaned.push(pt);
+  }
+  while (cleaned.length > 0) {
+    const f0 = cleaned[0][0];
+    const f1 = cleaned[0][1];
+    const l0 = cleaned[cleaned.length - 1][0];
+    const l1 = cleaned[cleaned.length - 1][1];
+    if (f0 === l0 && f1 === l1) cleaned.pop();
+    else break;
+  }
+  // (3) drop the ring if fewer than 3 points remain or |area| < 1 m².
+  if (cleaned.length < 3) return null;
+  if (ringArea(cleaned) < 1) return null; // degenerate
+  return cleaned;
 }
 
 /** Project a lat/lon point to rounded local [x, z]. */
@@ -209,17 +228,21 @@ export function convertOverpass(json, opts) {
       }
     } else if (el.type === 'relation') {
       if (tags.building !== undefined && tags['type'] === 'multipolygon') {
-        let emitted = false;
+        let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
             const poly = toRing(m.geometry, origin);
             if (poly) {
-              buildings.push(buildEntry(el.id, tags, poly));
-              emitted = true;
+              // A relation may hold several disjunct outer rings; give each a
+              // unique id (the first keeps the relation id) so all emitted
+              // rings pass `validateCity`'s per-array id-uniqueness rule.
+              const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
+              buildings.push(buildEntry(id, tags, poly));
+              emitted++;
             }
           }
         }
-        if (!emitted) skippedRelations++; // ring assembly across ways not done
+        if (emitted === 0) skippedRelations++; // ring assembly across ways not done
       }
     } else if (el.type === 'node') {
       const isPlace =
