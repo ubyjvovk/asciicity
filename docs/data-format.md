@@ -132,3 +132,23 @@ every 5th building is named `Block <i>`. Streets alternate `primary`
 (every 4th) and `residential`, named `Avenue <n>` (north–south) / `Street <n>`
 (east–west). Places: one, `{ name: 'Centre', x: 0, z: 0 }`. Same seed ⇒
 byte-identical output.
+
+## Validation errors
+
+`validateCity(raw: unknown): CityData` (`src/data/validate.ts`) validates an
+unknown value against the Schema (v: 1) rules above. On the **first** problem
+it throws an `Error` whose message names the JSON-ish path of the offending
+field, e.g. `buildings[3].poly`, `roads[0].cls`. Checks performed, in order:
+
+- Top level is an object with `v === 1` (else `v`).
+- `origin.lat`/`origin.lon` are finite numbers (`origin.lat`, `origin.lon`).
+- `bbox` is a length-4 array of finite numbers (`bbox`, `bbox[i]`).
+- `buildings`: `h` finite and in `[3, 320]` (`buildings[i].h`); optional
+  `name` is a string (`buildings[i].name`); `poly` is a closed ring with
+  ≥ 3 finite `[x, z]` points and first point not repeated last
+  (`buildings[i].poly`); `id` finite and unique per array (`buildings[i].id`).
+- `roads`: `cls` is a valid `RoadClass` (`roads[i].cls`); optional `name` is a
+  string (`roads[i].name`); `pts` is a polyline with ≥ 2 finite `[x, z]`
+  points (`roads[i].pts`); `id` finite and unique per array (`roads[i].id`).
+- `places`: non-empty string `name` (`places[i].name`); finite `x`/`z`
+  (`places[i].x`, `places[i].z`).
