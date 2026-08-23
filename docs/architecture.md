@@ -115,18 +115,18 @@ export function colorFor(b: Building): number  // named → LANDMARK_PALETTE[id 
 
 - `makeWindowTexture()`: 64×64 canvas, 8×8 grid of 8-px window cells; each
   cell's inner 4×5 px is "lit" (`#ffffff`) with probability 0.7 from a fixed
-  seeded PRNG (mulberry32, seed 7), else `#404040`; wall background `#585858`.
+  seeded PRNG (mulberry32, seed 7), else `#2c2c2c`; wall background `#8c8c8c`.
   `RepeatWrapping` both axes, `NearestFilter`, `colorSpace = SRGBColorSpace`.
-- `makeGridTexture()` (lives in `ground.ts`): 256×256 canvas, background `#050505`, 1-px lines
-  `#1f5a2a` every 32 px (both axes) → with `repeat` so one tile = 40 m
-  (a line every 5 m). `RepeatWrapping`, `LinearFilter`.
+- `makeGridTexture()` (lives in `ground.ts`): 256×256 canvas, background `#07080a`, 3-px lines
+  `#2f8a40` every 32 px (both axes) → with `repeat` so one tile = 40 m
+  (a line every 5 m). `RepeatWrapping`, mipmapped (`LinearMipmapLinearFilter`), `anisotropy = 8`.
 
 ### 4.5 Roads & ground
 
 - `ROAD_WIDTH = { primary: 12, secondary: 9, tertiary: 7, residential: 6, service: 4, pedestrian: 4, footway: 2 }` (metres).
 - `buildRoadsMesh`: for each segment `p→q` emit one flat quad at `y = 0.05`,
-  normal `(0,1,0)`, uv `(0,0)`, colour `0x3c3c3c` for primary/secondary,
-  `0x2a2a2a` otherwise. Corners are not mitred (overlap is fine).
+  normal `(0,1,0)`, uv `(0,0)`, colour `0x585858` for primary/secondary,
+  `0x404040` otherwise. Corners are not mitred (overlap is fine).
 - `makeGround(size = 6000)`: `PlaneGeometry(size, size)` rotated to lie on
   `y = 0`, `MeshBasicMaterial({ map: makeGridTexture() })`, texture `repeat`
   set to `size / 40`.
@@ -166,7 +166,7 @@ pointer lock on click of `target`, accumulates `movementX/Y` while locked, and
 
 ```ts
 export const DEFAULT_RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.8 */ }
+export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.45 */; exposure: number /* 1.7 */ }
 export function glyphIndex(lum: number, count: number, gamma: number): number  // floor(clamp(lum,0,1)^gamma · (count−1) + 0.5), clamped to [0, count−1]
 export function buildGlyphAtlas(ramp: string, tileW: number, tileH: number, font: string, canvas: HTMLCanvasElement): { canvas: HTMLCanvasElement; count: number }
 export class AsciiRenderer {
@@ -190,22 +190,24 @@ font above scaled to fit; uploaded as a `CanvasTexture` (`LinearFilter`,
 uniform sampler2D tScene; uniform sampler2D tAtlas;
 uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
-uniform float gamma;
+uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
+uniform float exposure;   // scene brightness multiplier before the curve
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
-  vec3 c = texture2D(tScene, (cell + 0.5) / grid).rgb;
-  float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  float idx = floor(clamp(pow(lum, gamma), 0.0, 1.0) * (glyphCount - 1.0) + 0.5);
+  vec3 c = texture2D(tScene, (cell + 0.5) / grid).rgb * exposure;
+  float v = max(max(c.r, c.g), c.b);                 // hue-independent brightness
+  float shaped = clamp(pow(clamp(v, 0.0, 1.0), gamma), 0.0, 1.0);
+  float idx = floor(shaped * (glyphCount - 1.0) + 0.5);
   vec2 inCell = fract(vUv * grid);
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
-  vec3 tint = c / max(lum, 0.02);                 // hue at full brightness…
-  tint = tint * clamp(lum * 1.8 + 0.35, 0.0, 1.0); // …dimmed only a little; density carries the rest
+  vec3 tint = c / max(v, 0.02);                      // hue at full brightness…
+  tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
   gl_FragColor = vec4(tint * mask, 1.0);
 }
 ```
 
-`glyphIndex` in TS must mirror the shader's `idx` formula exactly (unit-tested).
+`glyphIndex(v, count, gamma)` in TS must mirror the shader's `idx` formula exactly (unit-tested); `v` is the exposed max-channel brightness, not luminance — so a saturated blue wall is as dense as a white one and only the hue differs.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
@@ -230,7 +232,7 @@ void main() {
 
 `WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true })` (the e2e test reads canvas pixels),
 `setPixelRatio(1)`; `scene.background = new Color(0x000000)`;
-`scene.fog = new FogExp2(0x000000, 0.0018)`; `AmbientLight(0xffffff, 0.45)`;
+`scene.fog = new FogExp2(0x000000, 0.0018)`; `AmbientLight(0xffffff, 0.6)`;
 `DirectionalLight(0xffffff, 1.1)` at `(1, 2, 0.5)`; `HemisphereLight(0x223344,
 0x080808, 0.4)`. `PerspectiveCamera(70, aspect, 0.3, 2000)`.
 
@@ -252,3 +254,9 @@ frame plus the ASCII quad. Never allocate per frame in the loop.
   pixels and the HUD shows `BEARING`, saves `e2e/__shots__/smoke.png`.
 - `bash .tigerteam/scripts/run-tests.sh [tests/x.test.ts]` is the only way
   to run unit tests; `bash scripts/check.sh` is the full gate.
+- **Headless-rendering caveat (verified 2026-08-24):** Chromium's SwiftShader
+  software GL blanks the lower rows of any render target **≤ 64 px tall** —
+  the default 6×12 cells at 720 px give a 60-row target, so screenshots
+  taken with `--use-angle=swiftshader` show a black lower half. Real GPUs
+  (and `--use-angle=gl-egl` on a GPU host) render every size correctly. For
+  software-rendered screenshots use `?cell=3x6` (120 rows) or larger windows.

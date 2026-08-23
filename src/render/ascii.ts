@@ -25,6 +25,8 @@ export interface AsciiOptions {
   font: string;
   /** Luminance shaping exponent (default 0.8). */
   gamma: number;
+  /** Scene brightness multiplier applied before the density curve (default 1.7). */
+  exposure: number;
 }
 
 const DEFAULT_OPTIONS: AsciiOptions = {
@@ -32,7 +34,8 @@ const DEFAULT_OPTIONS: AsciiOptions = {
   cellH: 12,
   ramp: DEFAULT_RAMP,
   font: 'bold 24px "DejaVu Sans Mono", "Courier New", monospace',
-  gamma: 0.8,
+  gamma: 0.45,
+  exposure: 1.7,
 };
 
 /**
@@ -84,17 +87,19 @@ void main() {
 const FRAG_SHADER = `uniform sampler2D tScene; uniform sampler2D tAtlas;
 uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
-uniform float gamma;
+uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
+uniform float exposure;   // scene brightness multiplier before the curve
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
-  vec3 c = texture2D(tScene, (cell + 0.5) / grid).rgb;
-  float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  float idx = floor(clamp(pow(lum, gamma), 0.0, 1.0) * (glyphCount - 1.0) + 0.5);
+  vec3 c = texture2D(tScene, (cell + 0.5) / grid).rgb * exposure;
+  float v = max(max(c.r, c.g), c.b);                 // hue-independent brightness
+  float shaped = clamp(pow(clamp(v, 0.0, 1.0), gamma), 0.0, 1.0);
+  float idx = floor(shaped * (glyphCount - 1.0) + 0.5);
   vec2 inCell = fract(vUv * grid);
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
-  vec3 tint = c / max(lum, 0.02);                 // hue at full brightness…
-  tint = tint * clamp(lum * 1.8 + 0.35, 0.0, 1.0); // …dimmed only a little; density carries the rest
+  vec3 tint = c / max(v, 0.02);                      // hue at full brightness…
+  tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
   gl_FragColor = vec4(tint * mask, 1.0);
 }`;
 
@@ -155,6 +160,7 @@ export class AsciiRenderer {
         grid: { value: new THREE.Vector2(1, 1) },
         glyphCount: { value: this.glyphCount },
         gamma: { value: this.opts.gamma },
+        exposure: { value: this.opts.exposure },
       },
       vertexShader: VERT_SHADER,
       fragmentShader: FRAG_SHADER,
