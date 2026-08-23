@@ -88,12 +88,30 @@ export function yawToBearingDeg(yaw: number): number {
 }
 
 /**
+ * Derive directional axes from the set of currently held `KeyboardEvent.code`s.
+ * Opposite keys cancel to 0; releasing one of a pair leaves the other active.
+ */
+export function axesFromHeld(
+  held: ReadonlySet<string>,
+): Pick<InputState, 'forward' | 'strafe' | 'turn' | 'sprint'> {
+  const forward =
+    (held.has('KeyW') || held.has('ArrowUp') ? 1 : 0) +
+    (held.has('KeyS') || held.has('ArrowDown') ? -1 : 0);
+  const strafe = (held.has('KeyD') ? 1 : 0) + (held.has('KeyA') ? -1 : 0);
+  const turn =
+    (held.has('ArrowRight') ? 1 : 0) + (held.has('ArrowLeft') ? -1 : 0);
+  const sprint = held.has('ShiftLeft') || held.has('ShiftRight');
+  return { forward, strafe, turn, sprint };
+}
+
+/**
  * Thin DOM wrapper that turns keyboard + pointer-lock mouse motion into an
  * `InputState`. Registered listeners are removed by `dispose()`. No top-level
  * side effects — safe to import in node.
  */
 export class Controls {
   private readonly target: HTMLElement;
+  private readonly held = new Set<string>();
   private forward = 0;
   private strafe = 0;
   private turn = 0;
@@ -109,6 +127,7 @@ export class Controls {
     this.target = target;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.onBlur);
     target.addEventListener('click', this.onClick);
     document.addEventListener('mousemove', this.onMouseMove);
   }
@@ -132,61 +151,33 @@ export class Controls {
   dispose(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onBlur);
     this.target.removeEventListener('click', this.onClick);
     document.removeEventListener('mousemove', this.onMouseMove);
   }
 
+  private recompute(): void {
+    const axes = axesFromHeld(this.held);
+    this.forward = axes.forward;
+    this.strafe = axes.strafe;
+    this.turn = axes.turn;
+    this.sprint = axes.sprint;
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat) return; // ignore auto-repeat
-    switch (e.code) {
-      case 'KeyW':
-      case 'ArrowUp':
-        this.forward = 1;
-        break;
-      case 'KeyS':
-      case 'ArrowDown':
-        this.forward = -1;
-        break;
-      case 'KeyA':
-        this.strafe = -1;
-        break;
-      case 'KeyD':
-        this.strafe = 1;
-        break;
-      case 'ArrowLeft':
-        this.turn = -1;
-        break;
-      case 'ArrowRight':
-        this.turn = 1;
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        this.sprint = true;
-        break;
-    }
+    this.held.add(e.code);
+    this.recompute();
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    switch (e.code) {
-      case 'KeyW':
-      case 'ArrowUp':
-      case 'KeyS':
-      case 'ArrowDown':
-        this.forward = 0;
-        break;
-      case 'KeyA':
-      case 'KeyD':
-        this.strafe = 0;
-        break;
-      case 'ArrowLeft':
-      case 'ArrowRight':
-        this.turn = 0;
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        this.sprint = false;
-        break;
-    }
+    this.held.delete(e.code);
+    this.recompute();
+  };
+
+  private onBlur = (): void => {
+    this.held.clear();
+    this.recompute();
   };
 
   private onClick = (): void => {

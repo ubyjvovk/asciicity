@@ -1,7 +1,7 @@
 /**
- * Unit tests for `src/player/controls.ts` (T-0008): the pure `stepPlayer`
- * integration and the `yawToBearingDeg` helper. The DOM `Controls` class is
- * browser-only and covered by the e2e smoke + PM review.
+ * Unit tests for `src/player/controls.ts` (T-0008, T-0013): the pure
+ * `stepPlayer` integration, `yawToBearingDeg`, and `axesFromHeld`. The DOM
+ * `Controls` class is browser-only and covered by the e2e smoke + PM review.
  */
 import { describe, expect, it } from 'vitest';
 import type { Vec2 } from '../src/data/types';
@@ -11,6 +11,7 @@ import {
   SPRINT_SPEED,
   TURN_SPEED,
   WALK_SPEED,
+  axesFromHeld,
   stepPlayer,
   yawToBearingDeg,
 } from '../src/player/controls';
@@ -157,5 +158,49 @@ describe('yawToBearingDeg', () => {
     expect(yawToBearingDeg(-Math.PI / 2)).toBeCloseTo(270);
     expect(yawToBearingDeg(2 * Math.PI)).toBeCloseTo(0);
     expect(yawToBearingDeg(3 * Math.PI)).toBeCloseTo(180);
+  });
+});
+
+describe('axesFromHeld', () => {
+  it('W alone → forward 1', () => {
+    expect(axesFromHeld(new Set(['KeyW']))).toEqual({
+      forward: 1,
+      strafe: 0,
+      turn: 0,
+      sprint: false,
+    });
+  });
+
+  it('W+S → 0', () => {
+    expect(axesFromHeld(new Set(['KeyW', 'KeyS'])).forward).toBe(0);
+  });
+
+  it('S after releasing W (set contains only S) → −1', () => {
+    expect(axesFromHeld(new Set(['KeyS'])).forward).toBe(-1);
+  });
+
+  it('A+D → strafe 0', () => {
+    expect(axesFromHeld(new Set(['KeyA', 'KeyD'])).strafe).toBe(0);
+  });
+
+  it('ArrowLeft → turn −1', () => {
+    expect(axesFromHeld(new Set(['ArrowLeft'])).turn).toBe(-1);
+  });
+
+  it('ShiftRight → sprint true', () => {
+    expect(axesFromHeld(new Set(['ShiftRight'])).sprint).toBe(true);
+  });
+
+  it('empty set → all zero/false', () => {
+    expect(axesFromHeld(new Set())).toEqual({
+      forward: 0,
+      strafe: 0,
+      turn: 0,
+      sprint: false,
+    });
+  });
+
+  it('ArrowUp counts as forward', () => {
+    expect(axesFromHeld(new Set(['ArrowUp'])).forward).toBe(1);
   });
 });
