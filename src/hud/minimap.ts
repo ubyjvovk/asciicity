@@ -122,23 +122,6 @@ export class Minimap {
     const seenSegs = new Set<StoredSeg>();
     const seenBuildings = new Set<StoredBuilding>();
 
-    ctx.strokeStyle = '#2a8040';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (const key of keys) {
-      const bucket = this.buckets.get(key);
-      if (!bucket) continue;
-      for (const seg of bucket.segs) {
-        if (seenSegs.has(seg)) continue;
-        seenSegs.add(seg);
-        const [x0, y0] = worldToMinimap(seg.ax, seg.az, player, opts);
-        const [x1, y1] = worldToMinimap(seg.bx, seg.bz, player, opts);
-        ctx.moveTo(x0, y0);
-        ctx.lineTo(x1, y1);
-      }
-    }
-    ctx.stroke();
-
     for (const key of keys) {
       const bucket = this.buckets.get(key);
       if (!bucket) continue;
@@ -157,10 +140,27 @@ export class Minimap {
           ctx.lineTo(x, y);
         }
         ctx.closePath();
-        ctx.fillStyle = b.named ? '#48e06a' : '#1f5a2a';
+        ctx.fillStyle = b.named ? '#245c2f' : '#143019';
         ctx.fill();
       }
     }
+
+    ctx.strokeStyle = '#3fb85a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const key of keys) {
+      const bucket = this.buckets.get(key);
+      if (!bucket) continue;
+      for (const seg of bucket.segs) {
+        if (seenSegs.has(seg)) continue;
+        seenSegs.add(seg);
+        const [x0, y0] = worldToMinimap(seg.ax, seg.az, player, opts);
+        const [x1, y1] = worldToMinimap(seg.bx, seg.bz, player, opts);
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+      }
+    }
+    ctx.stroke();
 
     ctx.save();
     ctx.translate(size / 2, size / 2);
