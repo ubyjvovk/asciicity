@@ -41,8 +41,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - 2026-08-23 — Integration ticket T-0010 is C3 (grok/opus only): most judgment lives there.
 - 2026-08-24 — **Single-branch mode** (`staging = false`). Staging mode diverged `main`/`staging` on the very first accept (board commit lands on main, merge on staging → `--ff-only` can never advance main) AND worker worktrees are cut from HEAD=main, so the whole fan-out started without T-0001's files. Killed the 6 attempts (KILL.<instance>, strike-free), merged staging into main (77c4ca2), deleted the six stale branches/worktrees and the staging branch, lifted STOP. PM verifies every landing in-container before accept instead.
 - 2026-08-24 — Process rule: COMMIT the board/scaffold BEFORE moving tickets into todo/ — workers claim within seconds and cut worktrees from HEAD.
+- 2026-08-24 — Look tuning done by the PM (C3 judgment) in a `pm/tune` worktree with a GPU screenshot loop, not by workers: glyph density from `max(r,g,b)` (hue-independent), gamma 0.45 (≈ linear→sRGB), exposure 1.7. Shader in architecture.md §4.8 is the contract again.
+- 2026-08-24 — SwiftShader blanks render targets ≤ 64 rows; e2e keeps SwiftShader (assertions tolerate it) but visual review uses the RTX 3090 (`--use-angle=gl-egl`).
 
 ## Board snapshot
+- 2026-08-24 01:00 — **Wave 1+2 complete: 20/20 accepted.** Playable at `npm run dev`: real City of London data validates and loads, ASCII pass, HUD (6 rows), minimap, landmark row, CRT overlay, favicon, e2e smoke green in-container, GitHub Pages workflow on main. PM look-tuning merged (850ee7f): max-channel glyph density, gamma 0.45, exposure 1.7, brighter wall base, 3-px mipmapped floor grid. Verified on the RTX 3090 via `--use-angle=gl-egl`: 60 fps at 213×60 cells; screenshot in `docs/screenshot.png`.
 - 2026-08-23 23:55 — wave 1 planned: T-0001 (P0 bootstrap) → T-0002…T-0009 fan-out (data, buildings, roads/ground, ascii, collision, controls, HUD) + T-0012 (Pages) → T-0010 (integration, C3) → T-0011 (e2e).
 - 2026-08-24 00:10 — T-0001 accepted (ds-1, clean). Fan-out restarted after the staging incident; 6 instances on 9 claimable tickets.
 - 2026-08-24 00:20 — T-0002 (ds-1) and T-0005 (grok-2) accepted first pass; both in-container check.sh green, all enumerated tests present. In flight: T-0003 ds-2, T-0004 grok-1, T-0006 opus-1, T-0007 opus-2, T-0008 ds-1, T-0009 grok-2.
@@ -50,11 +53,10 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - 2026-08-24 00:55 — T-0012 (opus-1), T-0004 (grok-1), T-0003 (ds-2: 3118 buildings / 10307 roads / 43 places, 1.76 MB, real tower heights), T-0009 (grok-2) accepted first pass. 10/12 wave-1 tickets done; merged main gate green (80 unit tests). T-0013 (controls held-key polish) added and claimed by grok-2. T-0010 (integration, C3) now claimable.
 
 ## Next actions
-1. Review T-0001 when it lands (check `scripts/*.sh` verbatim, playwright pin, lockfile) — accepting it releases the fan-out.
-2. Review fan-out tickets oldest-first; verify tests listed in criteria exist by name.
-3. After T-0010: run `npm run dev` on the host and look at it (claude-in-chrome or playwright screenshot) — compare with the reference screenshot; tune fog/palette/cell size via follow-up tickets.
-4. Wave 2 backlog (draft after T-0010 review): CRT scanline/glow overlay, minimap, landmark name callout when facing a named building, touch controls, Westminster dataset option, start-position presets (`?at=stpauls`).
-5. Tell the user to set Pages source = GitHub Actions once T-0012 merges.
+1. Wave 3 (drafting 2026-08-24 01:05): T-0021 minimap contrast (named buildings too bright in the real city), T-0022 spawn presets `?at=`, T-0023 Thames water (data + world/water.ts + collision), T-0024 touch controls (P3).
+2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
+3. PM visual harness: `node node_modules/.pm-shot.mjs <worktree> <out.png> ['?synthetic=1']` (copy lives in scratchpad `shot.mjs`); default args use the GPU (`--use-angle=gl-egl`). Never judge frames from SwiftShader at 60 rows (see architecture.md §8).
+4. Later ideas: Westminster dataset option (bbox is a CLI arg), sound, day/night palette, `?cell=` presets in the HUD help.
 
 ## How to resume
 1. Read this file.

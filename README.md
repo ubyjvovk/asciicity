@@ -1,5 +1,7 @@
 # AsciiCity
 
+![AsciiCity at Bank junction, facing west along Lombard Street](docs/screenshot.png)
+
 A static browser minigame: walk around the City of London in first person,
 rendered as coloured ASCII glyphs with a green NAVIGATION HUD. Built with Vite,
 TypeScript and three.js; deployed as static files to GitHub Pages.
