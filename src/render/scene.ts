@@ -22,7 +22,7 @@ export function makeScene(): THREE.Scene {
   scene.background = new THREE.Color(0x000000);
   scene.fog = new THREE.FogExp2(0x000000, 0.0018);
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambient);
 
   const directional = new THREE.DirectionalLight(0xffffff, 1.1);

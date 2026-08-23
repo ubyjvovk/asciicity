@@ -87,9 +87,9 @@ describe('buildRoadsMesh', () => {
     }
   });
 
-  it('colour is 0x3c3c3c (linear via THREE.Color) for primary/secondary and 0x2a2a2a for the others', () => {
-    const major = new THREE.Color(0x3c3c3c);
-    const minor = new THREE.Color(0x2a2a2a);
+  it('colour is 0x585858 (linear via THREE.Color) for primary/secondary and 0x404040 for the others', () => {
+    const major = new THREE.Color(0x585858);
+    const minor = new THREE.Color(0x404040);
     const classes: RoadClass[] = [
       'primary',
       'secondary',

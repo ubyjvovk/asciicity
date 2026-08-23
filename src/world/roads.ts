@@ -27,8 +27,8 @@ function linearRgb(hex: number): Vec3 {
   return [c.r, c.g, c.b];
 }
 
-const COLOR_MAJOR = linearRgb(0x3c3c3c);
-const COLOR_MINOR = linearRgb(0x2a2a2a);
+const COLOR_MAJOR = linearRgb(0x585858);
+const COLOR_MINOR = linearRgb(0x404040);
 
 function colorForClass(cls: RoadClass): Vec3 {
   return cls === 'primary' || cls === 'secondary' ? COLOR_MAJOR : COLOR_MINOR;

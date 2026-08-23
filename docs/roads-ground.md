@@ -24,8 +24,8 @@ Vertex colours are linear rgb from `THREE.Color(hex)`:
 
 | classes            | hex       |
 | ------------------ | --------- |
-| primary, secondary | `0x3c3c3c` |
-| all others         | `0x2a2a2a` |
+| primary, secondary | `0x585858` |
+| all others         | `0x404040` |
 
 ## Ribbons
 

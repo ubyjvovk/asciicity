@@ -17,18 +17,19 @@ export function makeGridTexture(): THREE.CanvasTexture {
   canvas.height = GRID_CANVAS;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d canvas context unavailable');
-  ctx.fillStyle = '#050505';
+  ctx.fillStyle = '#07080a';
   ctx.fillRect(0, 0, GRID_CANVAS, GRID_CANVAS);
-  ctx.fillStyle = '#1f5a2a';
+  ctx.fillStyle = '#2f8a40';
   for (let i = 0; i < GRID_CANVAS; i += GRID_STEP_PX) {
-    ctx.fillRect(i, 0, 1, GRID_CANVAS);
-    ctx.fillRect(0, i, GRID_CANVAS, 1);
+    ctx.fillRect(i, 0, 3, GRID_CANVAS);
+    ctx.fillRect(0, i, GRID_CANVAS, 3);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 8;
   return tex;
 }
 

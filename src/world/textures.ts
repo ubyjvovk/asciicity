@@ -35,13 +35,13 @@ export function makeWindowTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d canvas context unavailable');
 
-  ctx.fillStyle = '#585858';
+  ctx.fillStyle = '#8c8c8c';
   ctx.fillRect(0, 0, TEX_SIZE, TEX_SIZE);
 
   const rng = mulberry32(SEED);
   for (let row = 0; row < GRID; row++) {
     for (let col = 0; col < GRID; col++) {
-      ctx.fillStyle = rng() < LIT_PROB ? '#ffffff' : '#404040';
+      ctx.fillStyle = rng() < LIT_PROB ? '#ffffff' : '#2c2c2c';
       ctx.fillRect(col * CELL + WIN_OX, row * CELL + WIN_OY, WIN_W, WIN_H);
     }
   }
