@@ -105,5 +105,23 @@ argument.
 2. `pre.hud-rows` — the five `> ` rows; `update` rewrites this node only
 3. `div.hud-help` — `WASD MOVE · MOUSE LOOK · SHIFT RUN`
 
+The second constructor argument `help` defaults to that desktop help text
+and is passed by `main.ts` as `'LEFT: MOVE · RIGHT: LOOK'` when the touch
+path is active (T-0031).
+
 Styles (`hud.css`): `#48e06a` monospace 13 px on black; title brighter
 (`#8aff9e`); help dim (`#2a8040`).
+
+## Compact breakpoint
+
+At `(max-width: 700px)` the panel shrinks so it no longer covers the right
+side of a phone viewport (T-0031):
+
+- `src/style.css` `#hud`: width `176 px`, padding `6px 8px`; `#hud .minimap`
+  width/height `90 px` (CSS box only — the canvas keeps its 180 px backing
+  store).
+- `src/hud/hud.css`: `.hud-rows` `10 px`, `.hud-title` `11 px`,
+  `.hud-help` `9 px`.
+
+`#hud` is `pointer-events: none` at all sizes — it is display-only, so
+look-drags across it reach the canvas instead of being eaten.

@@ -19,3 +19,18 @@
   color: #2a8040;
   margin-top: 0.6em;
 }
+
+/* Smaller type on small screens so the compact panel stays readable. */
+@media (max-width: 700px) {
+  .hud-rows {
+    font-size: 10px;
+  }
+
+  .hud-title {
+    font-size: 11px;
+  }
+
+  .hud-help {
+    font-size: 9px;
+  }
+}

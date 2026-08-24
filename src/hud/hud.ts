@@ -18,7 +18,7 @@ export interface HudValues {
 export class Hud {
   private readonly rows: HTMLElement;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN') {
     const doc = root.ownerDocument;
 
     const title = doc.createElement('div');
@@ -28,9 +28,9 @@ export class Hud {
     const rows = doc.createElement('pre');
     rows.className = 'hud-rows';
 
-    const help = doc.createElement('div');
-    help.className = 'hud-help';
-    help.textContent = 'WASD MOVE · MOUSE LOOK · SHIFT RUN';
+    const helpEl = doc.createElement('div');
+    helpEl.className = 'hud-help';
+    helpEl.textContent = help;
 
     root.append(title, rows, help);
     this.rows = rows;
