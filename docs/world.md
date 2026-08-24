@@ -64,8 +64,34 @@ PALETTE          = [0x3a6fd8, 0x2ecc71, 0x1abc9c, 0xf1c40f,
 LANDMARK_PALETTE = [0x5dade2, 0xf7dc6f, 0xff6b6b, 0xda70d6]
 ```
 
-`colorFor(b)` returns `LANDMARK_PALETTE[id % 4]` when `b.name` is present,
-otherwise `PALETTE[id % 8]`.
+`colorFor(b)` returns `LANDMARK_COLORS[b.name]` when the OSM name is a key
+of that table, otherwise `LANDMARK_PALETTE[id % 4]` when `b.name` is present,
+otherwise `PALETTE[id % 8]`. `landmarkColor(name)` looks up the table and
+returns `undefined` when `name` is missing or unknown. Lookup is exact and
+case-sensitive.
+
+| OSM `name` | hex |
+|---|---|
+| Elizabeth Tower | `0xf7dc6f` |
+| Palace of Westminster | `0xd4a017` |
+| Westminster Abbey | `0xe8e0c8` |
+| St Paul's Cathedral | `0xe8e0c8` |
+| Nelson's Column | `0xe8e0c8` |
+| National Gallery | `0xe8e0c8` |
+| Somerset House | `0xe8e0c8` |
+| London Eye | `0xffffff` |
+| 30 St Mary Axe | `0x1abc9c` |
+| 20 Fenchurch Street | `0x95a5a6` |
+| Lloyd's of London | `0x95a5a6` |
+| Tower 42 | `0x3a6fd8` |
+| Heron Tower | `0x3a6fd8` |
+| Tower Bridge | `0x5dade2` |
+| Tower of London | `0xc0392b` |
+| The Monument | `0xf7dc6f` |
+| Monument | `0xf7dc6f` |
+| Bank of England | `0xe8e0c8` |
+| Royal Exchange | `0xe8e0c8` |
+| Mansion House | `0xe8e0c8` |
 
 ## Window texture (`src/world/textures.ts`)
 

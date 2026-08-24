@@ -5,7 +5,13 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { Building, Vec2 } from '../src/data/types';
 import { buildBuildingsMesh, normalizeRing } from '../src/world/buildings';
-import { colorFor, LANDMARK_PALETTE, PALETTE } from '../src/world/palette';
+import {
+  colorFor,
+  LANDMARK_COLORS,
+  LANDMARK_PALETTE,
+  landmarkColor,
+  PALETTE,
+} from '../src/world/palette';
 
 const SQUARE: Vec2[] = [
   [0, 0],
@@ -191,5 +197,35 @@ describe('colorFor', () => {
     expect(colorFor(squareBuilding({ id: 1 }))).toBe(PALETTE[1]);
     expect(colorFor(squareBuilding({ id: 9 }))).toBe(PALETTE[9 % 8]);
     expect(colorFor(squareBuilding({ id: 8 }))).toBe(PALETTE[0]);
+  });
+
+  it("colorFor({ id: 7, name: 'Elizabeth Tower', h: 96, poly: [...] }) → 0xf7dc6f", () => {
+    expect(
+      colorFor({ id: 7, name: 'Elizabeth Tower', h: 96, poly: SQUARE }),
+    ).toBe(0xf7dc6f);
+  });
+
+  it('a named building not in the table still gets LANDMARK_PALETTE[id % 4]', () => {
+    expect(colorFor(squareBuilding({ id: 7, name: 'Some Named Building' }))).toBe(
+      LANDMARK_PALETTE[7 % 4],
+    );
+  });
+});
+
+describe('landmarkColor', () => {
+  it('landmarkColor(undefined) → undefined', () => {
+    expect(landmarkColor(undefined)).toBeUndefined();
+  });
+});
+
+describe('LANDMARK_COLORS', () => {
+  it('the table has no duplicate keys and every value is a 24-bit integer', () => {
+    const keys = Object.keys(LANDMARK_COLORS);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const value of Object.values(LANDMARK_COLORS)) {
+      expect(Number.isInteger(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(0xffffff);
+    }
   });
 });
