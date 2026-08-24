@@ -1,6 +1,6 @@
 # AsciiCity
 
-![AsciiCity at Bank junction, facing west along Lombard Street](docs/screenshot.png)
+![AsciiCity on Westminster Bridge, facing Big Ben](docs/screenshot.png)
 
 A static browser minigame: walk around the City of London in first person,
 rendered as coloured ASCII glyphs with a green NAVIGATION HUD. Built with Vite,

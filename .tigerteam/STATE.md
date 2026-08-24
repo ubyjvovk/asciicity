@@ -54,6 +54,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-24 01:40 — 25/29 done. Wave 3 landed: minimap contrast, `?at=` presets + coordinates, Thames/dock water (data + render + collision), **Westminster dataset** (bbox −0.130…−0.070 / 51.497…51.521, origin still Bank, footways dropped: 9061 buildings / 7803 roads / 99 places / 31 water, 2.8 MB). User playtested and asked for a Big Ben start → T-0027 done, T-0028 (default spawn on Westminster Bridge @268°, verified visually via `?at=-0.12235,51.50085,268`: tower dead ahead) claimable; T-0025 touch, T-0026 landmark spawns, T-0029 landmark colours queued.
 
+- 2026-08-24 02:20 — **29/30 done.** Big Ben default spawn (T-0028) + walkable bridges (T-0030: `Road.bridge` flag, `CollisionGrid` corridors override water) + touch controls (T-0025) + landmark colours (T-0029) merged. Verified on GPU: default `/` spawns mid-Westminster-Bridge at x≈−2331, ZONE WESTMINSTER BRIDGE, walking west works. Pushed to origin. Remaining: T-0026 (data-driven landmark spawns).
+
 ## Next actions
 1. Wave 3 (drafting 2026-08-24 01:05): T-0021 minimap contrast (named buildings too bright in the real city), T-0022 spawn presets `?at=`, T-0023 Thames water (data + world/water.ts + collision), T-0024 touch controls (P3).
 2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
