@@ -16,6 +16,7 @@ import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
+import { makeSky, updateSky } from './world/sky';
 import {
   Controls,
   stepPlayer,
@@ -68,6 +69,7 @@ interface UrlOptions {
   hud: boolean;
   gloom: boolean;
   at: string | null;
+  time: Date | null;
 }
 
 /** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0&hud=0&at=...`. Malformed values are ignored. */
@@ -94,7 +96,29 @@ export function parseUrlOptions(search: string): UrlOptions {
   const minimap = params.get('minimap') !== '0';
   const hud = params.get('hud') !== '0';
   const gloom = params.get('gloom') === '1';
-  return { synthetic, seed, cellW, cellH, crt, minimap, hud, gloom, at };
+  const time = parseTimeParam(params.get('time'));
+  return { synthetic, seed, cellW, cellH, crt, minimap, hud, gloom, at, time };
+}
+
+/**
+ * Parse `?time=` into a Date: accepts an ISO timestamp or `HH:MM` meaning today
+ * in local time; anything invalid (or absent) returns null.
+ */
+function parseTimeParam(raw: string | null): Date | null {
+  if (raw === null || raw === '') return null;
+  const iso = new Date(raw.trim());
+  if (!Number.isNaN(iso.getTime())) return iso;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  if (m) {
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+      const d = new Date();
+      d.setHours(hh, mm, 0, 0);
+      return d;
+    }
+  }
+  return null;
 }
 
 /** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
@@ -140,6 +164,14 @@ async function main(): Promise<void> {
   if (city.water?.length) {
     scene.add(makeWaterObject(city.water));
   }
+
+  // Sky is the fixed time if `?time=` pins it, otherwise the real clock; the
+  // 10 s interval advances it (re-computing positions if unpinned).
+  const sky = makeSky(opts.time ?? new Date(), city.origin);
+  scene.add(sky);
+  setInterval(() => {
+    updateSky(sky, opts.time ?? new Date(), city.origin);
+  }, 10000);
 
   // Water rings become fake footprints so the player cannot walk onto the
   // river; bridge roads become corridors that override those footprints (and
@@ -272,6 +304,7 @@ async function main(): Promise<void> {
     camera.position.set(state.x, EYE_HEIGHT, state.z);
     camera.rotation.y = -state.yaw;
     camera.rotation.x = state.pitch;
+    sky.position.set(state.x, EYE_HEIGHT, state.z);
 
     ascii.render(scene, camera);
 
