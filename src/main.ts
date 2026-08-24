@@ -68,7 +68,7 @@ interface UrlOptions {
   crt: boolean;
   minimap: boolean;
   hud: boolean;
-  gloom: boolean;
+  theme: number;
   at: string | null;
   time: Date | null;
 }
@@ -96,9 +96,22 @@ export function parseUrlOptions(search: string): UrlOptions {
   const crt = params.get('crt') !== '0';
   const minimap = params.get('minimap') !== '0';
   const hud = params.get('hud') !== '0';
-  const gloom = params.get('gloom') === '1';
+  // `?theme=cyber|gloom|solarized|0|1|2`; invalid → 0. `?gloom=1` remains an
+  // alias for theme 1, but the `theme` param wins when both are present.
+  const themeRaw = params.get('theme');
+  const tv = themeRaw !== null ? themeRaw.trim().toLowerCase() : '';
+  const theme =
+    tv === 'gloom' || tv === '1'
+      ? 1
+      : tv === 'solarized' || tv === '2'
+        ? 2
+        : tv === 'cyber' || tv === '0' || tv === ''
+          ? 0
+          : params.get('gloom') === '1'
+            ? 1
+            : 0;
   const time = parseTimeParam(params.get('time'));
-  return { synthetic, seed, cellW, cellH, crt, minimap, hud, gloom, at, time };
+  return { synthetic, seed, cellW, cellH, crt, minimap, hud, theme, at, time };
 }
 
 /**
@@ -223,7 +236,7 @@ async function main(): Promise<void> {
   const asciiOpts: Partial<AsciiOptions> = {};
   if (opts.cellW !== undefined) asciiOpts.cellW = opts.cellW;
   if (opts.cellH !== undefined) asciiOpts.cellH = opts.cellH;
-  asciiOpts.invert = opts.gloom;
+  asciiOpts.theme = opts.theme;
   const ascii = new AsciiRenderer(renderer, asciiOpts);
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
@@ -285,9 +298,9 @@ async function main(): Promise<void> {
     if (document.pointerLockElement !== canvas) setOverlay(true, true);
   });
 
-  // `G` toggles gloom mode (inverted, washed-out grey London); ignore key repeats.
+  // `G` cycles the colour theme cyber → gloom → solarized (and back); ignore key repeats.
   window.addEventListener('keydown', (ev) => {
-    if (ev.code === 'KeyG' && !ev.repeat) ascii.setInvert(!ascii.invert);
+    if (ev.code === 'KeyG' && !ev.repeat) ascii.setTheme((ascii.theme + 1) % 3);
   });
 
   // Stable closure over collision — avoids allocating a new arrow per frame.
