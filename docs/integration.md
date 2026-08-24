@@ -24,6 +24,7 @@ The app runs a single asynchronous `main()` when the module executes.
    - `makeRoadsObject(city.roads)`
    - `makeBuildingsObject(city.buildings, makeWindowTexture())`
    - `makeWaterObject(city.water)` when `city.water?.length` is truthy
+   - `makeSky(opts.time ?? new Date(), city.origin)` — the sun/moon/stars sky (docs/world.md §Sky)
 5. **Wire helpers.** `new CollisionGrid(buildings, 25, corridors)` where
    `buildings` is the building footprints, plus — when there is water — each
    water ring as a fake footprint so the player cannot walk onto the river:
@@ -60,6 +61,12 @@ The app runs a single asynchronous `main()` when the module executes.
    lock (Escape), the overlay reappears with class `resume` and text
    `CLICK TO RESUME`.
 10. **Frame loop.** See below.
+
+**Sky cadence.** The sky is built once during startup (`makeSky`, with the
+pinned `?time=` if present, else the real clock). A `setInterval` fires every
+**10 s** and calls `updateSky(sky, opts.time ?? new Date(), city.origin)` —
+advancing the sun/moon/stars with the real clock, or holding them fixed at the
+pinned instant when `?time=` is set.
 
 ## Frame loop
 
@@ -102,6 +109,7 @@ per-frame allocations are made inside `main.ts`.
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
 | `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
 | `gloom`     | `?gloom=1`     | Start in gloom mode (inverted, washed-out grey rendering) — same effect as pressing `G` (default off). |
+| `time`      | `?time=2026-06-21T12:00:00Z` or `?time=12:00` | Pin the sky to a fixed time. Accepts an ISO timestamp (pinned absolute instant) or `HH:MM` meaning *today* in local time. Invalid or absent → real clock (default). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
 
