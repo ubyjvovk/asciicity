@@ -1,9 +1,9 @@
 /**
  * AsciiCity bootstrap and frame loop (docs/architecture.md §5). Loads or
  * synthesises the city, builds the world meshes, wires
- * Controls / Hud / CollisionGrid / ZoneIndex / Minimap / AsciiRenderer /
- * CRT overlay, and runs the animation loop with a live pose exposed on
- * `window.__asciicity`.
+ * Controls / TouchControls / Hud / CollisionGrid / ZoneIndex / Minimap /
+ * AsciiRenderer / CRT overlay, and runs the animation loop with a live pose
+ * exposed on `window.__asciicity`.
  */
 import './style.css';
 import type { CityData, Vec2 } from './data/types';
@@ -22,6 +22,7 @@ import {
   yawToBearingDeg,
   type PlayerState,
 } from './player/controls';
+import { TouchControls, mergeInput } from './player/touch';
 import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { AsciiRenderer, type AsciiOptions } from './render/ascii';
 import { mountCrt } from './render/crt';
@@ -143,6 +144,10 @@ async function main(): Promise<void> {
   );
   const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   const controls = new Controls(canvas);
+  const touch =
+    'ontouchstart' in window || navigator.maxTouchPoints > 0
+      ? new TouchControls(canvas)
+      : undefined;
   const hud = new Hud(hudRoot);
 
   // Canvas is created here (not in index.html) so it lands after Hud's
@@ -211,7 +216,11 @@ async function main(): Promise<void> {
   setOverlay(false, true);
   overlayEl.addEventListener('click', () => {
     setOverlay(false, false);
-    canvas.requestPointerLock();
+    try {
+      void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
+    } catch {
+      // Pointer lock is unavailable on touch; the overlay is already hidden.
+    }
   });
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement !== canvas) setOverlay(true, true);
@@ -230,7 +239,9 @@ async function main(): Promise<void> {
     const dt = Math.min(0.1, (nowTs - lastTs) / 1000);
     lastTs = nowTs;
 
-    const input = controls.readInput();
+    const input = touch
+      ? mergeInput(controls.readInput(), touch.readInput())
+      : controls.readInput();
     const next = stepPlayer(state, input, dt, resolveMove);
     state.x = next.x;
     state.z = next.z;

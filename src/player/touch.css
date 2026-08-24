@@ -1,0 +1,32 @@
+/* Virtual joystick ring + knob. Imported by touch.ts. Shown only while a
+   left-half touch pointer is active. */
+
+.touch-joystick-ring,
+.touch-joystick-knob {
+  display: none;
+  position: fixed;
+  box-sizing: border-box;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.touch-joystick-ring.is-active,
+.touch-joystick-knob.is-active {
+  display: block;
+}
+
+.touch-joystick-ring {
+  width: 120px;
+  height: 120px;
+  border: 2px solid rgba(72, 224, 106, 0.45);
+  background: rgba(72, 224, 106, 0.06);
+}
+
+.touch-joystick-knob {
+  width: 40px;
+  height: 40px;
+  border: 2px solid rgba(72, 224, 106, 0.8);
+  background: rgba(72, 224, 106, 0.35);
+}

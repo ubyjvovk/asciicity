@@ -30,7 +30,9 @@ The app runs a single asynchronous `main()` when the module executes.
    `new CollisionGrid([...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))])`.
    Then
    `new ZoneIndex(city.roads, city.places, 50, city.buildings)`,
-   `new Controls(canvas)`, `new Hud(hudRoot)`,
+   `new Controls(canvas)`, and when `'ontouchstart' in window` or
+   `navigator.maxTouchPoints > 0`, `new TouchControls(canvas)`. Then
+   `new Hud(hudRoot)`,
    `new AsciiRenderer(renderer, { cellW?, cellH? })`.
    When `minimap` is enabled (default), append a `<canvas id="minimap">` to
    `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
@@ -45,9 +47,11 @@ The app runs a single asynchronous `main()` when the module executes.
    `resize`. The handler forwards to `AsciiRenderer.setSize`, updates the
    camera aspect, and refreshes `cols`/`rows` on the API.
 9. **Overlay + pointer lock.** The overlay starts visible with the title +
-   `CLICK TO ENTER`; a click hides it and requests pointer lock on the
-   canvas. On `pointerlockchange` losing the lock (Escape), the overlay
-   reappears with class `resume` and text `CLICK TO RESUME`.
+   `CLICK TO ENTER`; a click (or tap — the click handler also fires on touch)
+   hides it and requests pointer lock on the canvas inside try/catch, because
+   pointer lock rejects on touch devices. On `pointerlockchange` losing the
+   lock (Escape), the overlay reappears with class `resume` and text
+   `CLICK TO RESUME`.
 10. **Frame loop.** See below.
 
 ## Frame loop
@@ -56,7 +60,10 @@ The app runs a single asynchronous `main()` when the module executes.
 
 - `dt = min(0.1, (now - lastTs) / 1000)` — clamps huge deltas after tab
   restore.
-- `input = controls.readInput()` — accumulates and zeroes look deltas.
+- `input = controls.readInput()`, or when a `TouchControls` was constructed,
+  `input = mergeInput(controls.readInput(), touch.readInput())` — each
+  source accumulates and zeroes its own look deltas; `mergeInput` sums axes
+  (clamped to [−1, 1]), ORs `sprint`, and sums look deltas.
 - `next = stepPlayer(state, input, dt, resolveMove)` — pure step; scalar
   fields are copied back into the persistent `state` so
   `window.__asciicity.state` stays a stable reference.
