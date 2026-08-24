@@ -170,3 +170,38 @@ are only ever repositioned; `lookAt` writes into a module-level
 `THREE.Vector3`). The stars are static (fixed celestial sphere); only their
 visibility changes. `makeSky` stores its three children in `group.userData`
 so `updateSky` can reach them without rebuilding.
+
+## Traffic (`src/world/traffic.ts`)
+
+Red double-deckers cruise the primary/secondary road network as pure
+ambience (T-0035). Pass-through by design — no player collision, stops, or
+routes. Contract: `docs/architecture.md` §5.
+
+**`buildRoadGraph(roads, classes)`** reduces roads to an *endpoint node
+graph*: it keeps roads whose `cls` is in `classes` with `pts.length >= 2`
+(degenerate zero-length ways are skipped), quantises each road's first/last
+point to the 2 m grid (`Math.round(v/2)*2`) and uses `"x,z"` of the
+endpoints as node keys. `nodes` maps every key to its quantised coordinate;
+`edges` are the kept roads' full polylines plus their `a`/`b` endpoint keys;
+`adj` maps each node key to the indices of the edges touching it. Roads that
+meet at the same quantised endpoint share one node, so walkers can turn.
+
+**`PathWalker(graph, rand)`** picks a random edge and a random point along it
+via `rand`, then walks the polyline at constant speed. `advance(dtMetres)`
+moves **exactly** `dtMetres` along the network: at an edge **end** it picks a
+random *other* edge from that node's adjacency (starting at the node, in the
+correct direction) or reverses along the same edge when the node is a dead
+end. `x`/`z` are the live position; `heading` is the current segment yaw
+`atan2(dx, −dz)` (0 faces north, +π/2 east — architecture.md §3).
+
+**`BusFleet(roads, count = 12, seed = 9)`** wraps `count` `PathWalker`s over
+`buildRoadGraph(roads, ['primary','secondary'])`, each seeded with
+`mulberry32(seed + i)`, at **7 m/s**. Geometry is a single
+`THREE.InstancedMesh` of `BoxGeometry(2.5, 4.3, 10.2)` (a 10.2 m double-decker,
+length along z) with `MeshLambertMaterial({ color: 0xc0392b })`, one instance
+per bus. `update(dt)` advances every walker and writes its matrix through **one
+reused `THREE.Object3D` dummy** (`position.set(x, 2.15, z)`,
+`rotation.y = −heading`, `updateMatrix`, `setMatrixAt`,
+`instanceMatrix.needsUpdate`) — no per-frame allocation. A network with no
+primary/secondary roads yields `count 0` and an inert group whose `update` is
+a no-op.
