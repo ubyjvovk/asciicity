@@ -88,6 +88,9 @@ state.z)` so the discs stay 1200 m from the player (children keep
   `y = -state.yaw, x = state.pitch` (with `YXZ` order set at bootstrap).
   Then one no-allocation line `sky.position.set(state.x, EYE_HEIGHT, state.z)`
   so the sky group rides with the camera.
+- `fleet.update(dt)` — each frame, before the ASCII render, the bus
+  ambience (`BusFleet`, docs/world.md §Traffic) advances every walker by
+  `dt · 7` m and writes its instance matrices via a single reused dummy.
 - `ascii.render(scene, camera)` — the ASCII post-process.
 - Rolling FPS — accumulate frame count and elapsed seconds; when the window
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.

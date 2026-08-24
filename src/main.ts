@@ -17,6 +17,7 @@ import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
 import { makeSky, updateSky } from './world/sky';
+import { BusFleet } from './world/traffic';
 import {
   Controls,
   stepPlayer,
@@ -165,6 +166,11 @@ async function main(): Promise<void> {
     scene.add(makeWaterObject(city.water));
   }
 
+  // Red double-deckers cruising the primary/secondary roads — pure ambience
+  // (pass-through, no collision). Works on both the real and synthetic city.
+  const fleet = new BusFleet(city.roads);
+  scene.add(fleet.object);
+
   // Sky is the fixed time if `?time=` pins it, otherwise the real clock; the
   // 10 s interval advances it (re-computing positions if unpinned).
   const sky = makeSky(opts.time ?? new Date(), city.origin);
@@ -305,6 +311,8 @@ async function main(): Promise<void> {
     camera.rotation.y = -state.yaw;
     camera.rotation.x = state.pitch;
     sky.position.set(state.x, EYE_HEIGHT, state.z);
+
+    fleet.update(dt);
 
     ascii.render(scene, camera);
 
