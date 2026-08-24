@@ -108,20 +108,30 @@ per-frame allocations are made inside `main.ts`.
 `?at=` accepts a preset name (case-insensitive, trimmed) or a
 `lon,lat[,bearing]` coordinate. Preset keys and labels:
 
-| Key          | Lon      | Lat      | Bearing° | Label                                      |
-|--------------|----------|----------|----------|--------------------------------------------|
-| `bank`       | −0.0887  | 51.5133  | 270      | Bank junction                              |
-| `stpauls`    | −0.0950  | 51.5139  | 270      | Cheapside, facing St Paul's                |
-| `gherkin`    | −0.0800  | 51.5132  | 0        | St Mary Axe, facing the Gherkin            |
-| `monument`   | −0.0859  | 51.5098  | 0        | Monument                                   |
-| `tower`      | −0.0760  | 51.5095  | 180      | Tower Hill                                 |
-| `barbican`   | −0.0930  | 51.5185  | 0        | Barbican                                   |
-| `liverpoolst`| −0.0830  | 51.5178  | 90       | Liverpool Street                           |
-| `leadenhall` | −0.0845  | 51.5128  | 90       | Leadenhall Market                          |
-| `bigben`     | −0.12235 | 51.50085 | 268      | Westminster Bridge, facing Big Ben         |
-| `parliament` | −0.12655 | 51.5006  | 90       | Parliament Square, facing the Palace of Westminster |
-| `trafalgar`  | −0.12800 | 51.5079  | 180      | Trafalgar Square, facing Whitehall         |
-| `embankment` | −0.12200 | 51.5074  | 120      | Victoria Embankment, facing the London Eye |
+| Key           | Resolves to                                                            |
+|---------------|------------------------------------------------------------------------|
+| `bank`        | Fixed coordinate — Bank junction (yaw 270°).                           |
+| `stpauls`     | Named building "St Paul's Cathedral" (data-driven).                   |
+| `gherkin`     | Named building "30 St Mary Axe" (data-driven).                        |
+| `monument`    | Named building "Monument" (data-driven).                              |
+| `tower`       | Named building "Tower of London" (data-driven; may be absent → `bigben`).|
+| `barbican`    | Named building "Barbican" (data-driven).                              |
+| `liverpoolst` | Named building "Liverpool Street" (data-driven).                      |
+| `leadenhall`  | Named building "Leadenhall Market" (data-driven).                     |
+| `walkietalkie`| Named building "20 Fenchurch Street" (data-driven).                   |
+| `lloyds`      | Named building "Lloyd's" (data-driven).                               |
+| `bigben`      | Fixed coordinate — Westminster Bridge, facing Big Ben (yaw 268°).       |
+| `parliament`  | Fixed coordinate — Parliament Square, facing the Palace of Westminster (yaw 90°). |
+| `trafalgar`   | Fixed coordinate — Trafalgar Square, facing Whitehall (yaw 180°).       |
+| `embankment`  | Fixed coordinate — Victoria Embankment, facing the London Eye (yaw 120°).|
+
+**Data-driven presets** (`stpauls`, `gherkin`, `monument`, `tower`,
+`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`): the
+named building is located in `city.json` by a case-insensitive substring
+match on `Building.name`, its centroid computed, and the game spawns on the
+nearest road vertex ~70 m away from it (falling back to any road vertex
+within 200 m), facing the building. If the building is absent from the
+bbox (e.g. `tower`), the preset falls back to `bigben` — nothing is logged.
 
 With no `?at=` the game spawns at the `bigben` preset (Westminster Bridge,
 facing Big Ben). The `bank` preset is still available as `?at=bank`.

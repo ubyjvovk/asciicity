@@ -2,7 +2,13 @@
  * Unit tests for spawn presets and `?at=` resolution (`src/data/spawn.ts`).
  */
 import { describe, expect, it } from 'vitest';
-import { parseAt, resolveSpawn, SPAWN_PRESETS } from '../src/data/spawn';
+import {
+  landmarkSpawn,
+  parseAt,
+  resolveSpawn,
+  SPAWN_PRESETS,
+} from '../src/data/spawn';
+import type { CityData } from '../src/data/types';
 import { project } from '../src/geo';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
@@ -16,6 +22,35 @@ function normalizeAngle(a: number): number {
   if (r <= -Math.PI) r += twoPi;
   return r;
 }
+
+// Tiny hand-made city: "Test Tower" is a 20×20 square centred at (100, 0);
+// road vertices sit 30 / 70 / 120 m from that centroid along +x.
+const CITY: Pick<CityData, 'buildings' | 'roads'> = {
+  buildings: [
+    {
+      id: 1,
+      h: 10,
+      name: 'Test Tower',
+      poly: [
+        [90, -10],
+        [110, -10],
+        [110, 10],
+        [90, 10],
+      ],
+    },
+  ],
+  roads: [
+    {
+      id: 1,
+      cls: 'residential',
+      pts: [
+        [130, 0],
+        [170, 0],
+        [220, 0],
+      ],
+    },
+  ],
+};
 
 describe('parseAt', () => {
   it('returns null for a null input', () => {
@@ -146,13 +181,46 @@ describe('resolveSpawn', () => {
     expect(spawn.yaw).toBeCloseTo(-Math.PI / 2, 6);
   });
 
-  it('resolves a named preset to its projected point with the preset yaw', () => {
+  it('a named-building preset with no city falls back to the bigben coordinates', () => {
+    // `gherkin` is a building preset; without a city there is nothing to
+    // resolve against, so it must fall back to the bigben coordinate preset.
     const spawn = resolveSpawn('gherkin', ORIGIN, () => false);
-    const [ex, ez] = project(-0.08, 51.5132, ORIGIN);
+    const [ex, ez] = project(-0.12235, 51.50085, ORIGIN);
     expect(spawn.x).toBeCloseTo(ex, 6);
     expect(spawn.z).toBeCloseTo(ez, 6);
-    expect(Math.hypot(spawn.x - ex, spawn.z - ez)).toBeLessThan(5);
-    expect(spawn.yaw).toBeCloseTo(0, 6);
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((268 * Math.PI) / 180), 6);
+  });
+
+  it('resolves a named-building preset against the city via landmarkSpawn', () => {
+    // A city that does contain "30 St Mary Axe" → landmarkSpawn wins.
+    const gherkinCity: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [
+        {
+          id: 7,
+          h: 20,
+          name: '30 St Mary Axe',
+          poly: [
+            [90, -10],
+            [110, -10],
+            [110, 10],
+            [90, 10],
+          ],
+        },
+      ],
+      roads: [{ id: 2, cls: 'secondary', pts: [[170, 0]] }],
+    };
+    const spawn = resolveSpawn('gherkin', ORIGIN, () => false, gherkinCity);
+    expect(spawn.x).toBeCloseTo(170, 6);
+    expect(spawn.z).toBeCloseTo(0, 6);
+  });
+
+  it('falls back to the bigben preset when the named building is absent', () => {
+    // CITY has no "30 St Mary Axe" → resolveSpawn must land on bigben.
+    const spawn = resolveSpawn('gherkin', ORIGIN, () => false, CITY);
+    const [ex, ez] = project(-0.12235, 51.50085, ORIGIN);
+    expect(spawn.x).toBeCloseTo(ex, 6);
+    expect(spawn.z).toBeCloseTo(ez, 6);
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((268 * Math.PI) / 180), 6);
   });
 
   it('resolves explicit coordinates with a bearing', () => {
@@ -188,12 +256,68 @@ describe('resolveSpawn', () => {
       'gherkin',
       'leadenhall',
       'liverpoolst',
+      'lloyds',
       'monument',
       'parliament',
       'stpauls',
       'tower',
       'trafalgar',
+      'walkietalkie',
     ]);
-    expect(SPAWN_PRESETS.gherkin.label).toBe('St Mary Axe, facing the Gherkin');
+    expect(SPAWN_PRESETS.gherkin.label).toBe('Facing the Gherkin');
+    expect(SPAWN_PRESETS.bigben.label).toBe(
+      'Westminster Bridge, facing Big Ben',
+    );
+  });
+});
+
+describe('landmarkSpawn', () => {
+  it('picks the 70 m road vertex and faces the building centroid', () => {
+    const spawn = landmarkSpawn('test tower', CITY);
+    expect(spawn).not.toBeNull();
+    expect(spawn!.x).toBeCloseTo(170, 6);
+    expect(spawn!.z).toBeCloseTo(0, 6);
+    // Forward vector (sin yaw, −cos yaw) must point at the centroid.
+    const fx = Math.sin(spawn!.yaw);
+    const fz = -Math.cos(spawn!.yaw);
+    const dx = 100 - spawn!.x;
+    const dz = 0 - spawn!.z;
+    const len = Math.hypot(dx, dz);
+    const dot = (fx * dx + fz * dz) / len;
+    expect(dot).toBeGreaterThan(0.99);
+    expect(spawn!.yaw).toBeCloseTo(-Math.PI / 2, 6);
+  });
+
+  it('matches the name case-insensitively as a substring', () => {
+    expect(landmarkSpawn('TEST TOWER', CITY)?.x).toBeCloseTo(170, 6);
+    expect(landmarkSpawn('tower', CITY)?.x).toBeCloseTo(170, 6);
+  });
+
+  it('returns null for an unknown or unnamed building', () => {
+    expect(landmarkSpawn('nope', CITY)).toBeNull();
+    const noName: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{ id: 2, h: 10, poly: [[0, 0], [10, 0], [10, 10], [0, 10]] }],
+      roads: CITY.roads,
+    };
+    expect(landmarkSpawn('base', noName)).toBeNull();
+  });
+
+  it('falls back to a road vertex within 200 m when none is in range', () => {
+    // Road vertex at 170 m (within 200, outside [30, 130] m ring).
+    const farCity: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{ id: 1, h: 10, name: 'Test Tower', poly: CITY.buildings[0].poly }],
+      roads: [{ id: 9, cls: 'service', pts: [[270, 0]] }],
+    };
+    const spawn = landmarkSpawn('test tower', farCity);
+    expect(spawn).not.toBeNull();
+    expect(spawn!.x).toBeCloseTo(270, 6);
+  });
+
+  it('returns null when no road vertex is within 200 m of the centroid', () => {
+    const emptyCity: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{ id: 1, h: 10, name: 'Test Tower', poly: CITY.buildings[0].poly }],
+      roads: [{ id: 3, cls: 'footway', pts: [[500, 0]] }],
+    };
+    expect(landmarkSpawn('test tower', emptyCity)).toBeNull();
   });
 });
