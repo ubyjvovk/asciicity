@@ -162,6 +162,8 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     expect(ids).toContain(11); // secondary_link
     expect(ids).toContain(12); // residential
     expect(ids).toContain(16); // residential
+    expect(ids).toContain(17); // primary "Westminster Bridge" (bridge=yes)
+    expect(ids).toContain(18); // secondary (bridge=no)
     expect(ids).not.toContain(13); // footway dropped
     expect(ids).not.toContain(14); // steps dropped
   });
@@ -171,6 +173,27 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     const cheapside = city.roads.find((r) => r.id === 10);
     expect(cheapside?.name).toBe('Cheapside');
     expect(cheapside?.cls).toBe('primary');
+  });
+
+  it('sets bridge: true on a road with bridge=yes', () => {
+    const city = convert();
+    const wb = city.roads.find((r) => r.id === 17);
+    expect(wb?.name).toBe('Westminster Bridge');
+    expect(wb?.bridge).toBe(true);
+  });
+
+  it('omits the bridge key for a road with bridge=no', () => {
+    const city = convert();
+    const r = city.roads.find((rd) => rd.id === 18);
+    expect(r).toBeDefined();
+    expect(r?.bridge).toBeUndefined();
+  });
+
+  it('omits the bridge key when the tag is absent', () => {
+    const city = convert();
+    for (const r of city.roads) {
+      if (r.id !== 17) expect(r.bridge).toBeUndefined();
+    }
   });
 });
 
@@ -340,7 +363,7 @@ describe('osm-convert output invariants', () => {
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
     expect(city.buildings).toHaveLength(6);
-    expect(city.roads).toHaveLength(4); // footway and steps dropped from the fixture
+    expect(city.roads).toHaveLength(6); // footway and steps dropped, bridge ways kept
   });
 
   it('round1 rounds to a single decimal', () => {
@@ -372,6 +395,34 @@ describe('committed public/data/city.json', () => {
 
   it('has 0 footway roads (footways are dropped)', () => {
     expect(city.roads.filter((r: { cls: string }) => r.cls === 'footway')).toHaveLength(0);
+  });
+
+  it('has >= 5 roads carrying the bridge flag', () => {
+    expect(
+      city.roads.filter((r: { bridge?: boolean }) => r.bridge === true).length,
+    ).toBeGreaterThanOrEqual(5);
+  });
+
+  it('a road named Westminster Bridge has bridge: true', () => {
+    // OSM splits Westminster Bridge across several named ways; the river-crossing
+    // segments carry `bridge=yes`. Assert at least one named road is flagged.
+    const hasBridged = city.roads.some(
+      (r: { name?: string; bridge?: boolean }) =>
+        r.name === 'Westminster Bridge' && r.bridge === true,
+    );
+    expect(hasBridged).toBe(true);
+  });
+
+  it('counts are within ±5 % of the Westminster dataset baseline', () => {
+    expect(city.buildings.length).toBeGreaterThanOrEqual(Math.round(9061 * 0.95));
+    expect(city.buildings.length).toBeLessThanOrEqual(Math.round(9061 * 1.05));
+    expect(city.roads.length).toBeGreaterThanOrEqual(Math.round(7803 * 0.95));
+    expect(city.roads.length).toBeLessThanOrEqual(Math.round(7803 * 1.05));
+    expect(city.places.length).toBeGreaterThanOrEqual(Math.round(99 * 0.95));
+    expect(city.places.length).toBeLessThanOrEqual(Math.round(99 * 1.05));
+    const water = city.water ?? [];
+    expect(water.length).toBeGreaterThanOrEqual(Math.round(31 * 0.95));
+    expect(water.length).toBeLessThanOrEqual(Math.round(31 * 1.05));
   });
 
   it('has a building named Palace of Westminster', () => {

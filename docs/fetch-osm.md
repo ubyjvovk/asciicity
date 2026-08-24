@@ -57,7 +57,9 @@ exactly per `docs/data-format.md`:
   dropped, heights clamped to `[3, 320]`.
 - **Roads** — `highway` → `cls` via the mapping table; `footway` and other
   unmapped values (e.g. `steps`) are dropped; ways with < 2 distinct points
-  are dropped.
+  are dropped. A road whose way carries a `bridge` tag with a value other than
+  `no` (`yes`, `viaduct`, `movable`, …) is emitted with `bridge: true`;
+  otherwise the key is omitted (T-0030 — bridges are walkable corridors).
 - **Places** — `place` nodes, `railway=station`, and named
   `tourism=attraction` nodes, deduplicated by name (first wins).
 - **Water** — standalone `natural=water` / `waterway=riverbank` ways plus the

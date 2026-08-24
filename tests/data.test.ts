@@ -69,6 +69,20 @@ describe('validateCity', () => {
     expect(() => validateCity(c)).toThrow(/roads\[0\]\.pts/);
   });
 
+  it('accepts an optional boolean road bridge flag', () => {
+    const c = base();
+    c.roads[0].bridge = true;
+    expect(() => validateCity(c)).not.toThrow();
+    c.roads[0].bridge = false;
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects a non-boolean road bridge flag, naming roads[i].bridge', () => {
+    const c = base();
+    (c.roads[0] as { bridge?: unknown }).bridge = 'yes';
+    expect(() => validateCity(c)).toThrow(/roads\[0\]\.bridge/);
+  });
+
   it('rejects a place with an empty name, naming places[i].name', () => {
     const c = base();
     c.places[0].name = '';

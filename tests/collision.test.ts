@@ -4,7 +4,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Building, Vec2 } from '../src/data/types';
-import { CollisionGrid, distToSegment, pointInPolygon } from '../src/world/collision';
+import {
+  CollisionGrid,
+  distToSegment,
+  pointInPolygon,
+  type Corridor,
+} from '../src/world/collision';
 
 const square: Vec2[] = [
   [0, 0],
@@ -186,7 +191,82 @@ describe('CollisionGrid.resolve', () => {
   });
 });
 
+describe('CollisionGrid corridors (T-0030)', () => {
+  // “Water” here is just a footprint (collision treats water rings as fake
+  // footprints); a corridor crossing it must override it.
+  const footprint = rectBuilding(1, 5, 5, 5, 5); // [0,0]..[10,10]
+  const bridge: Corridor = {
+    pts: [
+      [-5, 5],
+      [15, 5],
+    ],
+    halfWidth: 2,
+  };
+
+  it('does not block a point on a corridor that crosses a water footprint', () => {
+    const grid = new CollisionGrid([footprint], 25, [bridge]);
+    // Dead centre of the footprint AND on the corridor centre-line.
+    expect(grid.blocked([5, 5], 0.6)).toBe(false);
+    // Offset on the corridor but still over the footprint.
+    expect(grid.blocked([2, 5], 0.6)).toBe(false);
+  });
+
+  it('blocks a point 2 m outside the corridor over the same footprint', () => {
+    const grid = new CollisionGrid([footprint], 25, [bridge]);
+    // halfWidth=2 → corridor spans z∈[3,7]; z=9 is 2 m beyond the corridor
+    // edge and still inside the footprint → blocked.
+    expect(grid.blocked([5, 9], 0.6)).toBe(true);
+    // Same distance on the south side.
+    expect(grid.blocked([5, 1], 0.6)).toBe(true);
+  });
+
+  it('blocks a point off the corridor even when the segment passes nearby', () => {
+    const grid = new CollisionGrid([footprint], 25, [bridge]);
+    // Edge of the corridor (dist 2 = halfWidth) is not blocked…
+    expect(grid.blocked([5, 7], 0.6)).toBe(false);
+    // …but clearly past it is.
+    expect(grid.blocked([5, 10.5], 0.6)).toBe(true);
+  });
+
+  it('honours a corridor spanning several cells from every cell it covers', () => {
+    const bigFoot = rectBuilding(1, 0, 0, 60, 40); // [-60,-40]..[60,40]
+    const longCorridor: Corridor = {
+      pts: [
+        [-50, 0],
+        [50, 0],
+      ],
+      halfWidth: 2,
+    };
+    const grid = new CollisionGrid([bigFoot], 25, [longCorridor]);
+    // One probe per x-cell the corridor spans (cell = 25 → cx −2..1).
+    const probes: Vec2[] = [
+      [-40, 0],
+      [-20, 0],
+      [10, 0],
+      [30, 0],
+    ];
+    for (const p of probes) {
+      expect(grid.blocked(p, 0.6), `expected free on corridor at ${p.join(',')}`).toBe(false);
+    }
+    // Off the corridor but still inside the footprint → blocked.
+    expect(grid.blocked([0, 30], 0.6)).toBe(true);
+  });
+
+  it('does not unblock a footprint when the corridor is far away', () => {
+    const farCorridor: Corridor = {
+      pts: [
+        [-5, -5],
+        [5, -5],
+      ],
+      halfWidth: 1,
+    };
+    const grid = new CollisionGrid([footprint], 25, [farCorridor]);
+    expect(grid.blocked([5, 5], 0.6)).toBe(true); // centre of footprint, far from corridor
+  });
+});
+
 describe('CollisionGrid performance', () => {
+
   it('answers 10000 blocked queries against 5000 buildings in under 200 ms', () => {
     const buildings: Building[] = [];
     // 100 × 50 grid = 5000 buildings; each 8×8 m, spaced 20 m apart in a

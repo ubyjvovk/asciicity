@@ -12,7 +12,7 @@ import { syntheticCity } from './data/synthetic';
 import { resolveSpawn } from './data/spawn';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
-import { makeRoadsObject } from './world/roads';
+import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
@@ -137,10 +137,17 @@ async function main(): Promise<void> {
     scene.add(makeWaterObject(city.water));
   }
 
+  // Water rings become fake footprints so the player cannot walk onto the
+  // river; bridge roads become corridors that override those footprints (and
+  // buildings alike), so the player can walk across the Thames.
   const collision = new CollisionGrid(
     city.water?.length
       ? [...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
       : city.buildings,
+    25,
+    city.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
   );
   const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   const controls = new Controls(canvas);
