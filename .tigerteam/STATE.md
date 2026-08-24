@@ -52,6 +52,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - 2026-08-24 00:35 — T-0006 (opus-1), T-0007 (opus-2), T-0008 (ds-1) accepted first pass. Wave-2 note: Controls zeroes an axis when either key of the pair lifts (W held + S released ⇒ stop) — polish ticket later (track a held-key Set). In flight: T-0003, T-0004, T-0009, T-0012.
 - 2026-08-24 00:55 — T-0012 (opus-1), T-0004 (grok-1), T-0003 (ds-2: 3118 buildings / 10307 roads / 43 places, 1.76 MB, real tower heights), T-0009 (grok-2) accepted first pass. 10/12 wave-1 tickets done; merged main gate green (80 unit tests). T-0013 (controls held-key polish) added and claimed by grok-2. T-0010 (integration, C3) now claimable.
 
+- 2026-08-24 01:40 — 25/29 done. Wave 3 landed: minimap contrast, `?at=` presets + coordinates, Thames/dock water (data + render + collision), **Westminster dataset** (bbox −0.130…−0.070 / 51.497…51.521, origin still Bank, footways dropped: 9061 buildings / 7803 roads / 99 places / 31 water, 2.8 MB). User playtested and asked for a Big Ben start → T-0027 done, T-0028 (default spawn on Westminster Bridge @268°, verified visually via `?at=-0.12235,51.50085,268`: tower dead ahead) claimable; T-0025 touch, T-0026 landmark spawns, T-0029 landmark colours queued.
+
 ## Next actions
 1. Wave 3 (drafting 2026-08-24 01:05): T-0021 minimap contrast (named buildings too bright in the real city), T-0022 spawn presets `?at=`, T-0023 Thames water (data + world/water.ts + collision), T-0024 touch controls (P3).
 2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
