@@ -129,7 +129,7 @@ describe('osm-convert building selection', () => {
 });
 
 describe('osm-convert roadClassOf mapping table + steps', () => {
-  const rows = [
+  const rows: Array<[string, string | null]> = [
     ['trunk', 'primary'],
     ['trunk_link', 'primary'],
     ['primary', 'primary'],
@@ -142,7 +142,7 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     ['living_street', 'residential'],
     ['service', 'service'],
     ['pedestrian', 'pedestrian'],
-    ['footway', 'footway'],
+    ['footway', null],
   ];
 
   it('maps every row of the data-format table', () => {
@@ -155,13 +155,14 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     expect(roadClassOf('steps')).toBeNull();
   });
 
-  it('keeps mapped highway ways and drops unmapped ones', () => {
+  it('keeps mapped highway ways and drops unmapped ones (footway & steps)', () => {
     const city = convert();
     const ids = city.roads.map((r) => r.id);
     expect(ids).toContain(10); // primary "Cheapside"
     expect(ids).toContain(11); // secondary_link
     expect(ids).toContain(12); // residential
-    expect(ids).toContain(13); // footway
+    expect(ids).toContain(16); // residential
+    expect(ids).not.toContain(13); // footway dropped
     expect(ids).not.toContain(14); // steps dropped
   });
 
@@ -339,7 +340,7 @@ describe('osm-convert output invariants', () => {
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
     expect(city.buildings).toHaveLength(6);
-    expect(city.roads).toHaveLength(5);
+    expect(city.roads).toHaveLength(4); // footway and steps dropped from the fixture
   });
 
   it('round1 rounds to a single decimal', () => {
@@ -357,12 +358,27 @@ describe('committed public/data/city.json', () => {
     expect(city.v).toBe(1);
   });
 
-  it('has >= 3000 buildings', () => {
-    expect(city.buildings.length).toBeGreaterThanOrEqual(3000);
+  it('has the Westminster→Aldgate bbox', () => {
+    expect(city.bbox).toEqual([-0.13, 51.497, -0.07, 51.521]);
+  });
+
+  it('has >= 6000 buildings', () => {
+    expect(city.buildings.length).toBeGreaterThanOrEqual(6000);
   });
 
   it('has >= 500 roads', () => {
     expect(city.roads.length).toBeGreaterThanOrEqual(500);
+  });
+
+  it('has 0 footway roads (footways are dropped)', () => {
+    expect(city.roads.filter((r: { cls: string }) => r.cls === 'footway')).toHaveLength(0);
+  });
+
+  it('has a building named Palace of Westminster', () => {
+    const names = city.buildings
+      .filter((b: { name?: string }) => b.name && /westminster/i.test(b.name))
+      .map((b: { name: string }) => b.name);
+    expect(names).toContain('Palace of Westminster');
   });
 
   it('has >= 10 places', () => {
@@ -389,8 +405,15 @@ describe('committed public/data/city.json', () => {
     expect(hasRiver).toBe(true);
   });
 
-  it('file size is under 6 MB', () => {
-    expect(raw.length).toBeLessThan(6 * 1024 * 1024);
+  it('has a water ring with a point x < -2000 (the Thames at Westminster)', () => {
+    const water: Array<Array<[number, number]>> = city.water ?? [];
+    expect(water.length).toBeGreaterThan(0);
+    const hasWest = water.some((ring) => ring.some(([x]) => x < -2000));
+    expect(hasWest).toBe(true);
+  });
+
+  it('file size is under 10 MB', () => {
+    expect(raw.length).toBeLessThan(10 * 1024 * 1024);
   });
 
   it('passes validateCity with no throw', () => {

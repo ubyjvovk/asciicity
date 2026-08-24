@@ -18,7 +18,7 @@
 const DEG = Math.PI / 180;
 
 /** Default City of London bbox (minLon,minLat,maxLon,maxLat) per data-format. */
-const DEFAULT_BBOX = [-0.106, 51.506, -0.070, 51.521];
+const DEFAULT_BBOX = [-0.130, 51.497, -0.070, 51.521];
 
 /**
  * Project WGS84 lon/lat to local metres relative to `origin`
@@ -57,7 +57,10 @@ const ROAD_CLASS = {
   living_street: 'residential',
   service: 'service',
   pedestrian: 'pedestrian',
-  footway: 'footway',
+  // footway is deliberately unmapped (dropped like `steps`): footways are
+  // invisible at cell resolution and were ~40 % of the old file. `footway`
+  // stays in the `RoadClass` type/validator for compatibility, just never
+  // emitted.
 };
 
 /**
