@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { Road, RoadClass } from '../src/data/types';
 import { mulberry32 } from '../src/data/synthetic';
-import { buildRoadGraph, PathWalker, BusFleet } from '../src/world/traffic';
+import { buildRoadGraph, PathWalker, BusFleet, BoatFleet } from '../src/world/traffic';
 
 function road(cls: RoadClass, pts: [number, number][], id = 1): Road {
   return { id, cls, pts };
@@ -91,6 +91,15 @@ describe('PathWalker', () => {
     expect(w.heading).toBeCloseTo(-Math.PI / 2, 5); // now facing west
   });
 
+  it('reverseAtEnds ping-pongs: position returns toward start after passing an end', () => {
+    const g = buildRoadGraph([road('primary', [[0, 0], [100, 0]], 1)], ['primary']);
+    const w = new PathWalker(g, stubRand(0), true); // starts at (0,0), dir east
+    w.advance(150); // 100 m to the far end, then 50 m back west
+    expect(w.x).toBeCloseTo(50, 5); // returned toward the start
+    expect(w.z).toBeCloseTo(0, 5);
+    expect(w.heading).toBeCloseTo(-Math.PI / 2, 5); // now facing west
+  });
+
   it('two walkers with the same seed follow identical positions for 100 steps', () => {
     const g = buildRoadGraph(
       [
@@ -140,5 +149,70 @@ describe('BusFleet', () => {
     // `needsUpdate` is a setter-only property in three 0.185, so assert via version.
     expect(mesh.instanceMatrix.version).toBeGreaterThan(version);
     expect(mesh.instanceMatrix.array).not.toEqual(before);
+  });
+});
+
+describe('BoatFleet', () => {
+  const RIVERS: [number, number][][] = [
+    [[0, 0], [500, 0]],
+    [[0, 0], [0, 300]],
+  ];
+
+  it('creates an instanced boat per requested count and updates without allocation', () => {
+    const fleet = new BoatFleet(RIVERS, 4, 17);
+    expect(fleet.count).toBe(4);
+    expect(fleet.object).toBeInstanceOf(THREE.InstancedMesh);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    expect(mesh.count).toBe(4);
+    const before = mesh.instanceMatrix.array.slice();
+    const version = mesh.instanceMatrix.version;
+    fleet.update(0.5); // boats move
+    expect(mesh.instanceMatrix.version).toBeGreaterThan(version);
+    expect(mesh.instanceMatrix.array).not.toEqual(before);
+  });
+
+  it('is seed-deterministic: two fleets with the same seed drive identical paths', () => {
+    const a = new BoatFleet(RIVERS, 4, 17);
+    const b = new BoatFleet(RIVERS, 4, 17);
+    const ma = a.object as THREE.InstancedMesh;
+    const mb = b.object as THREE.InstancedMesh;
+    for (let i = 0; i < 50; i++) {
+      a.update(0.5);
+      b.update(0.5);
+    }
+    expect(ma.instanceMatrix.array).toEqual(mb.instanceMatrix.array);
+  });
+
+  it('boats ping-pong: reverse at the ends and stay on the polyline', () => {
+    // One boat on one east-west polyline, run for far longer than one full
+    // out-and-back. It must never leave [0, 500] and its velocity must change
+    // sign at least once (it reversed at an end instead of one-way drifting).
+    const fleet = new BoatFleet([[[0, 0], [500, 0]]], 1, 3);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    let prevX = mesh.instanceMatrix.array[12];
+    let prevDx: number | null = null;
+    let sawReversal = false;
+    for (let i = 0; i < 1000; i++) {
+      fleet.update(0.5); // 4 m/s * 0.5 s = 2 m per step
+      const x = mesh.instanceMatrix.array[12];
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(500);
+      const dx = x - prevX;
+      if (dx !== 0) {
+        if (prevDx !== null && Math.sign(dx) !== Math.sign(prevDx)) {
+          sawReversal = true;
+        }
+        prevDx = dx;
+      }
+      prevX = x;
+    }
+    expect(sawReversal).toBe(true);
+  });
+
+  it('empty rivers → count 0 and update is a no-op', () => {
+    const fleet = new BoatFleet([], 4, 17);
+    expect(fleet.count).toBe(0);
+    expect(() => fleet.update(0.5)).not.toThrow();
+    expect(fleet.object instanceof THREE.Group).toBe(true);
   });
 });

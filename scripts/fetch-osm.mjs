@@ -45,6 +45,7 @@ function buildQuery(bbox) {
   way["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
   relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
   relation["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
+  way["waterway"="river"](${minLat},${minLon},${maxLat},${maxLon});
 );
 out geom;`;
 }
@@ -174,7 +175,9 @@ function main() {
       const kb = Math.round(bytes / 1024);
       const line = `city.json: ${city.buildings.length} buildings, ${
         city.roads.length
-      } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${kb} KB (skipped ${
+      } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${
+        city.rivers?.length ?? 0
+      } rivers, ${kb} KB (skipped ${
         city.skippedRelations ?? 0
       } relations, dropped ${city.skippedOpenWaterChains ?? 0} open water chains)`;
 

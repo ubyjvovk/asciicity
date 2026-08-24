@@ -34,11 +34,11 @@ prints a one-line reason, exits non-zero, and never leaves a partial file.
 ## The summary line
 
 ```
-city.json: N buildings, M roads, K places, W water, S KB (skipped R relations, dropped D open water chains)
+city.json: N buildings, M roads, K places, W water, R rivers, S KB (skipped R relations, dropped D open water chains)
 ```
 
-- **N / M / K / W** — building, road, place, and water-ring counts written to
-  the file.
+- **N / M / K / W / R** — building, road, place, water-ring, and river
+  centre-line counts written to the file.
 - **S KB** — minified file size in kibibytes.
 - **R skipped relations** — multipolygon `building` relations that could not
   be emitted, i.e. whose building footprint is assembled from more than one
@@ -66,6 +66,11 @@ exactly per `docs/data-format.md`:
   `outer` members of their relations are assembled into rings, projected to
   local metres, clipped to the bbox expanded by 300 m, and cleaned/dropped
   like building rings (but with a 25 m² area floor).
+- **Rivers** — `way["waterway"="river"]` ways become `rivers: Vec2[][]`, the
+  River Thames centre-line(s) used as boat paths (T-0036). Each way is
+  projected to local metres, rounded to 0.1 m, and passed through the same
+  consecutive-duplicate cleanup as road polylines; polylines left with < 2
+  distinct points are dropped. `rivers` is omitted from the file when empty.
 - Coordinates are projected to local metres and rounded to 0.1 m; the output
   is minified JSON.
 
@@ -116,8 +121,8 @@ emitted ring passes the validator's per-array id-uniqueness rule.
   not cut a hole in the footprint; the polygon is emitted as the outer ring
   only. City of London has few such buildings, so the visual impact is
   minimal.
-- The Overpass query matches no `note`/`leisure` selectors; only the ten
+- The Overpass query matches no `note`/`leisure` selectors; only the eleven
   selectors in `docs/data-format.md` are fetched (buildings, highways, the
-  three place selectors, and the four water selectors).
+  three place selectors, the four water selectors, and river centre-lines).
 - Data is a one-time snapshot; it refreshes only when someone re-runs
   `npm run fetch-data` and commits the result.

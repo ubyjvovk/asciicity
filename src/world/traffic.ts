@@ -13,6 +13,12 @@ import type { Road, RoadClass, Vec2 } from '../data/types';
 /** Metres driven per second by every bus. */
 const BUS_SPEED_MPS = 7;
 
+/** Metres sailed per second by every boat. */
+const BOAT_SPEED_MPS = 4;
+
+/** Height (centre) of a boat above the water line (geometry is 2 m tall). */
+const BOAT_Y = 1.0;
+
 /** Road classes that carry double-deckers. */
 const BUS_CLASSES: RoadClass[] = ['primary', 'secondary'];
 
@@ -101,6 +107,8 @@ export class PathWalker {
   private _heading = 0;
   private edgeIndex = 0;
   private dir: 1 | -1 = 1;
+  /** When true, reverse at polyline ends instead of turning onto other edges. */
+  private reverseAtEnds: boolean;
   /** Metres walked along the current edge polyline from its starting end. */
   private dist = 0;
 
@@ -119,11 +127,15 @@ export class PathWalker {
 
   /**
    * Start on a random edge, at a random point along it. The empty graph has
-   * no edges, so the walker is inert (position 0, heading 0).
+   * no edges, so the walker is inert (position 0, heading 0). When
+   * `reverseAtEnds` is true the walker never turns onto other edges — it
+   * reverses direction at every polyline end (used by boats on isolated
+   * river centre-lines).
    */
-  constructor(graph: RoadGraph, rand: () => number) {
+  constructor(graph: RoadGraph, rand: () => number, reverseAtEnds = false) {
     this.graph = graph;
     this.rand = rand;
+    this.reverseAtEnds = reverseAtEnds;
     if (graph.edges.length === 0) return;
     this.edgeIndex = Math.floor(rand() * graph.edges.length);
     this.dist = rand() * polylineLength(graph.edges[this.edgeIndex].pts);
@@ -155,6 +167,12 @@ export class PathWalker {
 
   /** At the reached end node, pick a random other edge, or reverse. */
   private turn(): void {
+    // Boats on isolated centre-lines always ping-pong: no graph turns.
+    if (this.reverseAtEnds) {
+      this.dir = this.dir === 1 ? -1 : 1;
+      this.dist = 0;
+      return;
+    }
     const edge = this.graph.edges[this.edgeIndex];
     const endKey = this.dir === 1 ? edge.b : edge.a;
     const candidates = (this.graph.adj.get(endKey) ?? []).filter(
@@ -276,6 +294,72 @@ export class BusFleet {
       const w = this.walkers[i];
       w.advance(dt * BUS_SPEED_MPS);
       this.dummy.position.set(w.x, BUS_HALF_HEIGHT, w.z);
+      this.dummy.rotation.y = -w.heading;
+      this.dummy.updateMatrix();
+      this.mesh!.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.mesh!.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/**
+ * A few grey boats gliding along the OSM river centre-lines, rendered as one
+ * instanced mesh. Each walker ping-pongs along a randomly chosen polyline,
+ * reversing at the ends (no graph). Empty/absent rivers → `count 0` and an
+ * inert object whose `update` is a no-op.
+ */
+export class BoatFleet {
+  /** The three.js object to add to the scene (an InstancedMesh, or a Group when idle). */
+  readonly object: THREE.Object3D;
+  /** Number of boats currently sailing (0 when no valid rivers exist). */
+  readonly count: number;
+  private walkers: PathWalker[];
+  private mesh: THREE.InstancedMesh | null;
+  private dummy: THREE.Object3D;
+
+  /**
+   * Build `count` ping-pong walkers over the river centre-lines and a matching
+   * instanced boat mesh. Rivers are treated as isolated edges (no inter-river
+   * connections), so each boat stays on one polyline and reverses at its ends.
+   * No valid rivers → `count 0`.
+   */
+  constructor(rivers: Vec2[][], count = 4, seed = 17) {
+    const graph = buildRoadGraph(
+      rivers.map((pts, i) => ({ id: i, cls: 'primary' as RoadClass, pts })),
+      ['primary'],
+    );
+    const n = graph.edges.length > 0 ? count : 0;
+    this.count = n;
+    this.dummy = new THREE.Object3D();
+    if (n === 0) {
+      this.walkers = [];
+      this.mesh = null;
+      this.object = new THREE.Group();
+      return;
+    }
+    this.walkers = [];
+    for (let i = 0; i < n; i++) {
+      this.walkers.push(new PathWalker(graph, mulberry32(seed + i), true));
+    }
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(4, 2, 14),
+      new THREE.MeshLambertMaterial({ color: 0xbfc8cc }),
+      n,
+    );
+    this.mesh = mesh;
+    this.object = mesh;
+  }
+
+  /**
+   * Advance every boat by `dt · speed` metres and write its matrix via a single
+   * reused dummy — no per-frame allocation. No-op when no boats exist.
+   */
+  update(dt: number): void {
+    if (this.walkers.length === 0) return;
+    for (let i = 0; i < this.walkers.length; i++) {
+      const w = this.walkers[i];
+      w.advance(dt * BOAT_SPEED_MPS);
+      this.dummy.position.set(w.x, BOAT_Y, w.z);
       this.dummy.rotation.y = -w.heading;
       this.dummy.updateMatrix();
       this.mesh!.setMatrixAt(i, this.dummy.matrix);
