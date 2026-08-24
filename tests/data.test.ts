@@ -111,6 +111,34 @@ describe('validateCity', () => {
     ];
     expect(() => validateCity(c)).toThrow(/water\[0\]/);
   });
+
+  it('accepts an optional valid 2-point river polyline', () => {
+    const c = base();
+    c.rivers = [
+      [
+        [0, 0],
+        [100, 0],
+      ],
+    ];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects a 1-point river polyline, naming rivers[0]', () => {
+    const c = base();
+    c.rivers = [[[0, 0]]];
+    expect(() => validateCity(c)).toThrow(/rivers\[0\]/);
+  });
+
+  it('rejects a NaN coordinate in a river, naming rivers[0]', () => {
+    const c = base();
+    c.rivers = [
+      [
+        [0, 0],
+        [NaN, 0],
+      ],
+    ];
+    expect(() => validateCity(c)).toThrow(/rivers\[0\]/);
+  });
 });
 
 describe('syntheticCity', () => {

@@ -17,7 +17,7 @@ import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
 import { makeSky, updateSky } from './world/sky';
-import { BusFleet } from './world/traffic';
+import { BoatFleet, BusFleet } from './world/traffic';
 import {
   Controls,
   stepPlayer,
@@ -171,6 +171,11 @@ async function main(): Promise<void> {
   const fleet = new BusFleet(city.roads);
   scene.add(fleet.object);
 
+  // A few grey boats gliding along the river centre-lines (T-0036), when the
+  // dataset carries them — pure ambience, no collision.
+  const boats = city.rivers?.length ? new BoatFleet(city.rivers) : undefined;
+  if (boats) scene.add(boats.object);
+
   // Sky is the fixed time if `?time=` pins it, otherwise the real clock; the
   // 10 s interval advances it (re-computing positions if unpinned).
   const sky = makeSky(opts.time ?? new Date(), city.origin);
@@ -313,6 +318,7 @@ async function main(): Promise<void> {
     sky.position.set(state.x, EYE_HEIGHT, state.z);
 
     fleet.update(dt);
+    boats?.update(dt);
 
     ascii.render(scene, camera);
 

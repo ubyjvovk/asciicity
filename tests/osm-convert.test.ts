@@ -300,6 +300,26 @@ describe('osm-convert assembleRings', () => {
   });
 });
 
+describe('osm-convert rivers', () => {
+  const city = convert();
+
+  it('emits the fixture river way as a projected + cleaned polyline', () => {
+    // The single waterway=river way (id 32) has a point that collapses onto
+    // the first after 0.1 m rounding; the emitted polyline drops it, leaving
+    // 3 distinct points (same consecutive-duplicate cleanup as roads).
+    expect(city.rivers).toHaveLength(1);
+    const r = city.rivers![0];
+    expect(r.length).toBe(3);
+    expect(r[0][0]).toBeCloseTo(0, 5); // first point is the origin
+    expect(r[0][1]).toBeCloseTo(0, 5);
+    expect(r[2][0]).toBeCloseTo(13.9, 5); // east of the origin
+    // No consecutive duplicate points survive cleaning.
+    for (let i = 1; i < r.length; i++) {
+      expect(r[i]).not.toEqual(r[i - 1]);
+    }
+  });
+});
+
 describe('osm-convert clipRingToBox', () => {
   it('clips a square straddling the box edge down to the box', () => {
     const ring: Vec2[] = [
@@ -349,6 +369,7 @@ describe('osm-convert output invariants', () => {
     const all = [
       ...city.buildings.flatMap((b) => b.poly),
       ...city.roads.flatMap((r) => r.pts),
+      ...(city.rivers ?? []).flatMap((r) => r),
       ...city.places.map((p) => [p.x, p.z]),
     ];
     for (const [x, z] of all) {

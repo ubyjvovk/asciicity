@@ -145,6 +145,16 @@ export function validateCity(raw: unknown): CityData {
     });
   }
 
+  // rivers (optional) — boat centre-line polylines, >= 2 finite points each.
+  if (city.rivers !== undefined) {
+    if (!Array.isArray(city.rivers)) {
+      throw new Error('rivers: expected an array');
+    }
+    city.rivers.forEach((polyline, i) => {
+      validatePts(polyline, `rivers[${i}]`);
+    });
+  }
+
   return raw as CityData;
 }
 

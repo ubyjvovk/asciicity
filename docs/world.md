@@ -205,3 +205,24 @@ reused `THREE.Object3D` dummy** (`position.set(x, 2.15, z)`,
 `instanceMatrix.needsUpdate`) — no per-frame allocation. A network with no
 primary/secondary roads yields `count 0` and an inert group whose `update` is
 a no-op.
+
+## Boats (`src/world/traffic.ts`)
+
+A few grey boats glide along the OSM river centre-lines (`city.rivers`, T-0036)
+as pure ambience — no collision, wakes or tides. Boats reuse `PathWalker` with
+its **`reverseAtEnds`** option: each walker stays on one polyline and reverses
+direction at both ends (ping-pong; no graph turns).
+
+**`BoatFleet(rivers, count = 4, seed = 17)`** turns each `Vec2[]` river
+polyline into an isolated road edge (via `buildRoadGraph` on `cls: 'primary'`,
+so the same ≥ 2-point / non-degenerate filtering and quantised-node machinery
+apply) and wraps `count` `PathWalker(graph, mulberry32(seed + i), true)`
+s at **4 m/s**. Geometry is a single `THREE.InstancedMesh` of
+`BoxGeometry(4, 2, 14)` (a 14 m boat, length along z) with
+`MeshLambertMaterial({ color: 0xbfc8cc })`, one instance per boat. `update(dt)`
+advances every walker and writes its matrix through one reused
+`THREE.Object3D` dummy (`position.set(x, 1.0, z)`, `rotation.y = −heading`,
+`updateMatrix`, `setMatrixAt`, `instanceMatrix.needsUpdate`) — no per-frame
+allocation. Empty/absent rivers yield `count 0` and an inert group whose
+`update` is a no-op. `main.ts` instantiates it only when `city.rivers?.length`
+is non-zero.

@@ -325,6 +325,7 @@ export function convertOverpass(json, opts) {
   const buildings = [];
   const roads = [];
   const places = [];
+  const rivers = [];
   const seenPlace = new Set();
   const elements = Array.isArray(json?.elements) ? json.elements : [];
 
@@ -419,6 +420,17 @@ export function convertOverpass(json, opts) {
             : {}),
           pts,
         });
+      } else if (tags.waterway === 'river') {
+        // River centre-lines become boat paths (T-0036): projected to local
+        // metres, rounded to 0.1 m, and consecutive duplicates dropped exactly
+        // like road polylines; keep polylines with >= 2 distinct points.
+        const pts = [];
+        for (const p of el.geometry || []) {
+          const xy = toXY(p, origin);
+          const last = pts[pts.length - 1];
+          if (!last || last[0] !== xy[0] || last[1] !== xy[1]) pts.push(xy);
+        }
+        if (pts.length >= 2) rivers.push(pts);
       }
     } else if (el.type === 'relation') {
       if (tags.building !== undefined && tags['type'] === 'multipolygon') {
@@ -462,6 +474,7 @@ export function convertOverpass(json, opts) {
     roads,
     places,
     ...(water.length > 0 ? { water } : {}),
+    ...(rivers.length > 0 ? { rivers } : {}),
   };
   // Non-enumerable escape hatch for the fetch summary line; not serialized.
   Object.defineProperty(result, 'skippedRelations', {
