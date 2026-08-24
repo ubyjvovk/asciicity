@@ -79,31 +79,53 @@ Any tweak to the tint math (`tint = c / max(lum, 0.02)`, then
 (`floor(clamp(pow(lum, gamma), 0, 1) * (glyphCount - 1) + 0.5)`) requires a
 matching update to `glyphIndex` in TS and its unit tests.
 
-## Gloom mode (`invert`)
+## Themes (`theme`)
 
-`G` (or `?gloom=1`) toggles an inverted, washed-out "grey London" rendering
-for overcast days. Default stays the black cyberspace look. The change is
-purely in the fragment shader: a `float invert` uniform (0/1) selects between
-the normal glyph colour and a gloom colour built from a desaturated copy of
-the tint blended over a bright grey sky. Glyph density (`idx`) is unchanged,
-so empty cells become solid grey in gloom mode (mask 0 → background).
+`G` (or `?theme=` / `?gloom=1`) cycles the colour theme: **0 cyber** (black
+cyberspace), **1 gloom** (darker structures, more retained colour, for overcast
+days), **2 solarized** (muted ink on cream, almost wireframe-like). The change
+is purely in the fragment shader: a `float theme` uniform (0/1/2) selects one
+of three colour paths. Glyph density (`idx`) is unchanged, so empty cells
+become the theme's background (mask 0 → background colour).
 
-`AsciiOptions` gains `invert: boolean` (default false); `AsciiRenderer`
-exposes `get invert(): boolean` and `setInvert(on: boolean): void` which
-update the uniform. The terminal lines of the fragment shader are:
+`AsciiOptions` gains `theme: number` (default 0); `AsciiRenderer` exposes
+`get theme(): number` and `setTheme(t: number): void` which update the
+uniform. The `theme` uniform is a float so the JS mirror and GLSL ternary agree
+(`theme < 0.5 ? normal : (theme < 1.5 ? gloom : solarized)`). The terminal
+lines of the fragment shader are:
 
 ```glsl
 vec3 normalCol = tint * mask;
 float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
-vec3 washed = mix(vec3(lumT), tint, 0.55) * 0.26;   // dark, desaturated glyphs
-vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
-vec3 gloomCol = mix(gloomBg, washed, mask);
-gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
+float hot = smoothstep(0.92, 1.0, clamp(v, 0.0, 1.0)); // sun/moon/lit windows stay bright
+vec3 gWash = mix(vec3(lumT), tint, 0.75) * 0.20;        // darker + more colour than T-0037
+vec3 gGlyph = mix(gWash, tint * 0.9, hot);
+vec3 gloomCol = mix(vec3(0.72, 0.73, 0.75), gGlyph, mask);
+vec3 sInk = mix(vec3(0.396, 0.482, 0.514), tint, 0.5) * 0.75; // solarized base00 ink
+vec3 sGlyph = mix(sInk, vec3(0.71, 0.54, 0.0), hot);          // hot → solarized yellow
+vec3 solCol = mix(vec3(0.992, 0.965, 0.890), sGlyph, mask);   // base3 paper
+vec3 outCol = theme < 0.5 ? normalCol : (theme < 1.5 ? gloomCol : solCol);
+gl_FragColor = vec4(outCol, 1.0);
 ```
 
-The pure helper `gloomMix(tint, mask, invert): [number, number, number]`
-implements exactly these lines for unit tests — it is reviewed against the
-GLSL term-for-term.
+`v` is the already-exposed max-channel brightness computed earlier in the
+shader (`v = max(max(c.r, c.g), c.b)`) — the hot-highlight `smoothstep` reuses
+it rather than recomputing anything.
+
+### The three themes and their constants
+
+| Theme | Value | Background (mask 0) | Glyph (mask 1)                                                      | Hot cells (`v → 1`)      |
+|-------|-------|---------------------|---------------------------------------------------------------------|--------------------------|
+| cyber | `0`   | black               | `normalCol = tint * mask`                                            | —                        |
+| gloom | `1`   | `[0.72, 0.73, 0.75]` grey | `gWash = mix(lumT, tint, 0.75) * 0.20`, blended up by `mask` | `tint * 0.9` (bright)    |
+| solarized | `2` | `[0.992, 0.965, 0.890]` base3 paper | `sInk = mix(base00, tint, 0.5) * 0.75`, blended up by `mask` | `[0.71, 0.54, 0.0]` yellow |
+
+Solarized base00 ink is `[0.396, 0.482, 0.514]`.
+
+The pure helper `themeMix(tint, v, mask, theme): [number, number, number]`
+implements exactly these lines (including the `smoothstep`)
+for unit tests — it is reviewed against the GLSL term-for-term.
+(PM: `docs/architecture.md` §4.8 carries the same block — needs a matching update after accept.)
 
 ## CRT overlay (`src/render/crt.ts` + `crt.css`)
 

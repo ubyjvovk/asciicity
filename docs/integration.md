@@ -38,7 +38,7 @@ The app runs a single asynchronous `main()` when the module executes.
    `new Controls(canvas)`, and when `'ontouchstart' in window` or
    `navigator.maxTouchPoints > 0`, `new TouchControls(canvas)`. Then
    `new Hud(hudRoot)`,
-   `new AsciiRenderer(renderer, { cellW?, cellH?, invert? })` — `invert` is taken from `?gloom=1`; afterwards the `G` key toggles `ascii.setInvert()`.
+   `new AsciiRenderer(renderer, { cellW?, cellH?, theme? })` — `theme` is taken from `?theme=` (with `?gloom=1` as an alias for 1); afterwards the `G` key cycles `ascii.setTheme((ascii.theme + 1) % 3)`.
    When `minimap` is enabled (default), append a `<canvas id="minimap">` to
    `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
    and help line — the canvas is not in `index.html` so it stays below those
@@ -116,7 +116,8 @@ per-frame allocations are made inside `main.ts`.
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
 | `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
-| `gloom`     | `?gloom=1`     | Start in gloom mode (inverted, washed-out grey rendering) — same effect as pressing `G` (default off). |
+| `gloom`     | `?gloom=1`     | Start in gloom theme (alias for `theme=1`, ignored when `theme` is present — default off). |
+| `theme`     | `?theme=solarized` | Start theme: `cyber`/`0`, `gloom`/`1`, `solarized`/`2` (invalid or absent → `cyber`). `?gloom=1` is an accepted alias for `1`, but `theme` wins when both are present (default `cyber`). |
 | `time`      | `?time=2026-06-21T12:00:00Z` or `?time=12:00` | Pin the sky to a fixed time. Accepts an ISO timestamp (pinned absolute instant) or `HH:MM` meaning *today* in local time. Invalid or absent → real clock (default). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
@@ -164,7 +165,7 @@ Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
 
 | Key | Effect                                   |
 |-----|------------------------------------------|
-| `G` | Toggle gloom mode (inverted, washed-out grey rendering). |
+| `G` | Cycle colour theme: cyber → gloom → solarized → cyber. |
 
 ## `window.__asciicity`
 

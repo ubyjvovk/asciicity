@@ -27,8 +27,8 @@ export interface AsciiOptions {
   gamma: number;
   /** Scene brightness multiplier applied before the density curve (default 1.7). */
   exposure: number;
-  /** Gloom mode: inverted bright-grey sky with dark desaturated glyphs (default false). */
-  invert: boolean;
+  /** Colour theme: 0 cyber, 1 gloom, 2 solarized (default 0). */
+  theme: number;
 }
 
 const DEFAULT_OPTIONS: AsciiOptions = {
@@ -38,7 +38,7 @@ const DEFAULT_OPTIONS: AsciiOptions = {
   font: 'bold 24px "DejaVu Sans Mono", "Courier New", monospace',
   gamma: 0.45,
   exposure: 1.7,
-  invert: false,
+  theme: 0,
 };
 
 /**
@@ -59,34 +59,65 @@ export function glyphIndex(lum: number, count: number, gamma: number): number {
  * testable in node with a fake canvas/context.
  */
 /**
- * Gloom-mode colour mix mirroring the fragment shader's final four lines:
- * `normalCol` is the default glyph colour, `washed` a dark desaturated copy of
- * the tint, and `gloomCol` blends washed glyphs over a bright grey sky.
- * `invert` (0/1) flips between the normal and gloom outputs. Pure, for tests.
+ * Theme colour mixer mirroring the fragment shader's block term-for-term.
+ * `theme` selects the output: 0 = cyber (`tint * mask`), 1 = gloom
+ * (darker, more colourful glyphs over a bright grey sky, with hot near-white
+ * cells kept bright), 2 = solarized (muted ink on cream paper). `v` is the
+ * already-exposed max-channel brightness used to derive the `hot` highlight.
+ * Pure, for tests.
  */
-export function gloomMix(
+export function themeMix(
   tint: [number, number, number],
+  v: number,
   mask: number,
-  invert: number,
+  theme: number,
 ): [number, number, number] {
   const normalCol: [number, number, number] = [tint[0] * mask, tint[1] * mask, tint[2] * mask];
   const lumT = 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2];
-  const washed: [number, number, number] = [
-    (lumT + (tint[0] - lumT) * 0.55) * 0.26,
-    (lumT + (tint[1] - lumT) * 0.55) * 0.26,
-    (lumT + (tint[2] - lumT) * 0.55) * 0.26,
+  // smoothstep(0.92, 1.0, clamp(v, 0, 1)) — hot keeps sun/moon/lit windows bright.
+  const sx = Math.min(1, Math.max(0, (Math.min(1, Math.max(0, v)) - 0.92) / 0.08));
+  const hot = sx * sx * (3 - 2 * sx);
+
+  // Gloom theme (1): darker + more colour than T-0037, hot cells → tint * 0.9.
+  const gWash: [number, number, number] = [
+    (lumT + (tint[0] - lumT) * 0.75) * 0.2,
+    (lumT + (tint[1] - lumT) * 0.75) * 0.2,
+    (lumT + (tint[2] - lumT) * 0.75) * 0.2,
+  ];
+  const gGlyph: [number, number, number] = [
+    gWash[0] + (tint[0] * 0.9 - gWash[0]) * hot,
+    gWash[1] + (tint[1] * 0.9 - gWash[1]) * hot,
+    gWash[2] + (tint[2] * 0.9 - gWash[2]) * hot,
   ];
   const gloomBg: [number, number, number] = [0.72, 0.73, 0.75];
   const gloomCol: [number, number, number] = [
-    gloomBg[0] + (washed[0] - gloomBg[0]) * mask,
-    gloomBg[1] + (washed[1] - gloomBg[1]) * mask,
-    gloomBg[2] + (washed[2] - gloomBg[2]) * mask,
+    gloomBg[0] + (gGlyph[0] - gloomBg[0]) * mask,
+    gloomBg[1] + (gGlyph[1] - gloomBg[1]) * mask,
+    gloomBg[2] + (gGlyph[2] - gloomBg[2]) * mask,
   ];
-  return [
-    normalCol[0] + (gloomCol[0] - normalCol[0]) * invert,
-    normalCol[1] + (gloomCol[1] - normalCol[1]) * invert,
-    normalCol[2] + (gloomCol[2] - normalCol[2]) * invert,
+
+  // Solarized theme (2): base00 ink on base3 paper, hot cells → solarized yellow.
+  const sInk: [number, number, number] = [
+    (0.396 + (tint[0] - 0.396) * 0.5) * 0.75,
+    (0.482 + (tint[1] - 0.482) * 0.5) * 0.75,
+    (0.514 + (tint[2] - 0.514) * 0.5) * 0.75,
   ];
+  const solarizedYellow: [number, number, number] = [0.71, 0.54, 0.0];
+  const sGlyph: [number, number, number] = [
+    sInk[0] + (solarizedYellow[0] - sInk[0]) * hot,
+    sInk[1] + (solarizedYellow[1] - sInk[1]) * hot,
+    sInk[2] + (solarizedYellow[2] - sInk[2]) * hot,
+  ];
+  const paper: [number, number, number] = [0.992, 0.965, 0.89];
+  const solCol: [number, number, number] = [
+    paper[0] + (sGlyph[0] - paper[0]) * mask,
+    paper[1] + (sGlyph[1] - paper[1]) * mask,
+    paper[2] + (sGlyph[2] - paper[2]) * mask,
+  ];
+
+  if (theme < 0.5) return normalCol;
+  if (theme < 1.5) return gloomCol;
+  return solCol;
 }
 
 export function buildGlyphAtlas(
@@ -123,7 +154,7 @@ uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
 uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
 uniform float exposure;   // scene brightness multiplier before the curve
-uniform float invert;     // 0 = normal cyberspace, 1 = gloom (grey) mode
+uniform float theme;      // 0 cyber, 1 gloom, 2 solarized
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
@@ -137,10 +168,15 @@ void main() {
   tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
   vec3 normalCol = tint * mask;
   float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
-  vec3 washed = mix(vec3(lumT), tint, 0.55) * 0.26;   // dark, desaturated glyphs
-  vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
-  vec3 gloomCol = mix(gloomBg, washed, mask);
-  gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
+  float hot = smoothstep(0.92, 1.0, clamp(v, 0.0, 1.0)); // sun/moon/lit windows stay bright
+  vec3 gWash = mix(vec3(lumT), tint, 0.75) * 0.20;        // darker + more colour than T-0037
+  vec3 gGlyph = mix(gWash, tint * 0.9, hot);
+  vec3 gloomCol = mix(vec3(0.72, 0.73, 0.75), gGlyph, mask);
+  vec3 sInk = mix(vec3(0.396, 0.482, 0.514), tint, 0.5) * 0.75; // solarized base00 ink
+  vec3 sGlyph = mix(sInk, vec3(0.71, 0.54, 0.0), hot);          // hot → solarized yellow
+  vec3 solCol = mix(vec3(0.992, 0.965, 0.890), sGlyph, mask);   // base3 paper
+  vec3 outCol = theme < 0.5 ? normalCol : (theme < 1.5 ? gloomCol : solCol);
+  gl_FragColor = vec4(outCol, 1.0);
 }`;
 
 /**
@@ -201,7 +237,7 @@ export class AsciiRenderer {
         glyphCount: { value: this.glyphCount },
         gamma: { value: this.opts.gamma },
         exposure: { value: this.opts.exposure },
-        invert: { value: this.opts.invert ? 1 : 0 },
+        theme: { value: this.opts.theme },
       },
       vertexShader: VERT_SHADER,
       fragmentShader: FRAG_SHADER,
@@ -224,14 +260,14 @@ export class AsciiRenderer {
     return this._rows;
   }
 
-  /** Whether gloom (inverted, washed-out grey) mode is currently active. */
-  get invert(): boolean {
-    return (this.material.uniforms.invert.value as number) === 1;
+  /** The current colour theme: 0 cyber, 1 gloom, 2 solarized. */
+  get theme(): number {
+    return this.material.uniforms.theme.value as number;
   }
 
-  /** Toggle gloom mode on (`true`) or off (`false`), updating the shader uniform. */
-  setInvert(on: boolean): void {
-    this.material.uniforms.invert.value = on ? 1 : 0;
+  /** Set the colour theme (`0` cyber, `1` gloom, `2` solarized), updating the shader uniform. */
+  setTheme(t: number): void {
+    this.material.uniforms.theme.value = t;
   }
 
   /**
