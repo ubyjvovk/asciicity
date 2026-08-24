@@ -21,8 +21,8 @@ node scripts/fetch-osm.mjs \
 ```
 
 Defaults are the City of London values from `docs/data-format.md`: bbox
-`-0.106,51.506,-0.070,51.521` and origin Bank junction (`lon -0.0887,
-lat 51.5133`).
+`-0.130,51.497,-0.070,51.521` (Westminster to Aldgate) and origin Bank
+junction (`lon -0.0887, lat 51.5133`).
 
 Requires **node ≥ 22** (uses the global `fetch`); zero npm dependencies. The
 real-bbox query takes ~1–3 minutes and Overpass is occasionally overloaded, so
@@ -55,8 +55,9 @@ exactly per `docs/data-format.md`:
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
   dropped, heights clamped to `[3, 320]`.
-- **Roads** — `highway` → `cls` via the mapping table; unmapped values
-  (e.g. `steps`) dropped; ways with < 2 distinct points dropped.
+- **Roads** — `highway` → `cls` via the mapping table; `footway` and other
+  unmapped values (e.g. `steps`) are dropped; ways with < 2 distinct points
+  are dropped.
 - **Places** — `place` nodes, `railway=station`, and named
   `tourism=attraction` nodes, deduplicated by name (first wins).
 - **Water** — standalone `natural=water` / `waterway=riverbank` ways plus the

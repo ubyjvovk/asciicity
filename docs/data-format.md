@@ -20,13 +20,16 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
 - Numbers are rounded to 0.1 m (`Math.round(v * 10) / 10`) to keep the file
   small. The fetch output is minified JSON (no pretty print).
 
-## The real dataset: City of London
+## The real dataset: City of London to Westminster
 
-- **bbox** (minLon, minLat, maxLon, maxLat): `-0.106, 51.506, -0.070, 51.521`
-  — St Paul's to Aldgate, Barbican to the Thames (Tower of London included).
-- **origin**: Bank junction, `lat 51.5133, lon -0.0887`. The player spawns at
-  `(0, 0)` facing west (towards St Paul's).
-- Size budget: the minified file must stay **under 6 MB**.
+- **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`
+  — Westminster (Parliament/Trafalgar Square) to Aldgate, Camden-town-ish
+  north edge to the Thames (Westminster Bridge to Tower Bridge included).
+  The player can now walk from Big Ben west of Bank to the City in one world.
+- **origin**: Bank junction, `lat 51.5133, lon -0.0887` (unchanged — every
+  existing local coordinate, preset and test stays valid). The player spawns
+  at `(0, 0)`.
+- Size budget: the minified file must stay **under 10 MB**.
 
 ## Schema (v: 1)
 
@@ -34,7 +37,7 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
 {
   "v": 1,
   "origin": { "lat": 51.5133, "lon": -0.0887 },
-  "bbox": [-0.106, 51.506, -0.070, 51.521],
+  "bbox": [-0.13, 51.497, -0.07, 51.521],
   "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]] } ],
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
@@ -60,12 +63,12 @@ element carries its own coordinates):
 ```
 [out:json][timeout:180];
 (
-  way["building"](51.506,-0.106,51.521,-0.070);
-  relation["building"]["type"="multipolygon"](51.506,-0.106,51.521,-0.070);
-  way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|primary_link|secondary_link|trunk_link)$"](51.506,-0.106,51.521,-0.070);
-  node["place"](51.506,-0.106,51.521,-0.070);
-  node["railway"="station"](51.506,-0.106,51.521,-0.070);
-  node["tourism"="attraction"]["name"](51.506,-0.106,51.521,-0.070);
+  way["building"](51.497,-0.130,51.521,-0.070);
+  relation["building"]["type"="multipolygon"](51.497,-0.130,51.521,-0.070);
+  way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|primary_link|secondary_link|trunk_link)$"](51.497,-0.130,51.521,-0.070);
+  node["place"](51.497,-0.130,51.521,-0.070);
+  node["railway"="station"](51.497,-0.130,51.521,-0.070);
+  node["tourism"="attraction"]["name"](51.497,-0.130,51.521,-0.070);
 );
 out geom;
 ```
@@ -103,7 +106,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 | residential, living_street                         | `residential` |
 | service                                            | `service`     |
 | pedestrian                                         | `pedestrian`  |
-| footway                                            | `footway`     |
+| footway                                            | **dropped** (→ `null`; never emitted) |
 
 `name` copied when present. Ways with < 2 distinct points are dropped.
 

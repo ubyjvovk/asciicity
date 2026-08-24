@@ -21,7 +21,7 @@ import { convertOverpass } from './osm-convert.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
-const DEFAULT_BBOX = [-0.106, 51.506, -0.070, 51.521]; // City of London
+const DEFAULT_BBOX = [-0.130, 51.497, -0.070, 51.521]; // Westminster to Aldgate
 const DEFAULT_ORIGIN = { lon: -0.0887, lat: 51.5133 }; // Bank junction
 const DEFAULT_OUT = 'public/data/city.json';
 
