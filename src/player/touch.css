@@ -1,5 +1,6 @@
-/* Virtual joystick ring + knob. Imported by touch.ts. Shown only while a
-   left-half touch pointer is active. */
+/* Virtual joystick ring + knob. Imported by touch.ts. The ring shows a faint
+   idle hint anchored bottom-left so touch movement is discoverable; a
+   left-half touch turns it into the active joystick origin. */
 
 .touch-joystick-ring,
 .touch-joystick-knob {
@@ -15,6 +16,17 @@
 .touch-joystick-ring.is-active,
 .touch-joystick-knob.is-active {
   display: block;
+}
+
+/* Idle hint: faint ring anchored bottom-left; knob stays hidden. The active
+   state keeps the origin-anchored placement and full opacity. */
+.touch-joystick-ring.idle:not(.is-active) {
+  display: block;
+  opacity: 0.28;
+  left: 18vw;
+  bottom: 90px;
+  top: auto;
+  transform: translate(-50%, 50%);
 }
 
 .touch-joystick-ring {

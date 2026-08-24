@@ -161,8 +161,11 @@ anything whose `pointerType` is not `'touch'`.
   `Controls`).
 - `dispose()` removes every listener and the ring/knob nodes.
 - Visuals (`src/player/touch.css`): two `position: fixed` circles (ring at the
-  origin, knob following the finger, clamped to the ring) shown only while a
-  joystick pointer is active.
+  origin, knob following the finger, clamped to the ring). The ring shows a
+  **faint idle hint** anchored bottom-left at all times (opacity `0.28`, knob
+  hidden); a left-half `pointerdown` swaps it to the active origin-anchored
+  placement at full opacity, and `pointerup`/`pointercancel` return it to the
+  idle hint instead of hiding it. The input model is unchanged.
 
 `main.ts` constructs `TouchControls(canvas)` when `'ontouchstart' in window`
 or `navigator.maxTouchPoints > 0`, and each frame does
