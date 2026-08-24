@@ -161,7 +161,7 @@ children:
 |-------|----------|----------|------------------|
 | sun   | `CircleGeometry(45, 24)` | `MeshBasicMaterial({ color: 0xfff2b0, fog: false })` | at `dir·1200` relative to the group, `lookAt(group world position)`; visible when `alt > −2°` |
 | moon  | `CircleGeometry(32, 24)` | `MeshBasicMaterial({ color: 0xd9dbe4, transparent: true, fog: false })` | at `dir·1200` relative to the group; `opacity = 0.25 + 0.75·fraction`; visible when `alt > −2°` |
-| stars | `THREE.Points`, 300 mulberry32-seeded (seed 5) directions, altitude 5°–85°, radius 1300 | `PointsMaterial({ size: 3, color: 0x9fb4c8, fog: false, sizeAttenuation: false })` | visible only when sun `alt < −6°` |
+| stars | `THREE.Points`, 300 mulberry32-seeded (seed 5) directions, altitude 5°–85°, radius 1300 | `PointsMaterial({ size: 3, color: 0x8093a6, fog: false, sizeAttenuation: false })` | visible only when sun `alt < −6°` |
 
 `updateSky(group, date, origin)` moves/toggles the existing children —
 position + `lookAt(group world position)` + visibility for sun/moon, opacity

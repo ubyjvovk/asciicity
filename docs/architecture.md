@@ -208,7 +208,7 @@ void main() {
   tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
   vec3 normalCol = tint * mask;
   float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
-  vec3 washed = mix(vec3(lumT), tint, 0.35) * 0.35;   // dark, desaturated glyphs
+  vec3 washed = mix(vec3(lumT), tint, 0.55) * 0.26;   // dark, desaturated glyphs
   vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
   vec3 gloomCol = mix(gloomBg, washed, mask);
   gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);

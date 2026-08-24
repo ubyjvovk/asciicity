@@ -175,8 +175,8 @@ export function makeSky(
   const stars = new THREE.Points(
     starGeo,
     new THREE.PointsMaterial({
-      size: 3,
-      color: 0x9fb4c8,
+      size: 1.5,
+      color: 0x8093a6,
       fog: false,
       sizeAttenuation: false,
     }),
