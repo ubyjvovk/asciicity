@@ -119,3 +119,53 @@ unfocused cannot stick.
 
 These constants are exported from `src/player/controls.ts`; changing a value
 there recompiles the game with the new feel.
+
+## Touch (T-0025) — `src/player/touch.ts`
+
+Phone/tablet input layered on top of keyboard/mouse. `InputState` / `Controls`
+are unchanged; `main.ts` merges the two streams with `mergeInput`. Pure helpers
+run in node; `TouchControls` is a thin Pointer Event wrapper with **no
+top-level DOM access**.
+
+```ts
+export function joystickToAxes(dx: number, dy: number, radius = 60): { forward: number; strafe: number }
+export function mergeInput(a: InputState, b: InputState): InputState
+export class TouchControls { constructor(target: HTMLElement); readInput(): InputState; dispose(): void }
+```
+
+### joystickToAxes
+
+Pure. `strafe = clamp(dx / radius, −1..1)`, `forward = clamp(−dy / radius, −1..1)`
+(so a finger moving **up** the screen is forward). If the magnitude of the
+clamped axes is `< 0.1`, both axes are 0 (dead zone). Values past `radius` clamp
+to ±1 rather than being rescaled.
+
+### mergeInput
+
+Pure — returns a **new** `InputState`, never mutates `a` or `b`. `forward` /
+`strafe` / `turn` are summed then clamped to [−1, 1]; `sprint` is OR'd;
+`lookDx` / `lookDy` are summed with no clamp.
+
+### TouchControls
+
+Constructed on `target` (the canvas). Listeners use Pointer Events and ignore
+anything whose `pointerType` is not `'touch'`.
+
+| Region of `target` | Effect |
+|--------------------|--------|
+| Left half, pointer down | Joystick: origin = start point; axes from the current delta each frame via `joystickToAxes`. Sprint when `hypot(dx, dy) > 1.5 × radius`. |
+| Right half, pointer down | Look: each move adds `(Δx, Δy) × 2` to `lookDx` / `lookDy` (movementX semantics from the previous event, scaled ×2). |
+
+- `readInput()` returns the current stick axes / sprint plus the accumulated
+  look deltas, then zeroes the look deltas (same consume-per-frame contract as
+  `Controls`).
+- `dispose()` removes every listener and the ring/knob nodes.
+- Visuals (`src/player/touch.css`): two `position: fixed` circles (ring at the
+  origin, knob following the finger, clamped to the ring) shown only while a
+  joystick pointer is active.
+
+`main.ts` constructs `TouchControls(canvas)` when `'ontouchstart' in window`
+or `navigator.maxTouchPoints > 0`, and each frame does
+`mergeInput(controls.readInput(), touch.readInput())`. The overlay's existing
+click handler already fires on tap; `requestPointerLock` is wrapped in
+try/catch because it fails on touch.
