@@ -58,6 +58,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-24 02:45 — **30/30 done; board empty.** T-0026 data-driven landmark spawns merged (`?at=gherkin` → 70 m from 30 St Mary Axe facing it; verified on GPU). Wave-4 candidates (not queued, awaiting user): landmark spawn distance scaled by building height; tone down water saturation; bridge deck rendering/Tower Bridge; minimap zoom; day/night palette; sound; `?cell=` presets in the HUD help.
 
+- 2026-08-24 04:20 — Wave 4 boarded after user discussion: T-0031 mobile HUD (P0: HUD was intercepting touches — 320px panel on a 390px phone; verified via touch-emulation harness that the joystick itself works), T-0032 idle joystick ring, T-0033 gloom mode (`G`/`?gloom=1` — Ctrl+0 is browser zoom so G chosen), T-0034 sun/moon/stars (`?time=`), T-0035 double-deckers, T-0036 Thames boats (rivers contract added to types.ts). main.ts chain serialised T-0031→33→34→35→36. Traffic is pass-through by user decision ("rideable later").
+
 ## Next actions
 1. Board is empty (30/30). Next work comes from the user's playtest feedback — draft wave 4 from the candidates in the snapshot above.
 2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
