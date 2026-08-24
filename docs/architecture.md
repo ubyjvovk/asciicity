@@ -108,7 +108,9 @@ single group 0. Read the file before using it.
 ```ts
 export const PALETTE = [0x3a6fd8, 0x2ecc71, 0x1abc9c, 0xf1c40f, 0xe67e22, 0xc0392b, 0x9b59b6, 0x95a5a6] as const;
 export const LANDMARK_PALETTE = [0x5dade2, 0xf7dc6f, 0xff6b6b, 0xda70d6] as const;
-export function colorFor(b: Building): number  // named → LANDMARK_PALETTE[id % 4], else PALETTE[id % 8]
+export const LANDMARK_COLORS: Readonly<Record<string, number>>  // exact OSM name → hex (T-0029; table in docs/world.md)
+export function landmarkColor(name: string | undefined): number | undefined
+export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if present, else named → LANDMARK_PALETTE[id % 4], else PALETTE[id % 8]
 ```
 
 ### 4.4 Textures (src/world/textures.ts, browser-only)
@@ -239,7 +241,7 @@ void main() {
 ## 7. Performance budget
 
 ≥ 55 fps on an integrated GPU at 1080p with cell 6×12 (≈ 320×90 cells). The
-whole city is three meshes (ground, roads, buildings) → ≤ 5 draw calls per
+whole city is four meshes (ground, roads, buildings, water) → ≤ 6 draw calls per
 frame plus the ASCII quad. Never allocate per frame in the loop.
 
 ## 8. Testing strategy
