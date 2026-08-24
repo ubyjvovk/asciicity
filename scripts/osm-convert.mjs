@@ -142,15 +142,31 @@ function toRing(geom, origin) {
   const first = geom[0];
   const last = geom[geom.length - 1];
   if (!(first.lat === last.lat && first.lon === last.lon)) return null; // open
-  const poly = geom.slice(0, -1).map((p) => {
-    const [x, z] = project(p.lon, p.lat, origin);
-    return [round1(x), round1(z)];
-  });
+  // (3) drop the ring if fewer than 3 points remain or |area| < 1 m².
+  const cleaned = cleanRing(
+    geom.slice(0, -1).map((p) => {
+      const [x, z] = project(p.lon, p.lat, origin);
+      return [round1(x), round1(z)];
+    }),
+  );
+  if (cleaned.length < 3) return null;
+  if (ringArea(cleaned) < 1) return null; // degenerate
+  return cleaned;
+}
+
+/**
+ * Clean a rounded local-metre ring: drop any point equal to the previous
+ * point, and keep dropping the last point while it equals the first (this
+ * also handles the closing-point collapse where `poly` repeats its first
+ * point). Shared by buildings and water. Returns the cleaned ring (may be
+ * < 3 points once degenerate input is filtered).
+ * @param {Array<[number, number]>} poly rounded local-metre ring
+ * @returns {Array<[number, number]>} cleaned ring
+ */
+function cleanRing(poly) {
   // Rounding to 0.1 m can collapse distinct source points onto the same cell;
   // drop those before emitting so the ring passes `validateCity` and has no
-  // duplicated vertices. (1) any point equal to the previous point; (2) the
-  // last point while it equals the first (this also handles the closing-point
-  // collapse that made buildings[].poly repeat its first point).
+  // duplicated vertices.
   const cleaned = [];
   for (const pt of poly) {
     const prev = cleaned[cleaned.length - 1];
@@ -164,10 +180,128 @@ function toRing(geom, origin) {
     if (f0 === l0 && f1 === l1) cleaned.pop();
     else break;
   }
-  // (3) drop the ring if fewer than 3 points remain or |area| < 1 m².
-  if (cleaned.length < 3) return null;
-  if (ringArea(cleaned) < 1) return null; // degenerate
   return cleaned;
+}
+
+/** True when two WGS84 points coincide within the chaining epsilon (1e-7°). */
+function sameLatLon(a, b) {
+  return (
+    Math.abs(a.lon - b.lon) < 1e-7 && Math.abs(a.lat - b.lat) < 1e-7
+  );
+}
+
+/**
+ * Assemble water rings from a list of OSM ways/relation-outer members:
+ * closed ways become rings directly; open ways are chained greedily by
+ * matching endpoints (equal lon/lat within 1e-7) until they close. Returns
+ * the assembled closed rings and how many open chains could not be closed.
+ * @param {Array<{id: unknown, geometry: Array<{lon:number,lat:number}>}>} ways
+ * @returns {{rings: Array<Array<{lon:number,lat:number}>>, dropped: number}}
+ */
+function assembleRingsInternal(ways) {
+  const rings = [];
+  const open = [];
+  for (const w of ways) {
+    const geom = Array.isArray(w.geometry) ? w.geometry : [];
+    if (geom.length < 2) continue;
+    if (sameLatLon(geom[0], geom[geom.length - 1])) rings.push(geom);
+    else open.push({ id: w.id, geom });
+  }
+  let dropped = 0;
+  const used = new Set();
+  for (let i = 0; i < open.length; i++) {
+    if (used.has(open[i].id)) continue;
+    let chain = open[i].geom.slice();
+    used.add(open[i].id);
+    let isClosed = sameLatLon(chain[0], chain[chain.length - 1]);
+    let progressed = true;
+    while (!isClosed && progressed) {
+      progressed = false;
+      const head = chain[0];
+      const tail = chain[chain.length - 1];
+      for (let j = 0; j < open.length; j++) {
+        const o = open[j];
+        if (used.has(o.id)) continue;
+        const g = o.geom;
+        const g0 = g[0];
+        const gL = g[g.length - 1];
+        let joined = null;
+        if (sameLatLon(tail, g0)) joined = chain.concat(g.slice(1));
+        else if (sameLatLon(tail, gL)) joined = chain.concat(g.slice(0, -1).reverse());
+        else if (sameLatLon(head, gL)) joined = g.slice(0, -1).concat(chain);
+        else if (sameLatLon(head, g0)) joined = g.slice(1).reverse().concat(chain);
+        if (joined) {
+          chain = joined;
+          used.add(o.id);
+          progressed = true;
+          break;
+        }
+      }
+      if (progressed) isClosed = sameLatLon(chain[0], chain[chain.length - 1]);
+    }
+    if (isClosed && chain.length >= 3) rings.push(chain);
+    else dropped++;
+  }
+  return { rings, dropped };
+}
+
+/**
+ * Assemble water rings from OSM ways/relation members: closed ways become
+ * rings directly; open ways are chained greedily by matching endpoints
+ * (equal lon/lat within 1e-7) until they close; unclosed chains are dropped.
+ * @param {Array<{id: number, geometry: Array<{lon:number,lat:number}>}>} ways
+ * @returns {Array<Array<{lon:number,lat:number}>>} assembled closed rings
+ */
+export function assembleRings(ways) {
+  return assembleRingsInternal(ways).rings;
+}
+
+/** X-axis intersection of segment `(a,b)` with the vertical edge `x = c`. */
+function intersectX(a, b, c) {
+  const t = (c - a[0]) / (b[0] - a[0]);
+  return [c, a[1] + t * (b[1] - a[1])];
+}
+
+/** Z-axis intersection of segment `(a,b)` with the horizontal edge `z = c`. */
+function intersectZ(a, b, c) {
+  const t = (c - a[1]) / (b[1] - a[1]);
+  return [a[0] + t * (b[0] - a[0]), c];
+}
+
+/** Sutherland–Hodgman clip of `poly` against one half-plane. */
+function clipEdge(poly, inside, intersect) {
+  if (poly.length === 0) return poly;
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const cur = poly[i];
+    const prev = poly[(i - 1 + poly.length) % poly.length];
+    const curIn = inside(cur);
+    const prevIn = inside(prev);
+    if (curIn) {
+      if (!prevIn) out.push(intersect(prev, cur));
+      out.push(cur);
+    } else if (prevIn) {
+      out.push(intersect(prev, cur));
+    }
+  }
+  return out;
+}
+
+/**
+ * Clip a local-metre ring to an axis-aligned box with Sutherland–Hodgman.
+ * Clips against all four edges; may return fewer than 3 points (including an
+ * empty array) when the ring lies entirely outside the box.
+ * @param {Array<[number, number]>} ring closed ring of `[x, z]` pairs
+ * @param {{minX:number,minZ:number,maxX:number,maxZ:number}} box clip box
+ * @returns {Array<[number, number]>} clipped ring (may be < 3 points)
+ */
+export function clipRingToBox(ring, box) {
+  let poly = ring.map((p) => [p[0], p[1]]);
+  poly = clipEdge(poly, (p) => p[0] >= box.minX, (a, b) => intersectX(a, b, box.minX));
+  poly = clipEdge(poly, (p) => p[0] <= box.maxX, (a, b) => intersectX(a, b, box.maxX));
+  poly = clipEdge(poly, (p) => p[1] >= box.minZ, (a, b) => intersectZ(a, b, box.minZ));
+  poly = clipEdge(poly, (p) => p[1] <= box.maxZ, (a, b) => intersectZ(a, b, box.maxZ));
+  return poly;
 }
 
 /** Project a lat/lon point to rounded local [x, z]. */
@@ -192,6 +326,58 @@ export function convertOverpass(json, opts) {
   const elements = Array.isArray(json?.elements) ? json.elements : [];
 
   let skippedRelations = 0;
+
+  // --- Water (the Thames, docks): standalone `natural=water`/`waterway`
+  // `riverbank` ways plus the outer members of water relations. All are
+  // assembled into closed rings, projected to local metres, clipped to the
+  // bbox expanded by 300 m (the Thames relation extends far beyond it) and
+  // cleaned/dropped like building rings.
+  const waterWays = [];
+  for (const el of elements) {
+    if (!el || typeof el !== 'object') continue;
+    const tags = el.tags || {};
+    if (!(tags.natural === 'water' || tags.waterway === 'riverbank')) continue;
+    if (el.type === 'way') {
+      waterWays.push({ id: el.id, geometry: el.geometry });
+    } else if (el.type === 'relation') {
+      const members = Array.isArray(el.members) ? el.members : [];
+      members.forEach((m, k) => {
+        if (m && typeof m === 'object' && m.role === 'outer') {
+          waterWays.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        }
+      });
+    }
+  }
+  const { rings: waterRings, dropped: droppedOpenWaterChains } =
+    assembleRingsInternal(waterWays);
+
+  // Local-metre bbox of the source query, expanded by 300 m for clipping.
+  const boxP = {
+    minX: project(bbox[0], origin.lat, origin)[0], // west (minLon)
+    maxX: project(bbox[2], origin.lat, origin)[0], // east (maxLon)
+    minZ: project(bbox[0], bbox[3], origin)[1], // north (maxLat)
+    maxZ: project(bbox[0], bbox[1], origin)[1], // south (minLat)
+  };
+  const clipBox = {
+    minX: boxP.minX - 300,
+    minZ: boxP.minZ - 300,
+    maxX: boxP.maxX + 300,
+    maxZ: boxP.maxZ + 300,
+  };
+  const water = [];
+  for (const ring of waterRings) {
+    if (ring.length < 4) continue;
+    const poly = ring.slice(0, -1).map((p) => {
+      const [x, z] = project(p.lon, p.lat, origin);
+      return [round1(x), round1(z)];
+    });
+    const cleaned = cleanRing(poly);
+    if (cleaned.length < 3) continue;
+    const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+    if (clipped.length < 3) continue;
+    if (ringArea(clipped) < 25) continue; // degenerate / sliver
+    water.push(clipped);
+  }
 
   const buildEntry = (id, tags, poly) => ({
     id,
@@ -267,10 +453,16 @@ export function convertOverpass(json, opts) {
     buildings,
     roads,
     places,
+    ...(water.length > 0 ? { water } : {}),
   };
   // Non-enumerable escape hatch for the fetch summary line; not serialized.
   Object.defineProperty(result, 'skippedRelations', {
     value: skippedRelations,
+    writable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(result, 'skippedOpenWaterChains', {
+    value: droppedOpenWaterChains,
     writable: false,
     enumerable: false,
   });

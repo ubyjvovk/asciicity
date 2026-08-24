@@ -41,6 +41,10 @@ function buildQuery(bbox) {
   node["place"](${minLat},${minLon},${maxLat},${maxLon});
   node["railway"="station"](${minLat},${minLon},${maxLat},${maxLon});
   node["tourism"="attraction"]["name"](${minLat},${minLon},${maxLat},${maxLon});
+  way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+  way["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
 );
 out geom;`;
 }
@@ -170,9 +174,9 @@ function main() {
       const kb = Math.round(bytes / 1024);
       const line = `city.json: ${city.buildings.length} buildings, ${
         city.roads.length
-      } roads, ${city.places.length} places, ${kb} KB (skipped ${
+      } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${kb} KB (skipped ${
         city.skippedRelations ?? 0
-      } relations)`;
+      } relations, dropped ${city.skippedOpenWaterChains ?? 0} open water chains)`;
 
       const tmp = `${out}.tmp`;
       mkdirSync(dirname(out), { recursive: true });

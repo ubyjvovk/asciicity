@@ -8,12 +8,15 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  assembleRings,
+  clipRingToBox,
   convertOverpass,
   heightOf,
   project,
   roadClassOf,
   round1,
 } from '../scripts/osm-convert';
+import type { Vec2 } from '../src/data/types';
 import { validateCity } from '../src/data/validate';
 
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -182,6 +185,139 @@ describe('osm-convert places', () => {
   });
 });
 
+describe('osm-convert water', () => {
+  const city = convert();
+
+  it('emits water rings from the closed way and the chained relation outer', () => {
+    expect(city.water).toHaveLength(2);
+    for (const ring of city.water ?? []) {
+      expect(ring.length).toBeGreaterThanOrEqual(3);
+      // Closed ring: first point must not repeat last (validateCity rule).
+      expect(ring[0]).not.toEqual(ring[ring.length - 1]);
+    }
+  });
+
+  it('counts the uncloseable open water way as a dropped open chain', () => {
+    expect(city.skippedOpenWaterChains).toBe(1);
+  });
+});
+
+describe('osm-convert assembleRings', () => {
+  it('passes a closed way straight through as a ring', () => {
+    const ways = [
+      {
+        id: 1,
+        geometry: [
+          { lon: 0, lat: 0 },
+          { lon: 1, lat: 0 },
+          { lon: 1, lat: 1 },
+          { lon: 0, lat: 0 },
+        ],
+      },
+    ];
+    const rings = assembleRings(ways);
+    expect(rings).toHaveLength(1);
+    expect(rings[0]).toEqual([
+      { lon: 0, lat: 0 },
+      { lon: 1, lat: 0 },
+      { lon: 1, lat: 1 },
+      { lon: 0, lat: 0 },
+    ]);
+  });
+
+  it('chains two open ways into one closed ring', () => {
+    const ways = [
+      {
+        id: 1,
+        geometry: [
+          { lon: 0, lat: 0 },
+          { lon: 1, lat: 0 },
+          { lon: 1, lat: 1 },
+        ],
+      },
+      {
+        id: 2,
+        geometry: [
+          { lon: 1, lat: 1 },
+          { lon: 0, lat: 1 },
+          { lon: 0, lat: 0 },
+        ],
+      },
+    ];
+    const rings = assembleRings(ways);
+    expect(rings).toHaveLength(1);
+    expect(rings[0]).toEqual([
+      { lon: 0, lat: 0 },
+      { lon: 1, lat: 0 },
+      { lon: 1, lat: 1 },
+      { lon: 0, lat: 1 },
+      { lon: 0, lat: 0 },
+    ]);
+  });
+
+  it('drops open chains that cannot close', () => {
+    const ways = [
+      {
+        id: 1,
+        geometry: [
+          { lon: 0, lat: 0 },
+          { lon: 1, lat: 0 },
+        ],
+      },
+      {
+        id: 2,
+        geometry: [
+          { lon: 5, lat: 5 },
+          { lon: 6, lat: 6 },
+        ],
+      },
+    ];
+    expect(assembleRings(ways)).toHaveLength(0);
+  });
+});
+
+describe('osm-convert clipRingToBox', () => {
+  it('clips a square straddling the box edge down to the box', () => {
+    const ring: Vec2[] = [
+      [-10, -10],
+      [10, -10],
+      [10, 10],
+      [-10, 10],
+    ];
+    const clipped = clipRingToBox(ring, {
+      minX: -5,
+      minZ: -5,
+      maxX: 100,
+      maxZ: 100,
+    });
+    expect(clipped).toHaveLength(4);
+    // Shoelace area of [(-5,-5),(10,-5),(10,10),(-5,10)] is 15 * 15 = 225.
+    let area = 0;
+    for (let i = 0; i < clipped.length; i++) {
+      const [x1, z1] = clipped[i];
+      const [x2, z2] = clipped[(i + 1) % clipped.length];
+      area += x1 * z2 - x2 * z1;
+    }
+    expect(Math.abs(area) / 2).toBeCloseTo(225, 5);
+  });
+
+  it('returns < 3 points for a ring fully outside the box', () => {
+    const ring: Vec2[] = [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ];
+    const clipped = clipRingToBox(ring, {
+      minX: 10,
+      minZ: 10,
+      maxX: 20,
+      maxZ: 20,
+    });
+    expect(clipped.length).toBeLessThan(3);
+  });
+});
+
 describe('osm-convert output invariants', () => {
   const city = convert();
 
@@ -244,6 +380,13 @@ describe('committed public/data/city.json', () => {
       expect(b.h).toBeGreaterThanOrEqual(3);
       expect(b.h).toBeLessThanOrEqual(320);
     }
+  });
+
+  it('has at least one water ring with a point z > 600 (the Thames)', () => {
+    const water: Array<Array<[number, number]>> = city.water ?? [];
+    expect(water.length).toBeGreaterThan(0);
+    const hasRiver = water.some((ring) => ring.some(([, z]) => z > 600));
+    expect(hasRiver).toBe(true);
   });
 
   it('file size is under 6 MB', () => {

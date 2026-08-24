@@ -5,7 +5,7 @@
  * shapes (mirroring `src/data/types.ts` via `import type`).
  */
 
-import type { CityData, RoadClass } from '../src/data/types';
+import type { CityData, RoadClass, Vec2 } from '../src/data/types';
 
 /** WGS84 point used as the projection origin. */
 type Origin = { lat: number; lon: number };
@@ -23,7 +23,16 @@ export function roadClassOf(highway: string): RoadClass | null;
 
 export function heightOf(tags: Record<string, string>): number;
 
+export function assembleRings(
+  ways: Array<{ id: number; geometry: Array<{ lon: number; lat: number }> }>,
+): Array<Array<{ lon: number; lat: number }>>;
+
+export function clipRingToBox(
+  ring: Vec2[],
+  box: { minX: number; minZ: number; maxX: number; maxZ: number },
+): Vec2[];
+
 export function convertOverpass(
   json: { elements: unknown[] },
   opts: { origin: Origin; bbox?: Bbox },
-): CityData & { skippedRelations?: number };
+): CityData & { skippedRelations?: number; skippedOpenWaterChains?: number };

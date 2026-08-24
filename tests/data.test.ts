@@ -74,6 +74,29 @@ describe('validateCity', () => {
     c.places[0].name = '';
     expect(() => validateCity(c)).toThrow(/places\[0\]\.name/);
   });
+
+  it('accepts an optional valid water ring', () => {
+    const c = base();
+    c.water = [
+      [
+        [0, 0],
+        [10, 0],
+        [5, 8],
+      ],
+    ];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects a 2-point water ring, naming water[0]', () => {
+    const c = base();
+    c.water = [
+      [
+        [0, 0],
+        [1, 1],
+      ],
+    ];
+    expect(() => validateCity(c)).toThrow(/water\[0\]/);
+  });
 });
 
 describe('syntheticCity', () => {
