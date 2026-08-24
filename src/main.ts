@@ -1,6 +1,6 @@
 /**
  * AsciiCity bootstrap and frame loop (docs/architecture.md §5). Loads or
- * synthesises the city, builds the three world meshes, wires
+ * synthesises the city, builds the world meshes, wires
  * Controls / Hud / CollisionGrid / ZoneIndex / Minimap / AsciiRenderer /
  * CRT overlay, and runs the animation loop with a live pose exposed on
  * `window.__asciicity`.
@@ -14,6 +14,7 @@ import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
 import { makeRoadsObject } from './world/roads';
 import { makeGround } from './world/ground';
+import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
 import {
   Controls,
@@ -131,8 +132,15 @@ async function main(): Promise<void> {
   scene.add(makeGround());
   scene.add(makeRoadsObject(city.roads));
   scene.add(makeBuildingsObject(city.buildings, makeWindowTexture()));
+  if (city.water?.length) {
+    scene.add(makeWaterObject(city.water));
+  }
 
-  const collision = new CollisionGrid(city.buildings);
+  const collision = new CollisionGrid(
+    city.water?.length
+      ? [...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
+      : city.buildings,
+  );
   const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   const controls = new Controls(canvas);
   const hud = new Hud(hudRoot);
