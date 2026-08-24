@@ -56,8 +56,10 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-24 02:20 — **29/30 done.** Big Ben default spawn (T-0028) + walkable bridges (T-0030: `Road.bridge` flag, `CollisionGrid` corridors override water) + touch controls (T-0025) + landmark colours (T-0029) merged. Verified on GPU: default `/` spawns mid-Westminster-Bridge at x≈−2331, ZONE WESTMINSTER BRIDGE, walking west works. Pushed to origin. Remaining: T-0026 (data-driven landmark spawns).
 
+- 2026-08-24 02:45 — **30/30 done; board empty.** T-0026 data-driven landmark spawns merged (`?at=gherkin` → 70 m from 30 St Mary Axe facing it; verified on GPU). Wave-4 candidates (not queued, awaiting user): landmark spawn distance scaled by building height; tone down water saturation; bridge deck rendering/Tower Bridge; minimap zoom; day/night palette; sound; `?cell=` presets in the HUD help.
+
 ## Next actions
-1. Wave 3 (drafting 2026-08-24 01:05): T-0021 minimap contrast (named buildings too bright in the real city), T-0022 spawn presets `?at=`, T-0023 Thames water (data + world/water.ts + collision), T-0024 touch controls (P3).
+1. Board is empty (30/30). Next work comes from the user's playtest feedback — draft wave 4 from the candidates in the snapshot above.
 2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
 3. PM visual harness: `node node_modules/.pm-shot.mjs <worktree> <out.png> ['?synthetic=1']` (copy lives in scratchpad `shot.mjs`); default args use the GPU (`--use-angle=gl-egl`). Never judge frames from SwiftShader at 60 rows (see architecture.md §8).
 4. Later ideas: Westminster dataset option (bbox is a CLI arg), sound, day/night palette, `?cell=` presets in the HUD help.
