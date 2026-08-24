@@ -104,6 +104,13 @@ per-frame allocations are made inside `main.ts`.
 | `barbican`   | −0.0930  | 51.5185  | 0        | Barbican                                   |
 | `liverpoolst`| −0.0830  | 51.5178  | 90       | Liverpool Street                           |
 | `leadenhall` | −0.0845  | 51.5128  | 90       | Leadenhall Market                          |
+| `bigben`     | −0.12235 | 51.50085 | 268      | Westminster Bridge, facing Big Ben         |
+| `parliament` | −0.12655 | 51.5006  | 90       | Parliament Square, facing the Palace of Westminster |
+| `trafalgar`  | −0.12800 | 51.5079  | 180      | Trafalgar Square, facing Whitehall         |
+| `embankment` | −0.12200 | 51.5074  | 120      | Victoria Embankment, facing the London Eye |
+
+With no `?at=` the game spawns at the `bigben` preset (Westminster Bridge,
+facing Big Ben). The `bank` preset is still available as `?at=bank`.
 
 Coordinate form: `?at=lon,lat[,bearing]`, e.g. `?at=-0.0984,51.5138,90`
 (bearing in degrees; defaults to 0 / north if omitted). Presets and

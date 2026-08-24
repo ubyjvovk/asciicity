@@ -52,6 +52,30 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 90,
     label: 'Leadenhall Market',
   },
+  bigben: {
+    lon: -0.12235,
+    lat: 51.50085,
+    bearingDeg: 268,
+    label: 'Westminster Bridge, facing Big Ben',
+  },
+  parliament: {
+    lon: -0.12655,
+    lat: 51.5006,
+    bearingDeg: 90,
+    label: 'Parliament Square, facing the Palace of Westminster',
+  },
+  trafalgar: {
+    lon: -0.128,
+    lat: 51.5079,
+    bearingDeg: 180,
+    label: 'Trafalgar Square, facing Whitehall',
+  },
+  embankment: {
+    lon: -0.122,
+    lat: 51.5074,
+    bearingDeg: 120,
+    label: 'Victoria Embankment, facing the London Eye',
+  },
 };
 
 /** Maximum +x offset (metres) the spawn search scans when the point is blocked. */
@@ -96,8 +120,9 @@ function normalizeAngle(a: number): number {
 }
 
 /**
- * Resolve an `?at=` value to a spawn pose. `null`/unknown → the `bank`
- * preset at the origin; a preset or coordinate is projected to local metres
+ * Resolve an `?at=` value to a spawn pose. `null`/empty/unknown → the
+ * `bigben` preset (Westminster Bridge facing Big Ben); a preset or
+ * coordinate is projected to local metres
  * and, if `blocked`, walked `+x` in 1 m steps up to 200 m. Yaw comes from the
  * bearing (degrees → radians, wrapped to (−π, π]).
  */
@@ -120,7 +145,7 @@ export function resolveSpawn(
     lat = parsed.lat;
     bearingDeg = parsed.bearingDeg ?? 0;
   } else {
-    const preset = SPAWN_PRESETS.bank;
+    const preset = SPAWN_PRESETS.bigben;
     lon = preset.lon;
     lat = preset.lat;
     bearingDeg = preset.bearingDeg;

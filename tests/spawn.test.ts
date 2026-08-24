@@ -8,6 +8,15 @@ import { project } from '../src/geo';
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
 
+/** Wrap `a` into `(−π, π]` to compare against the resolver's yaw output. */
+function normalizeAngle(a: number): number {
+  const twoPi = 2 * Math.PI;
+  let r = a % twoPi;
+  if (r > Math.PI) r -= twoPi;
+  if (r <= -Math.PI) r += twoPi;
+  return r;
+}
+
 describe('parseAt', () => {
   it('returns null for a null input', () => {
     expect(parseAt(null)).toBeNull();
@@ -21,6 +30,13 @@ describe('parseAt', () => {
   it('returns the preset key for a matching name, case-insensitive and trimmed', () => {
     expect(parseAt('Gherkin ')).toEqual({ preset: 'gherkin' });
     expect(parseAt('  BANK')).toEqual({ preset: 'bank' });
+  });
+
+  it('parses each Westminster preset key', () => {
+    expect(parseAt('bigben')).toEqual({ preset: 'bigben' });
+    expect(parseAt('parliament')).toEqual({ preset: 'parliament' });
+    expect(parseAt('trafalgar')).toEqual({ preset: 'trafalgar' });
+    expect(parseAt('embankment')).toEqual({ preset: 'embankment' });
   });
 
   it('returns the numeric coordinates for lon,lat,bearing', () => {
@@ -50,8 +66,81 @@ describe('parseAt', () => {
 });
 
 describe('resolveSpawn', () => {
-  it('defaults to the bank preset at the origin with yaw −π/2', () => {
+  it('defaults to the bigben preset on Westminster Bridge with yaw 268°', () => {
+    const [ex, ez] = project(-0.12235, 51.50085, ORIGIN);
     const spawn = resolveSpawn(null, ORIGIN, () => false);
+    expect(spawn.x).toBeCloseTo(ex, 6);
+    expect(spawn.z).toBeCloseTo(ez, 6);
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((268 * Math.PI) / 180), 6);
+  });
+
+  it('defaults to bigben for an empty or unknown param', () => {
+    const [ex, ez] = project(-0.12235, 51.50085, ORIGIN);
+    for (const param of ['', 'nowhere']) {
+      const spawn = resolveSpawn(param, ORIGIN, () => false);
+      expect(spawn.x).toBeCloseTo(ex, 6);
+      expect(spawn.z).toBeCloseTo(ez, 6);
+      expect(spawn.yaw).toBeCloseTo(
+        normalizeAngle((268 * Math.PI) / 180),
+        6,
+      );
+    }
+  });
+
+  it('resolves the bigben preset to its projected point with the preset yaw', () => {
+    const spawn = resolveSpawn('bigben', ORIGIN, () => false);
+    expect(spawn.x).toBeCloseTo(
+      project(-0.12235, 51.50085, ORIGIN)[0],
+      6,
+    );
+    expect(spawn.z).toBeCloseTo(
+      project(-0.12235, 51.50085, ORIGIN)[1],
+      6,
+    );
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((268 * Math.PI) / 180), 6);
+  });
+
+  it('resolves the parliament preset to its projected point with yaw 90°', () => {
+    const spawn = resolveSpawn('parliament', ORIGIN, () => false);
+    expect(spawn.x).toBeCloseTo(
+      project(-0.12655, 51.5006, ORIGIN)[0],
+      6,
+    );
+    expect(spawn.z).toBeCloseTo(
+      project(-0.12655, 51.5006, ORIGIN)[1],
+      6,
+    );
+    expect(spawn.yaw).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('resolves the trafalgar preset to its projected point with yaw 180°', () => {
+    const spawn = resolveSpawn('trafalgar', ORIGIN, () => false);
+    expect(spawn.x).toBeCloseTo(
+      project(-0.128, 51.5079, ORIGIN)[0],
+      6,
+    );
+    expect(spawn.z).toBeCloseTo(
+      project(-0.128, 51.5079, ORIGIN)[1],
+      6,
+    );
+    expect(spawn.yaw).toBeCloseTo(Math.PI, 6);
+  });
+
+  it('resolves the embankment preset to its projected point with yaw 120°', () => {
+    const spawn = resolveSpawn('embankment', ORIGIN, () => false);
+    expect(spawn.x).toBeCloseTo(
+      project(-0.122, 51.5074, ORIGIN)[0],
+      6,
+    );
+    expect(spawn.z).toBeCloseTo(
+      project(-0.122, 51.5074, ORIGIN)[1],
+      6,
+    );
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((120 * Math.PI) / 180), 6);
+  });
+
+  it('still resolves the bank preset to the origin with yaw −π/2', () => {
+    const spawn = resolveSpawn('bank', ORIGIN, () => false);
     expect(spawn.x).toBeCloseTo(0, 6);
     expect(spawn.z).toBeCloseTo(0, 6);
     expect(spawn.yaw).toBeCloseTo(-Math.PI / 2, 6);
@@ -75,15 +164,16 @@ describe('resolveSpawn', () => {
   });
 
   it('walks +x when the spawn point is blocked, stopping at the first free cell', () => {
-    // blocked true for x < 3 → the first free step is x = 3.
-    const spawn = resolveSpawn(null, ORIGIN, (p) => p[0] < 3);
+    // Uses `bank` so the search starts at x0 = 0; blocked true for x < 3 →
+    // the first free step is x = 3.
+    const spawn = resolveSpawn('bank', ORIGIN, (p) => p[0] < 3);
     expect(spawn.x).toBe(3);
     expect(spawn.z).toBeCloseTo(0, 6);
     expect(spawn.yaw).toBeCloseTo(-Math.PI / 2, 6);
   });
 
   it('returns the original point when blocked for the whole 200 m search', () => {
-    const spawn = resolveSpawn(null, ORIGIN, () => true);
+    const spawn = resolveSpawn('bank', ORIGIN, () => true);
     expect(spawn.x).toBeCloseTo(0, 6);
     expect(spawn.z).toBeCloseTo(0, 6);
     expect(spawn.yaw).toBeCloseTo(-Math.PI / 2, 6);
@@ -93,12 +183,16 @@ describe('resolveSpawn', () => {
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
       'bank',
       'barbican',
+      'bigben',
+      'embankment',
       'gherkin',
       'leadenhall',
       'liverpoolst',
       'monument',
+      'parliament',
       'stpauls',
       'tower',
+      'trafalgar',
     ]);
     expect(SPAWN_PRESETS.gherkin.label).toBe('St Mary Axe, facing the Gherkin');
   });
