@@ -146,18 +146,27 @@ A direction from `(azimuthDeg A, altitudeDeg h)` is
 `dir = (sin A·cos h, sin h, −cos A·cos h)` (architecture.md §3: `x` east,
 `z` south, `y` up).
 
+The sky `THREE.Group` is added to the scene and **rides with the camera**:
+each frame `main.ts` copies the eye position onto `sky.position`
+(`sky.position.set(state.x, EYE_HEIGHT, state.z)`). Children keep their
+`dir·radius` positions **relative to the group**, so the discs stay 1200 m
+from the player everywhere on the map (inside the 2000 m far plane).
+`updateSky` orients each disc with `lookAt` at the group's world position
+(not the world origin) via a reused `THREE.Vector3`.
+
 `makeSky(date, origin, seed = 5)` builds a `THREE.Group` with three
 children:
 
 | child | geometry | material | placement / rule |
 |-------|----------|----------|------------------|
-| sun   | `CircleGeometry(45, 24)` | `MeshBasicMaterial({ color: 0xfff2b0, fog: false })` | at `dir·1200`, `lookAt(0,0,0)`; visible when `alt > −2°` |
-| moon  | `CircleGeometry(32, 24)` | `MeshBasicMaterial({ color: 0xd9dbe4, transparent: true, fog: false })` | at `dir·1200`; `opacity = 0.25 + 0.75·fraction`; visible when `alt > −2°` |
+| sun   | `CircleGeometry(45, 24)` | `MeshBasicMaterial({ color: 0xfff2b0, fog: false })` | at `dir·1200` relative to the group, `lookAt(group world position)`; visible when `alt > −2°` |
+| moon  | `CircleGeometry(32, 24)` | `MeshBasicMaterial({ color: 0xd9dbe4, transparent: true, fog: false })` | at `dir·1200` relative to the group; `opacity = 0.25 + 0.75·fraction`; visible when `alt > −2°` |
 | stars | `THREE.Points`, 300 mulberry32-seeded (seed 5) directions, altitude 5°–85°, radius 1300 | `PointsMaterial({ size: 3, color: 0x9fb4c8, fog: false, sizeAttenuation: false })` | visible only when sun `alt < −6°` |
 
 `updateSky(group, date, origin)` moves/toggles the existing children —
-position + `lookAt` + visibility for sun/moon, opacity for moon, visibility
-for stars — with **no per-call allocation** (the discs are only ever
-repositioned). The stars are static (fixed celestial sphere); only their
+position + `lookAt(group world position)` + visibility for sun/moon, opacity
+for moon, visibility for stars — with **no per-call allocation** (the discs
+are only ever repositioned; `lookAt` writes into a module-level
+`THREE.Vector3`). The stars are static (fixed celestial sphere); only their
 visibility changes. `makeSky` stores its three children in `group.userData`
 so `updateSky` can reach them without rebuilding.

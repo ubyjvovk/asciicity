@@ -304,6 +304,7 @@ async function main(): Promise<void> {
     camera.position.set(state.x, EYE_HEIGHT, state.z);
     camera.rotation.y = -state.yaw;
     camera.rotation.x = state.pitch;
+    sky.position.set(state.x, EYE_HEIGHT, state.z);
 
     ascii.render(scene, camera);
 

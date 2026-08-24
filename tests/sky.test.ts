@@ -113,4 +113,27 @@ describe('makeSky/updateSky', () => {
     expect(Number.isFinite(sun.position.y)).toBe(true);
     expect(Number.isFinite(sun.position.z)).toBe(true);
   });
+
+  it('visible discs stay at radius from a moved group', () => {
+    const origin = { lat: LAT, lon: LON };
+    const noon = isoT('2026-06-21T12:00:00Z');
+    const sky = makeSky(noon, origin);
+    sky.position.set(100, 0, 100);
+    sky.updateMatrixWorld();
+    updateSky(sky, noon, origin);
+
+    const groupPos = new THREE.Vector3();
+    const discPos = new THREE.Vector3();
+    sky.getWorldPosition(groupPos);
+    let seen = 0;
+    for (const child of sky.children) {
+      if (!(child instanceof THREE.Mesh) || !child.visible) continue;
+      child.getWorldPosition(discPos);
+      const r = discPos.distanceTo(groupPos);
+      expect(r).toBeGreaterThanOrEqual(1200 - 1);
+      expect(r).toBeLessThanOrEqual(1200 + 1);
+      seen++;
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
 });

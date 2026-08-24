@@ -66,7 +66,10 @@ The app runs a single asynchronous `main()` when the module executes.
 pinned `?time=` if present, else the real clock). A `setInterval` fires every
 **10 s** and calls `updateSky(sky, opts.time ?? new Date(), city.origin)` —
 advancing the sun/moon/stars with the real clock, or holding them fixed at the
-pinned instant when `?time=` is set.
+pinned instant when `?time=` is set. The sky group rides with the camera:
+each frame, after the camera update, `sky.position.set(state.x, EYE_HEIGHT,
+state.z)` so the discs stay 1200 m from the player (children keep
+`dir·radius` relative to the group).
 
 ## Frame loop
 
@@ -83,6 +86,8 @@ pinned instant when `?time=` is set.
   `window.__asciicity.state` stays a stable reference.
 - Camera update — position `(state.x, 1.7, state.z)`, rotation
   `y = -state.yaw, x = state.pitch` (with `YXZ` order set at bootstrap).
+  Then one no-allocation line `sky.position.set(state.x, EYE_HEIGHT, state.z)`
+  so the sky group rides with the camera.
 - `ascii.render(scene, camera)` — the ASCII post-process.
 - Rolling FPS — accumulate frame count and elapsed seconds; when the window
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
