@@ -65,10 +65,11 @@ interface UrlOptions {
   cellH: number | undefined;
   crt: boolean;
   minimap: boolean;
+  hud: boolean;
   at: string | null;
 }
 
-/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0&at=...`. Malformed values are ignored. */
+/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0&hud=0&at=...`. Malformed values are ignored. */
 export function parseUrlOptions(search: string): UrlOptions {
   const params = new URLSearchParams(search);
   const synthetic = params.get('synthetic') === '1';
@@ -90,7 +91,8 @@ export function parseUrlOptions(search: string): UrlOptions {
   }
   const crt = params.get('crt') !== '0';
   const minimap = params.get('minimap') !== '0';
-  return { synthetic, seed, cellW, cellH, crt, minimap, at };
+  const hud = params.get('hud') !== '0';
+  return { synthetic, seed, cellW, cellH, crt, minimap, hud, at };
 }
 
 /** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
@@ -155,7 +157,11 @@ async function main(): Promise<void> {
     'ontouchstart' in window || navigator.maxTouchPoints > 0
       ? new TouchControls(canvas)
       : undefined;
-  const hud = new Hud(hudRoot);
+  const hud = new Hud(hudRoot, touch ? 'LEFT: MOVE · RIGHT: LOOK' : undefined);
+
+  // `?hud=0` hides the panel (display-only) and skips its per-frame updates,
+  // but the rest of the app — world, controls, minimap — still runs.
+  if (!opts.hud) hudRoot.style.display = 'none';
 
   // Canvas is created here (not in index.html) so it lands after Hud's
   // title / rows / help. Disabled entirely on `?minimap=0`.
@@ -270,7 +276,7 @@ async function main(): Promise<void> {
     }
 
     frameCount++;
-    if (frameCount % HUD_INTERVAL === 0) {
+    if (opts.hud && frameCount % HUD_INTERVAL === 0) {
       hudValues.sector = sectorOf(state.x, state.z);
       hudValues.world = formatWorld(state.x, state.z);
       hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));

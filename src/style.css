@@ -22,7 +22,9 @@ body {
 
 /* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black
    with a 1 px dark-green border. Grows downward to fit the HUD rows plus
-   the optional minimap canvas (display:block, 8 px top margin via .minimap). */
+   the optional minimap canvas (display:block, 8 px top margin via .minimap).
+   Display-only: `pointer-events: none` lets look-drags pass through to the
+   canvas, so the panel never intercepts pointer input. */
 #hud {
   position: fixed;
   top: 0;
@@ -35,10 +37,26 @@ body {
   white-space: pre-wrap;
   border: 1px solid var(--hud-border);
   box-sizing: border-box;
+  pointer-events: none;
 }
 
 #hud .minimap {
   display: block;
+}
+
+/* Compact layout on small screens: shrink the panel so it does not cover the
+   right side of the viewport on a phone. The minimap keeps its 180 px backing
+   store; only its CSS box shrinks. */
+@media (max-width: 700px) {
+  #hud {
+    width: 176px;
+    padding: 6px 8px;
+  }
+
+  #hud .minimap {
+    width: 90px;
+    height: 90px;
+  }
 }
 
 /* Centred full-screen overlay: green on black, monospace, click to dismiss. */

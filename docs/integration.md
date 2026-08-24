@@ -100,6 +100,7 @@ per-frame allocations are made inside `main.ts`.
 | `cell`      | `?cell=8x16`   | Overrides the ASCII cell size (`cellW × cellH` in pixels). |
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
+| `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
 
