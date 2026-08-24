@@ -168,7 +168,7 @@ pointer lock on click of `target`, accumulates `movementX/Y` while locked, and
 
 ```ts
 export const DEFAULT_RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.45 */; exposure: number /* 1.7 */; invert: boolean /* false — gloom mode (T-0033) */ }
+export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.45 */; exposure: number /* 1.7 */; theme: number /* 0 cyber · 1 gloom · 2 solarized (T-0038); G cycles */ }
 export function glyphIndex(lum: number, count: number, gamma: number): number  // floor(clamp(lum,0,1)^gamma · (count−1) + 0.5), clamped to [0, count−1]
 export function buildGlyphAtlas(ramp: string, tileW: number, tileH: number, font: string, canvas: HTMLCanvasElement): { canvas: HTMLCanvasElement; count: number }
 export class AsciiRenderer {
@@ -194,7 +194,7 @@ uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
 uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
 uniform float exposure;   // scene brightness multiplier before the curve
-uniform float invert;     // 0 = normal cyberspace, 1 = gloom (grey) mode
+uniform float theme;      // 0 cyber, 1 gloom, 2 solarized
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
@@ -208,10 +208,15 @@ void main() {
   tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
   vec3 normalCol = tint * mask;
   float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
-  vec3 washed = mix(vec3(lumT), tint, 0.55) * 0.26;   // dark, desaturated glyphs
-  vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
-  vec3 gloomCol = mix(gloomBg, washed, mask);
-  gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
+  float hot = smoothstep(0.92, 1.0, clamp(v, 0.0, 1.0)); // sun/moon/lit windows stay bright
+  vec3 gWash = mix(vec3(lumT), tint, 0.75) * 0.20;        // darker + more colour than T-0037
+  vec3 gGlyph = mix(gWash, tint * 0.9, hot);
+  vec3 gloomCol = mix(vec3(0.72, 0.73, 0.75), gGlyph, mask);
+  vec3 sInk = mix(vec3(0.396, 0.482, 0.514), tint, 0.5) * 0.75; // solarized base00 ink
+  vec3 sGlyph = mix(sInk, vec3(0.71, 0.54, 0.0), hot);          // hot → solarized yellow
+  vec3 solCol = mix(vec3(0.992, 0.965, 0.890), sGlyph, mask);   // base3 paper
+  vec3 outCol = theme < 0.5 ? normalCol : (theme < 1.5 ? gloomCol : solCol);
+  gl_FragColor = vec4(outCol, 1.0);
 }
 ```
 

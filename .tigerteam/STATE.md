@@ -60,6 +60,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-24 04:20 — Wave 4 boarded after user discussion: T-0031 mobile HUD (P0: HUD was intercepting touches — 320px panel on a 390px phone; verified via touch-emulation harness that the joystick itself works), T-0032 idle joystick ring, T-0033 gloom mode (`G`/`?gloom=1` — Ctrl+0 is browser zoom so G chosen), T-0034 sun/moon/stars (`?time=`), T-0035 double-deckers, T-0036 Thames boats (rivers contract added to types.ts). main.ts chain serialised T-0031→33→34→35→36. Traffic is pass-through by user decision ("rideable later").
 
+- 2026-08-24 15:05 — **Wave 4 complete: 38/38 accepted.** Landed since the last checkpoint: mobile HUD (click-through + compact) & idle joystick ring, theme system (G cycles cyber/gloom/solarized, hot cells keep the sun/moon/lit windows bright — user-driven two-pass contrast tuning), astronomically correct sun/moon/stars (`?time=`; one rework: sky must ride with the camera — spec bug), double-deckers on the road graph (visually verified via seeded ambush), Thames boats on OSM river centre-lines (verified from London Bridge). All gates green (257 unit tests + e2e).
+
 ## Next actions
 1. Board is empty (30/30). Next work comes from the user's playtest feedback — draft wave 4 from the candidates in the snapshot above.
 2. User must set GitHub → Settings → Pages → Source: **GitHub Actions** for the deploy job to succeed (main pushed 2026-08-24).
