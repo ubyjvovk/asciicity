@@ -19,11 +19,16 @@ The app runs a single asynchronous `main()` when the module executes.
    `console.warn` and fall back to `syntheticCity(seed)`.
 4. **Build the scene.** `makeRenderer(canvas)`, `makeScene()`,
    `makeCamera(aspect)`; set `camera.rotation.order = 'YXZ'` (architecture §5).
-   Add three meshes:
+   Add the world meshes:
    - `makeGround()`
    - `makeRoadsObject(city.roads)`
    - `makeBuildingsObject(city.buildings, makeWindowTexture())`
-5. **Wire helpers.** `new CollisionGrid(city.buildings)`,
+   - `makeWaterObject(city.water)` when `city.water?.length` is truthy
+5. **Wire helpers.** `new CollisionGrid(city.buildings)` when there is no
+   water; when `city.water?.length`, water rings are included as fake
+   footprints so the player cannot walk onto the river:
+   `new CollisionGrid([...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))])`.
+   Then
    `new ZoneIndex(city.roads, city.places, 50, city.buildings)`,
    `new Controls(canvas)`, `new Hud(hudRoot)`,
    `new AsciiRenderer(renderer, { cellW?, cellH? })`.
@@ -128,7 +133,8 @@ holding on to it always sees the latest pose without re-reading the property.
 
 ## Adding a new world layer
 
-Layers today are three meshes added to the scene at step 4. To add another
+Layers today are ground, roads, buildings, and (when `city.water` is
+non-empty) water, added to the scene at step 4. To add another
 (e.g. street furniture, a landmark spotlight, a minimap indicator on top):
 
 1. **Write the module.** Follow the split used by `world/buildings.ts` —

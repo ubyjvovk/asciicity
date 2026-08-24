@@ -79,3 +79,29 @@ Importing the module in node is safe; calling the function is not.
   row-major order.
 - `RepeatWrapping` both axes, `NearestFilter` min/mag,
   `colorSpace = SRGBColorSpace`.
+
+## Water (`src/world/water.ts`)
+
+`city.water` is an optional list of rings with the same rules as
+`Building.poly` (≥ 3 points, first not repeated; winding unspecified).
+Each ring becomes a flat dark-blue polygon just above the ground.
+
+1. Rings with fewer than 3 points are skipped.
+2. **Normalise** a copy of the ring so `THREE.ShapeUtils.area(ring as
+   Vector2[])` is positive (reverse when negative) — the same winding
+   rule as building footprints.
+3. Rings with `|area| < 1` m² are skipped.
+4. **Triangulate** with `ShapeUtils.triangulateShape(ring, [])` at
+   `y = 0.02`. Stored normal is `(0, 1, 0)`. UVs are `(0, 0)`. If a
+   triangulated face would wind downward (`cross.y < 0`), its last two
+   vertices are swapped so the surface faces up.
+
+The result is one non-indexed triangle soup (`MeshData`) in a single
+group `{start: 0, count: N, materialIndex: 0}`. Empty input (or every
+ring skipped) yields no groups. Vertex colour is the **linear** `r,g,b`
+of `new THREE.Color(0x163a6b)` on every vertex.
+
+`makeWaterObject` wraps the soup in a `THREE.Mesh` with
+`MeshBasicMaterial({ vertexColors: true })`. Collision is **not**
+applied in this module — `main.ts` feeds water rings into
+`CollisionGrid` as fake footprints so the player stays on land.
