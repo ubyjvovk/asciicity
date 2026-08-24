@@ -34,8 +34,11 @@ URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
 - `?minimap=0` — disable the heading-up minimap under the HUD rows (on by default).
 - `?at=<name>` — spawn at a landmark preset (`bank`, `stpauls`, `gherkin`,
   `monument`, `tower`, `barbican`, `liverpoolst`, `leadenhall`, `bigben`,
-  `parliament`, `trafalgar`, `embankment`) or at a coordinate
+  `parliament`, `trafalgar`, `embankment`, `walkietalkie`, `lloyds`) or at a coordinate
   `?at=lon,lat[,bearing]`, e.g. `?at=gherkin` or `?at=-0.0984,51.5138,90`.
+  Named-building presets (`gherkin`, `stpauls`, …) are resolved from
+  `city.json` — spawn on the nearest road ~70 m from the building, facing
+  it; if the building is absent they fall back to `bigben`.
   With no `?at=` the game starts on Westminster Bridge facing Big Ben.
   Ignored with `?synthetic=1`.
 

@@ -179,7 +179,7 @@ async function main(): Promise<void> {
   // walking +x if the point is blocked inside a building.
   const spawn = opts.synthetic
     ? { x: 0, z: 0, yaw: -Math.PI / 2 }
-    : resolveSpawn(opts.at, city.origin, (p: Vec2) => collision.blocked(p));
+    : resolveSpawn(opts.at, city.origin, (p: Vec2) => collision.blocked(p), city);
   const state: PlayerState = {
     x: spawn.x,
     z: spawn.z,
