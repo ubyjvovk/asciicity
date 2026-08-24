@@ -70,11 +70,17 @@ describe('gloomMix', () => {
     expect(out[2]).toBeCloseTo(0.6 * 0.5);
   });
 
-  it('gloomMix([1,1,1], 1, 1) returns [0.35, 0.35, 0.35] (white desaturates to itself then ×0.35)', () => {
+  it('gloomMix([1,1,1], 1, 1) returns [0.26, 0.26, 0.26] (white desaturates to itself then ×0.26)', () => {
     const out = gloomMix([1, 1, 1], 1, 1);
-    expect(out[0]).toBeCloseTo(0.35, 6);
-    expect(out[1]).toBeCloseTo(0.35, 6);
-    expect(out[2]).toBeCloseTo(0.35, 6);
+    expect(out[0]).toBeCloseTo(0.26, 6);
+    expect(out[1]).toBeCloseTo(0.26, 6);
+    expect(out[2]).toBeCloseTo(0.26, 6);
+  });
+
+  it('gloomMix([1,0,0], 1, 1) retains red colour: r ≈ 0.178 and r > 2·g', () => {
+    const out = gloomMix([1, 0, 0], 1, 1);
+    expect(out[0]).toBeCloseTo((0.299 + 0.701 * 0.55) * 0.26, 3);
+    expect(out[0]).toBeGreaterThan(2 * out[1]);
   });
 });
 
