@@ -182,6 +182,7 @@ export class TouchControls {
   };
 
   private showStick(): void {
+    this.ring.classList.remove('idle');
     this.ring.classList.add('is-active');
     this.knob.classList.add('is-active');
     this.ring.style.left = `${this.joyOriginX}px`;
@@ -190,8 +191,10 @@ export class TouchControls {
   }
 
   private hideStick(): void {
+    // Return to (or start in) the idle hint state rather than hiding entirely.
     this.ring.classList.remove('is-active');
     this.knob.classList.remove('is-active');
+    this.ring.classList.add('idle');
   }
 
   private layoutKnob(): void {
