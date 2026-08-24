@@ -41,7 +41,8 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
   "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]], "bridge": true } ],   // bridge optional (T-0030)
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
-  "water":     [ [[x,z],[x,z],[x,z]] ]          // optional, rings (T-0023)
+  "water":     [ [[x,z],[x,z],[x,z]] ],         // optional, rings (T-0023)
+  "rivers":    [ [[x,z],[x,z]] ]                // optional, centre-line polylines (T-0036)
 }
 ```
 
@@ -54,6 +55,7 @@ Rules every producer must follow and `validateCity` must enforce:
 - `places[]`: finite `x`/`z`, non-empty `name`.
 - `id` unique within each array.
 - `water` (optional): array of rings obeying the `poly` rules; may be absent or empty.
+- `rivers` (optional): array of polylines (≥ 2 finite points each); may be absent or empty.
 
 ## OSM → JSON conversion rules (`scripts/osm-convert.mjs`)
 

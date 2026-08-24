@@ -67,4 +67,9 @@ export interface CityData {
    * Absent or empty when the producer has none. Added 2026-08-24 (T-0023).
    */
   water?: Vec2[][];
+  /**
+   * Optional river centre-lines (OSM `waterway=river`) as polylines in local
+   * metres — boat paths. Absent when the producer has none. Added 2026-08-24 (T-0036).
+   */
+  rivers?: Vec2[][];
 }
