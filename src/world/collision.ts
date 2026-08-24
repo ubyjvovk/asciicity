@@ -45,8 +45,28 @@ export function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   return Math.sqrt(ex * ex + ey * ey);
 }
 
+/**
+ * A walkable corridor (e.g. a bridge) that overrides footprints: any point
+ * within `halfWidth` metres of its centre-line polyline is never blocked.
+ */
+export interface Corridor {
+  pts: Vec2[];
+  halfWidth: number;
+}
+
 interface Footprint {
   poly: Vec2[];
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** One corridor centre-line segment with its expanded bbox for bucketing. */
+interface CorridorSeg {
+  a: Vec2;
+  b: Vec2;
+  halfWidth: number;
   minX: number;
   maxX: number;
   minZ: number;
@@ -60,9 +80,10 @@ interface Footprint {
 export class CollisionGrid {
   private readonly cell: number;
   private readonly cells: Map<string, Footprint[]> = new Map();
+  private readonly corridorCells: Map<string, CorridorSeg[]> = new Map();
 
   /** Bucket each footprint into every cell its (radius-expanded) AABB touches. */
-  constructor(buildings: Building[], cell = 25) {
+  constructor(buildings: Building[], cell = 25, corridors: Corridor[] = []) {
     this.cell = cell;
     for (const b of buildings) {
       if (b.poly.length < 3) continue;
@@ -93,12 +114,68 @@ export class CollisionGrid {
         }
       }
     }
+    // Bucket corridor centre-line segments into every cell their AABB (expanded
+    // by `halfWidth`) touches, mirroring the footprint bucketing.
+    for (const c of corridors) {
+      const pts = c.pts;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const minX = Math.min(a[0], b[0]) - c.halfWidth;
+        const maxX = Math.max(a[0], b[0]) + c.halfWidth;
+        const minZ = Math.min(a[1], b[1]) - c.halfWidth;
+        const maxZ = Math.max(a[1], b[1]) + c.halfWidth;
+        const seg: CorridorSeg = {
+          a,
+          b,
+          halfWidth: c.halfWidth,
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+        };
+        const cxMin = Math.floor(minX / cell);
+        const cxMax = Math.floor(maxX / cell);
+        const czMin = Math.floor(minZ / cell);
+        const czMax = Math.floor(maxZ / cell);
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+          for (let cz = czMin; cz <= czMax; cz++) {
+            const key = `${cx},${cz}`;
+            let bucket = this.corridorCells.get(key);
+            if (!bucket) {
+              bucket = [];
+              this.corridorCells.set(key, bucket);
+            }
+            bucket.push(seg);
+          }
+        }
+      }
+    }
   }
 
   /** True when `p` is inside any nearby footprint or within `r` of one of its edges. */
   blocked(p: Vec2, r: number = 0.6): boolean {
     const cx = Math.floor(p[0] / this.cell);
     const cz = Math.floor(p[1] / this.cell);
+    // Corridors override footprints (water and buildings alike): a point on a
+    // corridor is never blocked, checked first over the 3×3 neighbourhood.
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const cbucket = this.corridorCells.get(`${cx + dx},${cz + dz}`);
+        if (!cbucket) continue;
+        for (const seg of cbucket) {
+          if (
+            p[0] >= seg.minX &&
+            p[0] <= seg.maxX &&
+            p[1] >= seg.minZ &&
+            p[1] <= seg.maxZ &&
+            distToSegment(p, seg.a, seg.b) <= seg.halfWidth
+          ) {
+            return false;
+          }
+        }
+      }
+    }
     const seen = new Set<Footprint>();
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {

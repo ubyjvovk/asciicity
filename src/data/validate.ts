@@ -105,6 +105,9 @@ export function validateCity(raw: unknown): CityData {
     if (road.name !== undefined && typeof road.name !== 'string') {
       throw new Error(`roads[${i}].name: must be a string`);
     }
+    if (road.bridge !== undefined && typeof road.bridge !== 'boolean') {
+      throw new Error(`roads[${i}].bridge: must be a boolean`);
+    }
     validatePts(road.pts, `roads[${i}].pts`);
     if (!isFiniteNum(road.id)) {
       throw new Error(`roads[${i}].id: must be a finite number`);

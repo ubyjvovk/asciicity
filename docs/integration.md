@@ -24,11 +24,15 @@ The app runs a single asynchronous `main()` when the module executes.
    - `makeRoadsObject(city.roads)`
    - `makeBuildingsObject(city.buildings, makeWindowTexture())`
    - `makeWaterObject(city.water)` when `city.water?.length` is truthy
-5. **Wire helpers.** `new CollisionGrid(city.buildings)` when there is no
-   water; when `city.water?.length`, water rings are included as fake
-   footprints so the player cannot walk onto the river:
-   `new CollisionGrid([...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))])`.
-   Then
+5. **Wire helpers.** `new CollisionGrid(buildings, 25, corridors)` where
+   `buildings` is the building footprints, plus — when there is water — each
+   water ring as a fake footprint so the player cannot walk onto the river:
+   `[...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]`.
+   The 3rd argument is the corridor list built from bridge roads —
+   `city.roads.filter(r => r.bridge).map(r => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 }))`
+   with `ROAD_WIDTH` imported from `src/world/roads.ts`. Corridors override
+   footprints (water and buildings alike), so the player can cross the Thames
+   on bridges (T-0030). Then
    `new ZoneIndex(city.roads, city.places, 50, city.buildings)`,
    `new Controls(canvas)`, and when `'ontouchstart' in window` or
    `navigator.maxTouchPoints > 0`, `new TouchControls(canvas)`. Then
@@ -42,6 +46,9 @@ The app runs a single asynchronous `main()` when the module executes.
 6. **Pick a spawn.** Start at `(0, 0)`. If `collision.blocked([0, 0])`, walk
    `+x` in 1 m steps up to 200 m and take the first free spot. Initial pose:
    `{ x: spawn, z: 0, yaw: -π/2, pitch: 0 }` (facing west, per §5 step 2).
+   With bridge corridors in the grid, the default `bigben` spawn stays on
+   Westminster Bridge (it is on a corridor, so `blocked` is false and no +x
+   walk happens), and the player can walk across the Thames.
 7. **Publish** `window.__asciicity` (see contract below).
 8. **Resize.** Call the size handler once and register it on `window`
    `resize`. The handler forwards to `AsciiRenderer.setSize`, updates the

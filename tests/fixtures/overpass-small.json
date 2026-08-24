@@ -181,6 +181,24 @@
       ]
     },
     {
+      "type": "way",
+      "id": 17,
+      "tags": { "highway": "primary", "name": "Westminster Bridge", "bridge": "yes" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 18,
+      "tags": { "highway": "secondary", "bridge": "no" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
       "type": "node",
       "id": 20,
       "lat": 51.5133,

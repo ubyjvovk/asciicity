@@ -7,7 +7,8 @@ DOM); contract in `docs/architecture.md` §4.6.
 
 - `pointInPolygon(p, poly): boolean`
 - `distToSegment(p, a, b): number`
-- `class CollisionGrid { constructor(buildings, cell = 25); blocked(p, r = 0.6); resolve(from, to, r = 0.6) }`
+- `interface Corridor { pts: Vec2[]; halfWidth: number }`
+- `class CollisionGrid { constructor(buildings, cell = 25, corridors = []); blocked(p, r = 0.6); resolve(from, to, r = 0.6) }`
 
 All positions are the local `[x, z]` metres used by the rest of the world
 builders (§3 of the architecture doc).
@@ -49,13 +50,32 @@ A uniform spatial hash keyed by `${cx},${cz}` with `cx = floor(x / cell)`,
   Only the axis-aligned partial steps are tried, so a diagonal move into an
   obtuse corner still slides along whichever wall is compatible.
 
+### Corridors (bridges, T-0030)
+
+A **corridor** is a walkable ribbon along a centre-line polyline (the bridge
+roads) that **overrides footprints** — water rings and buildings alike. On the
+bridge you are never blocked, even though the Thames footprint sits underneath
+it.
+
+- **Insertion.** Each corridor centre-line segment (consecutive point pair) is
+  bucketed, like footprints, by its AABB expanded by `halfWidth` into the same
+  cell size.
+- **`blocked(p, r)`.** Before the footprint scan, the 3×3 cell neighbourhood
+  is checked for corridor segments; if `distToSegment(p, a, b) <= halfWidth`
+  for any of them, `blocked` returns `false` immediately. So a corridor wins
+  over any overlapping water/building footprint. `resolve` is unchanged and
+  inherits this through its `blocked` calls.
+
+`main.ts` builds corridors from `city.roads.filter(r => r.bridge)` with
+`halfWidth = ROAD_WIDTH[cls] / 2 + 1` (the road ribbon plus a 1 m body-margin).
+
 ## Complexity
 
 Let `B` = total buildings and `k` = candidates in the visited 3×3 cell block.
 
 | Operation      | Cost         | Notes                                              |
 |----------------|--------------|----------------------------------------------------|
-| Construction   | `O(B · c)`   | `c` = cells each footprint straddles (small)       |
+| Construction   | `O((B + S) · c)` | `c` = cells each footprint/segment straddles (small) |
 | `blocked(p)`   | `O(k · v)`   | `v` = vertices in a footprint (typically 4–20)     |
 | `resolve(f,t)` | up to 3 × `blocked` | early-exits on the first free candidate     |
 

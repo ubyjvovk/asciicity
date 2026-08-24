@@ -412,6 +412,11 @@ export function convertOverpass(json, opts) {
           id: el.id,
           ...(tags.name ? { name: String(tags.name).trim() } : {}),
           cls,
+          // Bridges are walkable corridors over water (T-0030): set the flag
+          // when the `bridge` tag exists and is not `no`; omit the key otherwise.
+          ...(tags.bridge !== undefined && tags.bridge !== 'no'
+            ? { bridge: true }
+            : {}),
           pts,
         });
       }
