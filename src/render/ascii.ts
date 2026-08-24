@@ -27,6 +27,8 @@ export interface AsciiOptions {
   gamma: number;
   /** Scene brightness multiplier applied before the density curve (default 1.7). */
   exposure: number;
+  /** Gloom mode: inverted bright-grey sky with dark desaturated glyphs (default false). */
+  invert: boolean;
 }
 
 const DEFAULT_OPTIONS: AsciiOptions = {
@@ -36,6 +38,7 @@ const DEFAULT_OPTIONS: AsciiOptions = {
   font: 'bold 24px "DejaVu Sans Mono", "Courier New", monospace',
   gamma: 0.45,
   exposure: 1.7,
+  invert: false,
 };
 
 /**
@@ -55,6 +58,37 @@ export function glyphIndex(lum: number, count: number, gamma: number): number {
  * white glyph on black. The caller supplies the canvas so the routine is
  * testable in node with a fake canvas/context.
  */
+/**
+ * Gloom-mode colour mix mirroring the fragment shader's final four lines:
+ * `normalCol` is the default glyph colour, `washed` a dark desaturated copy of
+ * the tint, and `gloomCol` blends washed glyphs over a bright grey sky.
+ * `invert` (0/1) flips between the normal and gloom outputs. Pure, for tests.
+ */
+export function gloomMix(
+  tint: [number, number, number],
+  mask: number,
+  invert: number,
+): [number, number, number] {
+  const normalCol: [number, number, number] = [tint[0] * mask, tint[1] * mask, tint[2] * mask];
+  const lumT = 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2];
+  const washed: [number, number, number] = [
+    (lumT + (tint[0] - lumT) * 0.35) * 0.35,
+    (lumT + (tint[1] - lumT) * 0.35) * 0.35,
+    (lumT + (tint[2] - lumT) * 0.35) * 0.35,
+  ];
+  const gloomBg: [number, number, number] = [0.72, 0.73, 0.75];
+  const gloomCol: [number, number, number] = [
+    gloomBg[0] + (washed[0] - gloomBg[0]) * mask,
+    gloomBg[1] + (washed[1] - gloomBg[1]) * mask,
+    gloomBg[2] + (washed[2] - gloomBg[2]) * mask,
+  ];
+  return [
+    normalCol[0] + (gloomCol[0] - normalCol[0]) * invert,
+    normalCol[1] + (gloomCol[1] - normalCol[1]) * invert,
+    normalCol[2] + (gloomCol[2] - normalCol[2]) * invert,
+  ];
+}
+
 export function buildGlyphAtlas(
   ramp: string,
   tileW: number,
@@ -89,6 +123,7 @@ uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
 uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
 uniform float exposure;   // scene brightness multiplier before the curve
+uniform float invert;     // 0 = normal cyberspace, 1 = gloom (grey) mode
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
@@ -100,7 +135,12 @@ void main() {
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   vec3 tint = c / max(v, 0.02);                      // hue at full brightness…
   tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
-  gl_FragColor = vec4(tint * mask, 1.0);
+  vec3 normalCol = tint * mask;
+  float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
+  vec3 washed = mix(vec3(lumT), tint, 0.35) * 0.35;   // dark, desaturated glyphs
+  vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
+  vec3 gloomCol = mix(gloomBg, washed, mask);
+  gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
 }`;
 
 /**
@@ -161,6 +201,7 @@ export class AsciiRenderer {
         glyphCount: { value: this.glyphCount },
         gamma: { value: this.opts.gamma },
         exposure: { value: this.opts.exposure },
+        invert: { value: this.opts.invert ? 1 : 0 },
       },
       vertexShader: VERT_SHADER,
       fragmentShader: FRAG_SHADER,
@@ -181,6 +222,16 @@ export class AsciiRenderer {
   /** Canvas cell rows after the last `setSize`. */
   get rows(): number {
     return this._rows;
+  }
+
+  /** Whether gloom (inverted, washed-out grey) mode is currently active. */
+  get invert(): boolean {
+    return (this.material.uniforms.invert.value as number) === 1;
+  }
+
+  /** Toggle gloom mode on (`true`) or off (`false`), updating the shader uniform. */
+  setInvert(on: boolean): void {
+    this.material.uniforms.invert.value = on ? 1 : 0;
   }
 
   /**

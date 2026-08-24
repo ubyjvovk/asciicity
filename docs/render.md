@@ -79,6 +79,32 @@ Any tweak to the tint math (`tint = c / max(lum, 0.02)`, then
 (`floor(clamp(pow(lum, gamma), 0, 1) * (glyphCount - 1) + 0.5)`) requires a
 matching update to `glyphIndex` in TS and its unit tests.
 
+## Gloom mode (`invert`)
+
+`G` (or `?gloom=1`) toggles an inverted, washed-out "grey London" rendering
+for overcast days. Default stays the black cyberspace look. The change is
+purely in the fragment shader: a `float invert` uniform (0/1) selects between
+the normal glyph colour and a gloom colour built from a desaturated copy of
+the tint blended over a bright grey sky. Glyph density (`idx`) is unchanged,
+so empty cells become solid grey in gloom mode (mask 0 → background).
+
+`AsciiOptions` gains `invert: boolean` (default false); `AsciiRenderer`
+exposes `get invert(): boolean` and `setInvert(on: boolean): void` which
+update the uniform. The terminal lines of the fragment shader are:
+
+```glsl
+vec3 normalCol = tint * mask;
+float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
+vec3 washed = mix(vec3(lumT), tint, 0.35) * 0.35;   // dark, desaturated glyphs
+vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
+vec3 gloomCol = mix(gloomBg, washed, mask);
+gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
+```
+
+The pure helper `gloomMix(tint, mask, invert): [number, number, number]`
+implements exactly these lines for unit tests — it is reviewed against the
+GLSL term-for-term.
+
 ## CRT overlay (`src/render/crt.ts` + `crt.css`)
 
 The retro-terminal finish is a pure CSS layer that sits above the canvas and
