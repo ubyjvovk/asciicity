@@ -20,6 +20,12 @@ comment_label = "tt:agent"
 [pm]
 nudge = true
 
+[web]
+port = 8788                               # 8787 is taken by the sibling /home/d/tigerteam board
+
+[mcp]
+port = 8766                               # 8765 likewise
+
 [workers]
 max_concurrent = 6                        # 12-core host; each container gets --cpus 2
 image = "tigerteam-agents:base"           # machine-local; also set in ~/.tigerteam.toml
