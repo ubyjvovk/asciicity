@@ -24,7 +24,8 @@ nudge = true
 port = 8788                               # 8787 is taken by the sibling /home/d/tigerteam board
 
 [mcp]
-port = 8766                               # 8765 likewise
+autostart = false                         # the tailscale MCP mapping targets the sibling board's 8765; not needed here
+port = 8766
 
 [workers]
 max_concurrent = 6                        # 12-core host; each container gets --cpus 2
