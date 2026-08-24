@@ -39,6 +39,8 @@ export interface Road {
   id: number;
   name?: string;
   cls: RoadClass;
+  /** True when the OSM way carries a `bridge` tag (walkable over water). Added 2026-08-24 (T-0030). */
+  bridge?: boolean;
   /** Centre-line polyline in local metres, >= 2 points. */
   pts: Vec2[];
 }

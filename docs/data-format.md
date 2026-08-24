@@ -39,7 +39,7 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
   "origin": { "lat": 51.5133, "lon": -0.0887 },
   "bbox": [-0.13, 51.497, -0.07, 51.521],
   "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],
-  "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]] } ],
+  "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]], "bridge": true } ],   // bridge optional (T-0030)
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
   "water":     [ [[x,z],[x,z],[x,z]] ]          // optional, rings (T-0023)
 }
@@ -109,6 +109,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 | footway                                            | **dropped** (→ `null`; never emitted) |
 
 `name` copied when present. Ways with < 2 distinct points are dropped.
+`bridge: true` is emitted when the way has a `bridge` tag whose value is not `no` (bridges are walkable corridors over water; T-0030).
 
 **Places** — every node from the `place`, `railway=station`, and
 `tourism=attraction` selectors with a non-empty `name`. Deduplicate by

@@ -86,3 +86,6 @@ in your report instead of guessing.
   browser and fails offline.
 - `src/data/types.ts` and `src/world/mesh.ts` are PM-owned: import them, do
   not edit them.
+- Visual-verification steps: if your model cannot view images, verify through
+  `window.__asciicity` and the HUD text instead and say so in the report —
+  the PM does the GPU visual review. Never fail a ticket over that.
