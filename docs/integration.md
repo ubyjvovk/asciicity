@@ -37,7 +37,7 @@ The app runs a single asynchronous `main()` when the module executes.
    `new Controls(canvas)`, and when `'ontouchstart' in window` or
    `navigator.maxTouchPoints > 0`, `new TouchControls(canvas)`. Then
    `new Hud(hudRoot)`,
-   `new AsciiRenderer(renderer, { cellW?, cellH? })`.
+   `new AsciiRenderer(renderer, { cellW?, cellH?, invert? })` — `invert` is taken from `?gloom=1`; afterwards the `G` key toggles `ascii.setInvert()`.
    When `minimap` is enabled (default), append a `<canvas id="minimap">` to
    `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
    and help line — the canvas is not in `index.html` so it stays below those
@@ -101,6 +101,7 @@ per-frame allocations are made inside `main.ts`.
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
 | `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
+| `gloom`     | `?gloom=1`     | Start in gloom mode (inverted, washed-out grey rendering) — same effect as pressing `G` (default off). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
 
@@ -142,6 +143,12 @@ Coordinate form: `?at=lon,lat[,bearing]`, e.g. `?at=-0.0984,51.5138,90`
 coordinates are ignored when `?synthetic=1`.
 
 Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
+
+## Keyboard
+
+| Key | Effect                                   |
+|-----|------------------------------------------|
+| `G` | Toggle gloom mode (inverted, washed-out grey rendering). |
 
 ## `window.__asciicity`
 

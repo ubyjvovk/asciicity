@@ -66,6 +66,7 @@ interface UrlOptions {
   crt: boolean;
   minimap: boolean;
   hud: boolean;
+  gloom: boolean;
   at: string | null;
 }
 
@@ -92,7 +93,8 @@ export function parseUrlOptions(search: string): UrlOptions {
   const crt = params.get('crt') !== '0';
   const minimap = params.get('minimap') !== '0';
   const hud = params.get('hud') !== '0';
-  return { synthetic, seed, cellW, cellH, crt, minimap, hud, at };
+  const gloom = params.get('gloom') === '1';
+  return { synthetic, seed, cellW, cellH, crt, minimap, hud, gloom, at };
 }
 
 /** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
@@ -178,6 +180,7 @@ async function main(): Promise<void> {
   const asciiOpts: Partial<AsciiOptions> = {};
   if (opts.cellW !== undefined) asciiOpts.cellW = opts.cellW;
   if (opts.cellH !== undefined) asciiOpts.cellH = opts.cellH;
+  asciiOpts.invert = opts.gloom;
   const ascii = new AsciiRenderer(renderer, asciiOpts);
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
@@ -237,6 +240,11 @@ async function main(): Promise<void> {
   });
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement !== canvas) setOverlay(true, true);
+  });
+
+  // `G` toggles gloom mode (inverted, washed-out grey London); ignore key repeats.
+  window.addEventListener('keydown', (ev) => {
+    if (ev.code === 'KeyG' && !ev.repeat) ascii.setInvert(!ascii.invert);
   });
 
   // Stable closure over collision — avoids allocating a new arrow per frame.

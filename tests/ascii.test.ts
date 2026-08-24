@@ -4,7 +4,7 @@
  * a fake canvas/context; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RAMP, buildGlyphAtlas, glyphIndex } from '../src/render/ascii';
+import { DEFAULT_RAMP, buildGlyphAtlas, gloomMix, glyphIndex } from '../src/render/ascii';
 
 describe('DEFAULT_RAMP', () => {
   it('starts with a space', () => {
@@ -50,6 +50,31 @@ describe('glyphIndex', () => {
 
   it('with gamma = 1, lum = 0.5, count = 11 gives 5', () => {
     expect(glyphIndex(0.5, 11, 1)).toBe(5);
+  });
+});
+
+describe('gloomMix', () => {
+  it('gloomMix(anyTint, 0, 1) returns the bright grey sky background', () => {
+    expect(gloomMix([1, 0, 0], 0, 1)).toEqual([0.72, 0.73, 0.75]);
+    expect(gloomMix([0.1, 0.9, 0.4], 0, 1)[0]).toBeCloseTo(0.72, 6);
+    expect(gloomMix([0.1, 0.9, 0.4], 0, 1)[1]).toBeCloseTo(0.73, 6);
+    expect(gloomMix([0.1, 0.9, 0.4], 0, 1)[2]).toBeCloseTo(0.75, 6);
+  });
+
+  it('gloomMix(t, m, 0) returns tint * mask (normal mode)', () => {
+    const t: [number, number, number] = [0.8, 0.2, 0.6];
+    const m = 0.5;
+    const out = gloomMix(t, m, 0);
+    expect(out[0]).toBeCloseTo(0.8 * 0.5);
+    expect(out[1]).toBeCloseTo(0.2 * 0.5);
+    expect(out[2]).toBeCloseTo(0.6 * 0.5);
+  });
+
+  it('gloomMix([1,1,1], 1, 1) returns [0.35, 0.35, 0.35] (white desaturates to itself then ×0.35)', () => {
+    const out = gloomMix([1, 1, 1], 1, 1);
+    expect(out[0]).toBeCloseTo(0.35, 6);
+    expect(out[1]).toBeCloseTo(0.35, 6);
+    expect(out[2]).toBeCloseTo(0.35, 6);
   });
 });
 
