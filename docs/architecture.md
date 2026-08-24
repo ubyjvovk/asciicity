@@ -168,7 +168,7 @@ pointer lock on click of `target`, accumulates `movementX/Y` while locked, and
 
 ```ts
 export const DEFAULT_RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
-export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.45 */; exposure: number /* 1.7 */ }
+export interface AsciiOptions { cellW: number /* 6 */; cellH: number /* 12 */; ramp: string; font: string /* 'bold 24px "DejaVu Sans Mono", "Courier New", monospace' */; gamma: number /* 0.45 */; exposure: number /* 1.7 */; invert: boolean /* false — gloom mode (T-0033) */ }
 export function glyphIndex(lum: number, count: number, gamma: number): number  // floor(clamp(lum,0,1)^gamma · (count−1) + 0.5), clamped to [0, count−1]
 export function buildGlyphAtlas(ramp: string, tileW: number, tileH: number, font: string, canvas: HTMLCanvasElement): { canvas: HTMLCanvasElement; count: number }
 export class AsciiRenderer {
@@ -194,6 +194,7 @@ uniform vec2 grid;        // (cols, rows)
 uniform float glyphCount; // atlas tiles
 uniform float gamma;      // perceptual curve for glyph density (0.45 ≈ linear→sRGB)
 uniform float exposure;   // scene brightness multiplier before the curve
+uniform float invert;     // 0 = normal cyberspace, 1 = gloom (grey) mode
 varying vec2 vUv;
 void main() {
   vec2 cell = floor(vUv * grid);
@@ -205,7 +206,12 @@ void main() {
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   vec3 tint = c / max(v, 0.02);                      // hue at full brightness…
   tint = tint * clamp(shaped * 0.7 + 0.4, 0.0, 1.0); // …density carries most of the luminance
-  gl_FragColor = vec4(tint * mask, 1.0);
+  vec3 normalCol = tint * mask;
+  float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
+  vec3 washed = mix(vec3(lumT), tint, 0.35) * 0.35;   // dark, desaturated glyphs
+  vec3 gloomBg = vec3(0.72, 0.73, 0.75);              // bright grey sky
+  vec3 gloomCol = mix(gloomBg, washed, mask);
+  gl_FragColor = vec4(mix(normalCol, gloomCol, invert), 1.0);
 }
 ```
 
