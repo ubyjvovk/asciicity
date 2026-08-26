@@ -96,6 +96,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-27 01:20 — **T-0050 accepted first pass** (grok-1, $0.87, 26 min): `StyleRenderer` + 12 ids (3 real, 9 stubs), gate green; GPU cycle via `node_modules/.pm-styles.mjs` (in the worktree): all 12 at 56–60 fps incl. the depth-texture `edges` stub, toasts OK, ascii frame identical to pre-refactor. Worker findings worth keeping: three r185 throws on `depthTexture: undefined` (omit the key); `styleGrid` clamps cols/rows so every target ≤ 640×360 (2×2-cell styles become ~3×3 at 1080p — acceptable). Pushed 56c974f. **Eight style tickets T-0051…T-0058 now claimable in parallel** (6 slots).
 
+- 2026-08-27 01:45 — T-0056 edges attempt 1 (opus-1, $2.68): gate green, look right, but my §4.11 first-difference depth rule lit every grazing surface (solid ground band). Contract revised to the second difference on inverse depth (exactly linear across planes); **reworked** with a pixel-fraction criterion (< 15 % edge pixels on the synthetic city). Six styles in flight.
+
 ## Next actions
 1. ~~Review T-0049, T-0050~~ done. Next: review the styles as they land (GPU check: `/?city=kyiv&at=maidan&fly=1`, hold Space then W; fog thinning; MODE/ALT rows), push. Then T-0050 (GPU: R cycle, toast, 12 stubs), then the styles — review each style's `e2e/__shots__/style-<id>.png` artifact **and** take a GPU frame from Maidan (`?city=kyiv&render=<id>`); fps ≥ 30 is a hard criterion (check `edges` — depth texture — and `braille` — 2×4 sub-samples — first).
 2. After the styles: push, then ask the user which looks to keep/tune; candidate polish: ANSI 16-colour variant of blocks, PETSCII atlas, touch fly controls, remember last style/city in localStorage.
