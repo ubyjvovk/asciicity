@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { Building, Vec2 } from '../src/data/types';
+import { FLAT_HEIGHT, type Building, type Vec2 } from '../src/data/types';
 import { buildBuildingsMesh, normalizeRing } from '../src/world/buildings';
 import {
   colorFor,
@@ -187,6 +187,35 @@ describe('buildBuildingsMesh', () => {
       expect(mesh.colors[v * 3 + 1]).toBeCloseTo(c.g);
       expect(mesh.colors[v * 3 + 2]).toBeCloseTo(c.b);
     }
+  });
+
+  it('with heightAt = (x, z) => x on a 10×10 square at x∈[0,10], h=5: wall min y = 0, wall max y = 15, roof y = 15, wall v runs 0 → 15/24', () => {
+    const heightAt = (x: number, _z: number) => x;
+    const mesh = buildBuildingsMesh([squareBuilding()], heightAt);
+    const wallYs: number[] = [];
+    const wallVs: number[] = [];
+    for (let v = 0; v < 24; v++) {
+      wallYs.push(mesh.positions[v * 3 + 1]!);
+      wallVs.push(mesh.uvs[v * 2 + 1]!);
+    }
+    expect(Math.min(...wallYs)).toBeCloseTo(0);
+    expect(Math.max(...wallYs)).toBeCloseTo(15);
+    for (let v = 24; v < 30; v++) {
+      expect(mesh.positions[v * 3 + 1]).toBeCloseTo(15);
+    }
+    expect(Math.min(...wallVs)).toBeCloseTo(0);
+    expect(Math.max(...wallVs)).toBeCloseTo(15 / 24);
+  });
+
+  it('default heightAt gives identical geometry to a call with FLAT_HEIGHT', () => {
+    const building = squareBuilding({ id: 3, name: 'Royal Exchange' });
+    const a = buildBuildingsMesh([building]);
+    const b = buildBuildingsMesh([building], FLAT_HEIGHT);
+    arraysClose(a.positions, b.positions);
+    arraysClose(a.normals, b.normals);
+    arraysClose(a.uvs, b.uvs);
+    arraysClose(a.colors, b.colors);
+    expect(a.groups).toEqual(b.groups);
   });
 });
 

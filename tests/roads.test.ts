@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { Road, RoadClass } from '../src/data/types';
-import { buildRoadsMesh, ROAD_WIDTH } from '../src/world/roads';
+import { buildRoadsMesh, ROAD_LIFT, ROAD_WIDTH } from '../src/world/roads';
 import type { MeshData } from '../src/world/mesh';
 
 function road(cls: RoadClass, pts: [number, number][], id = 1): Road {
@@ -50,18 +50,18 @@ describe('ROAD_WIDTH', () => {
 });
 
 describe('buildRoadsMesh', () => {
-  it('a 2-point primary road of length 100 along +x yields 6 vertices whose z extent is exactly ±6 and y is 0.05', () => {
+  it('a 2-point primary road of length 100 along +x yields 60 vertices whose z extent is exactly ±6 and y is ROAD_LIFT', () => {
     const m = buildRoadsMesh([road('primary', [[0, 0], [100, 0]])]);
-    expect(vertexCount(m)).toBe(6);
+    expect(vertexCount(m)).toBe(60);
     const z = zs(m);
     expect(Math.min(...z)).toBeCloseTo(-6);
     expect(Math.max(...z)).toBeCloseTo(6);
-    for (const y of ys(m)) expect(y).toBeCloseTo(0.05);
+    for (const y of ys(m)) expect(y).toBeCloseTo(ROAD_LIFT);
   });
 
-  it('a 3-point polyline yields 12 vertices', () => {
+  it('a 3-point polyline yields 90 vertices', () => {
     const m = buildRoadsMesh([road('primary', [[0, 0], [100, 0], [100, 50]])]);
-    expect(vertexCount(m)).toBe(12);
+    expect(vertexCount(m)).toBe(90);
   });
 
   it('every normal is (0,1,0) and every triangle winds upward (cross(...).y > 0)', () => {
@@ -114,7 +114,7 @@ describe('buildRoadsMesh', () => {
     const skipped = buildRoadsMesh([road('primary', [[0, 0], [0, 0]])]);
     expect(vertexCount(skipped)).toBe(0);
     const mixed = buildRoadsMesh([road('primary', [[0, 0], [0, 0], [100, 0]])]);
-    expect(vertexCount(mixed)).toBe(6);
+    expect(vertexCount(mixed)).toBe(60);
   });
 
   it('a single group {start:0, count:N, materialIndex:0}', () => {
@@ -124,5 +124,62 @@ describe('buildRoadsMesh', () => {
     ]);
     const n = vertexCount(m);
     expect(m.groups).toEqual([{ start: 0, count: n, materialIndex: 0 }]);
+  });
+
+  it('a 100 m primary segment yields 10 quads (60 vertices)', () => {
+    const m = buildRoadsMesh([road('primary', [[0, 0], [100, 0]])]);
+    expect(vertexCount(m)).toBe(60);
+  });
+
+  it('corner y = heightAt(corner) + 0.15 under heightAt = (x, z) => 0.1·x + 0.2·z (all four corners of the first quad)', () => {
+    const heightAt = (x: number, z: number) => 0.1 * x + 0.2 * z;
+    const m = buildRoadsMesh([road('primary', [[0, 0], [100, 0]])], heightAt);
+    // First quad: unique corners at vertices 0,1,2,5 of the 6-vertex soup.
+    const cornerIdx = [0, 1, 2, 5];
+    const seen = new Set<string>();
+    for (const v of cornerIdx) {
+      const x = m.positions[v * 3]!;
+      const y = m.positions[v * 3 + 1]!;
+      const z = m.positions[v * 3 + 2]!;
+      seen.add(`${x},${z}`);
+      expect(y).toBeCloseTo(heightAt(x, z) + ROAD_LIFT);
+    }
+    expect(seen.size).toBe(4);
+  });
+
+  it('a 3-point bridge road over a dip has its middle vertex at lerp + 0.15 (both edges equal)', () => {
+    const pts: [number, number][] = [
+      [0, 0],
+      [50, 0],
+      [100, 0],
+    ];
+    const heightAt = (x: number, _z: number) => Math.abs(x - 50);
+    const m = buildRoadsMesh([{ id: 1, cls: 'primary', pts, bridge: true }], heightAt);
+    const ya = heightAt(pts[0]![0], pts[0]![1]);
+    const yb = heightAt(pts[2]![0], pts[2]![1]);
+    const midLerp = ya + (yb - ya) * 0.5;
+    const leftYs: number[] = [];
+    const rightYs: number[] = [];
+    for (let i = 0; i < m.positions.length; i += 3) {
+      if (Math.abs(m.positions[i]! - 50) > 1e-9) continue;
+      const y = m.positions[i + 1]!;
+      const z = m.positions[i + 2]!;
+      expect(y).toBeCloseTo(midLerp + ROAD_LIFT);
+      if (z > 0) leftYs.push(y);
+      else rightYs.push(y);
+    }
+    expect(leftYs.length).toBeGreaterThan(0);
+    expect(rightYs.length).toBeGreaterThan(0);
+    for (const y of leftYs) expect(y).toBeCloseTo(rightYs[0]!);
+    for (const y of rightYs) expect(y).toBeCloseTo(leftYs[0]!);
+  });
+
+  it('default heightAt → every y = 0.15', () => {
+    const m = buildRoadsMesh([
+      road('primary', [[0, 0], [100, 0], [100, 50]]),
+      road('residential', [[0, 10], [20, 10]]),
+    ]);
+    for (const y of ys(m)) expect(y).toBeCloseTo(ROAD_LIFT);
+    expect(ROAD_LIFT).toBe(0.15);
   });
 });
