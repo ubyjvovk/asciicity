@@ -72,6 +72,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-26 21:50 — T-0043 (grok-1, $0.15) and T-0039 (ds-2, $0.04; DEM at Maidan = 155.64 m from the real tile) accepted first pass. **Process note:** never run two in-container `check.sh` gates concurrently — the SwiftShader e2e starves and fails its "moved ≥ 0.5 m" assertion (T-0039 failed paired, passed solo). 42/46 done; T-0040 (pipeline + kyiv.json) and T-0044 (traffic) claimable.
 
+- 2026-08-26 22:00 — T-0044 (ds-1, $0.01) accepted first pass; gate green solo. 43/46 done. Remaining chain: T-0040 (pipeline + kyiv.json) → T-0045 (C3 integration) → T-0046 (picker + pause menu).
+
 ## Next actions
 1. Wave 5 in flight — process digests (review/ then blocked/). After T-0045 lands: GPU screenshots of Kyiv (`?city=kyiv&at=maidan|hydropark|parkbridge|lavra`) before accepting; the slope shade (`0.6 + 0.5·n·L`) and fog (0.0018) are PM tuning knobs.
 2. After T-0046: push main; the GitHub Pages deploy picks up `kyiv.json` (~5 MB) automatically. Later ideas: touch pause button (no Esc on phones), remember last city, bus pitch on slopes, Kyiv landmark colours table, more cities (bbox+origin+`--lang` are all CLI args).
