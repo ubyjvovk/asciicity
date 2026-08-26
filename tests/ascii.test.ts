@@ -4,7 +4,7 @@
  * a fake canvas/context; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RAMP, buildGlyphAtlas, glyphIndex, themeMix } from '../src/render/ascii';
+import { DEFAULT_RAMP, buildGlyphAtlas, glyphIndex, themeMix } from '../src/render/styles/ascii';
 
 describe('DEFAULT_RAMP', () => {
   it('starts with a space', () => {

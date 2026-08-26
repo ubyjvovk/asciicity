@@ -1,8 +1,10 @@
-# Rendering — scene constants and ASCII post-process
+# Rendering — scene constants and render styles
 
-Reference for the two files in `src/render/`. The exports and shader are
-contract-locked in `docs/architecture.md` §§4.8 and 6; this file explains how
-they fit together and where to twist the knobs.
+Reference for `src/render/`. The plug-in contract (`RenderStyle`,
+`STYLE_PRELUDE`, `STYLE_ORDER`) is PM-owned in `src/render/style.ts` and
+locked in `docs/architecture.md` §4.11; the ASCII shader that the three
+original themes share is §4.8. This file explains the pipeline, how a style
+plugs in, and where to twist the knobs.
 
 ## Pipeline
 
@@ -13,135 +15,136 @@ they fit together and where to twist the knobs.
                                     │  makeCamera(aspect)
                                     ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  WebGLRenderTarget(cols, rows)   NearestFilter, no MSAA       │
+   │  WebGLRenderTarget(cols·subX, rows·subY)                      │
+   │      NearestFilter, depthBuffer; DepthTexture if needsDepth   │
    │      cols = floor(width / cellW), rows = floor(height / cellH)│
+   │      cellW/cellH come from the active style (`?cell=` overrides)
    └───────────────────────────────────────────────────────────────┘
                                     │  full-screen quad (2×2 plane)
-                                    │  orthographic camera (-1..1)
+                                    │  STYLE_VERTEX + STYLE_PRELUDE + fragment
                                     ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  ASCII fragment shader                                        │
-   │    tScene = scene target texture                              │
-   │    tAtlas = one row of `count` glyph tiles, LinearFilter      │
-   │    per cell: sample scene at cell centre → luminance          │
-   │              gamma-shape → glyph index → sample atlas mask    │
-   │              tint = colour hue · (0.35 + 1.8·lum) · mask      │
+   │  Style fragment                                               │
+   │    tScene / grid / sub / sceneSize / exposure / gamma / time  │
+   │    tDepth, cameraNear/Far when needsDepth                     │
+   │    style uniforms from makeUniforms (atlas, palettes, …)      │
    └───────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
                             canvas (width × height)
 ```
 
-`AsciiRenderer.render(scene, camera)` performs the two passes with no
-per-frame allocation. The scene render target is recreated only when the cell
-grid changes size (`setSize` recomputes `cols/rows`).
+`StyleRenderer` (`src/render/post.ts`) owns the target, the quad and the
+common uniforms, and swaps styles. `render(scene, camera)` performs the two
+passes with no per-frame allocation: scene → target, then quad → canvas.
+`setStyle` disposes the previous style (`style.dispose?.(uniforms)`,
+material, target) and rebuilds at the current canvas size. `setSize`
+recomputes `cols/rows` and resizes the target.
 
-## Changing the ramp or cell size
+The performance budget is a scene target ≤ 640×360 px at 1080p
+(`cols·subX × rows·subY`) so every style stays ≥ 30 fps on an integrated GPU.
+`styleGrid` (exported from `post.ts`) clamps `cols`/`rows` to that cap, so a
+2×2-cell style at 1920×1080 still renders into 640×360 rather than 960×540.
 
-Both are constructor options on `AsciiRenderer`. The full option shape is
-`AsciiOptions`:
+## Contract
 
-| Option  | Default                                                       | Effect                                          |
-|---------|---------------------------------------------------------------|-------------------------------------------------|
-| `cellW` | `6`                                                           | Pixel width of one glyph cell.                  |
-| `cellH` | `12`                                                          | Pixel height of one glyph cell.                 |
-| `ramp`  | `DEFAULT_RAMP` (68 glyphs, space → `$`)                       | Character set from sparsest to densest.         |
-| `font`  | `'bold 24px "DejaVu Sans Mono", "Courier New", monospace'`    | Canvas `ctx.font` used when rasterising atlas.  |
-| `gamma` | `0.8`                                                         | Luminance-shaping exponent; `< 1` lifts mids.   |
+Read `src/render/style.ts` before writing a style. A `RenderStyle` is:
 
-- Smaller `cellW/cellH` → more cells per frame → sharper look but heavier
-  fill. `cellW = 6, cellH = 12` at 1080p is roughly 320×90 cells.
-- Custom `ramp` must start with the sparsest character (space) and end with
-  the densest; ordering drives `glyphIndex`. Keep the length ≥ ~40 to avoid
-  visible banding.
-- `font` is applied to the atlas canvas exactly as written. Fallback fonts
-  are important because the game runs in browsers without DejaVu.
-- `gamma` re-shapes luminance before glyph selection. Match the shader's
-  `pow(lum, gamma)` — the JS `glyphIndex` mirrors it so unit tests can
-  predict the shader's output.
+| Field | Meaning |
+|-------|---------|
+| `id` | URL id (`?render=<id>`), lower-case, unique. |
+| `label` | Upper-case toast name, e.g. `BRAILLE`. |
+| `cellW` / `cellH` | Screen pixels per cell (default; `?cell=WxH` overrides). |
+| `subX` / `subY` | Scene samples per cell; target is `cols·subX × rows·subY`. |
+| `needsDepth` | Attach a `THREE.DepthTexture`; prelude then provides `linearDepth()`. |
+| `fragment` | GLSL ES 1.0 body appended to `STYLE_PRELUDE`. Must define `void main()`. |
+| `makeUniforms(ctx)` | Style-specific uniforms (atlases, palettes). `{}` is fine. |
+| `update?` | Optional per-frame hook (`timeS` seconds since start). |
+| `dispose?` | Optional: free GPU resources created by `makeUniforms`. |
+
+Do **not** redeclare uniforms the prelude already makes (`tScene`, `grid`,
+`sub`, `sceneSize`, `exposure`, `gamma`, `time`, `tDepth`, `cameraNear`,
+`cameraFar`, `varying vec2 vUv`). Do not name a local `shaped` / `bright` —
+those are prelude helpers.
+
+Helpers: `sampleSub`, `cellMean`, `bright`, `shaped`, `tintOf`, `linearDepth`.
+See the comment on `STYLE_PRELUDE` in `style.ts`.
+
+## How to add a style
+
+1. Add the id to `STYLE_ORDER` in `src/render/style.ts` (PM-owned — that is
+   a separate ticket).
+2. Create `src/render/styles/<name>.ts` exporting
+   `export const STYLES: readonly RenderStyle[]` (one entry, or two for
+   `dither.ts` which owns `dither` **and** `gameboy`).
+3. Import that array in `src/render/styles/index.ts`. The registry throws at
+   import if any `STYLE_ORDER` id is missing or duplicated.
+4. Keep the scene target ≤ 640×360 at 1080p. Pure helpers belong next to the
+   shader and are unit-tested in node; the shader must mirror them.
+
+`R` cycles `STYLE_ORDER`; `Shift+R` goes backwards. `?render=<id>` selects
+(unknown → `ascii`).
+
+## Style ids
+
+| id | module | cell | sub | depth | notes |
+|----|--------|------|-----|-------|-------|
+| `ascii` | `styles/ascii.ts` | 6×12 | 1×1 | no | Cyber ASCII (former theme 0). |
+| `gloom` | `styles/ascii.ts` | 6×12 | 1×1 | no | Gloom ASCII (former theme 1). |
+| `solarized` | `styles/ascii.ts` | 6×12 | 1×1 | no | Solarized ASCII (former theme 2). |
+| `braille` | `styles/braille.ts` | 6×12 | 2×4 | no | Stub until T-0051. |
+| `blocks` | `styles/blocks.ts` | 6×12 | 2×2 | no | Stub until T-0052. |
+| `teletext` | `styles/teletext.ts` | 6×12 | 2×3 | no | Stub until T-0053. |
+| `dither` | `styles/dither.ts` | 2×2 | 1×1 | no | Stub until T-0054. |
+| `gameboy` | `styles/dither.ts` | 2×2 | 1×1 | no | Stub until T-0054. |
+| `pico8` | `styles/pico8.ts` | 4×4 | 1×1 | no | Stub until T-0055. |
+| `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
+| `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
+| `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |
+
+Stubs copy the ascii cyber shader with the stub's own `id`,
+`label: '<ID> (TODO)'`, and cell/sub/needsDepth so the cycle, the URL ids
+and the e2e loop work today. Each style ticket replaces one file wholesale.
+
+## ASCII family (`styles/ascii.ts`)
+
+`asciiStyle(id, label, theme)` builds one of the three former themes.
+`DEFAULT_RAMP`, `glyphIndex`, `buildGlyphAtlas`, `themeMix` stay exported
+unchanged (the unit tests in `tests/ascii.test.ts` import them from this
+module). The §4.8 shader body is the `fragment`; extra uniforms `tAtlas`,
+`glyphCount`, `theme` come from `makeUniforms`.
+
+Glyph index (TS `glyphIndex` mirrors the shader):
+`floor(clamp(lum,0,1)^gamma · (count−1) + 0.5)`, clamped to `[0, count−1]`.
+`v` is the exposed max-channel brightness, not luminance.
+
+| Theme | `theme` | Background (mask 0) | Glyph (mask 1) | Hot cells (`v → 1`) |
+|-------|---------|---------------------|----------------|---------------------|
+| cyber | `0` | black | `tint * mask` | — |
+| gloom | `1` | `[0.72, 0.73, 0.75]` | `gWash = mix(lumT, tint, 0.75) * 0.20` | `tint * 0.9` |
+| solarized | `2` | `[0.992, 0.965, 0.890]` paper | muted base00 ink | `[0.71, 0.54, 0.0]` yellow |
 
 ## Scene constants (`src/render/scene.ts`)
 
 | Factory                | Value                                                                     |
 |------------------------|---------------------------------------------------------------------------|
 | `makeRenderer(canvas)` | `WebGLRenderer({ antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true })`, `setPixelRatio(1)`. |
-| `makeScene()`          | Background `0x000000`; `FogExp2(0x000000, 0.0018)`; `AmbientLight(0xffffff, 0.45)`; `DirectionalLight(0xffffff, 1.1)` at `(1, 2, 0.5)`; `HemisphereLight(0x223344, 0x080808, 0.4)`. |
+| `makeScene()`          | Background `0x000000`; `FogExp2(0x000000, 0.0018)`; `AmbientLight(0xffffff, 0.6)`; `DirectionalLight(0xffffff, 1.1)` at `(1, 2, 0.5)`; `HemisphereLight(0x223344, 0x080808, 0.4)`. |
 | `makeCamera(aspect)`   | `PerspectiveCamera(70, aspect, 0.3, 2000)`.                               |
 
 `preserveDrawingBuffer: true` lets the e2e smoke test read canvas pixels;
 `setPixelRatio(1)` keeps the render target size equal to the cell grid.
-
-## Fragment shader
-
-The verbatim shader lives in `src/render/ascii.ts` and is diffed by review.
-Any tweak to the tint math (`tint = c / max(lum, 0.02)`, then
-`tint * clamp(lum * 1.8 + 0.35, 0.0, 1.0)`) or the glyph-index formula
-(`floor(clamp(pow(lum, gamma), 0, 1) * (glyphCount - 1) + 0.5)`) requires a
-matching update to `glyphIndex` in TS and its unit tests.
-
-## Themes (`theme`)
-
-`G` (or `?theme=` / `?gloom=1`) cycles the colour theme: **0 cyber** (black
-cyberspace), **1 gloom** (darker structures, more retained colour, for overcast
-days), **2 solarized** (muted ink on cream, almost wireframe-like). The change
-is purely in the fragment shader: a `float theme` uniform (0/1/2) selects one
-of three colour paths. Glyph density (`idx`) is unchanged, so empty cells
-become the theme's background (mask 0 → background colour).
-
-`AsciiOptions` gains `theme: number` (default 0); `AsciiRenderer` exposes
-`get theme(): number` and `setTheme(t: number): void` which update the
-uniform. The `theme` uniform is a float so the JS mirror and GLSL ternary agree
-(`theme < 0.5 ? normal : (theme < 1.5 ? gloom : solarized)`). The terminal
-lines of the fragment shader are:
-
-```glsl
-vec3 normalCol = tint * mask;
-float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
-float hot = smoothstep(0.92, 1.0, clamp(v, 0.0, 1.0)); // sun/moon/lit windows stay bright
-vec3 gWash = mix(vec3(lumT), tint, 0.75) * 0.20;        // darker + more colour than T-0037
-vec3 gGlyph = mix(gWash, tint * 0.9, hot);
-vec3 gloomCol = mix(vec3(0.72, 0.73, 0.75), gGlyph, mask);
-vec3 sInk = mix(vec3(0.396, 0.482, 0.514), tint, 0.5) * 0.75; // solarized base00 ink
-vec3 sGlyph = mix(sInk, vec3(0.71, 0.54, 0.0), hot);          // hot → solarized yellow
-vec3 solCol = mix(vec3(0.992, 0.965, 0.890), sGlyph, mask);   // base3 paper
-vec3 outCol = theme < 0.5 ? normalCol : (theme < 1.5 ? gloomCol : solCol);
-gl_FragColor = vec4(outCol, 1.0);
-```
-
-`v` is the already-exposed max-channel brightness computed earlier in the
-shader (`v = max(max(c.r, c.g), c.b)`) — the hot-highlight `smoothstep` reuses
-it rather than recomputing anything.
-
-### The three themes and their constants
-
-| Theme | Value | Background (mask 0) | Glyph (mask 1)                                                      | Hot cells (`v → 1`)      |
-|-------|-------|---------------------|---------------------------------------------------------------------|--------------------------|
-| cyber | `0`   | black               | `normalCol = tint * mask`                                            | —                        |
-| gloom | `1`   | `[0.72, 0.73, 0.75]` grey | `gWash = mix(lumT, tint, 0.75) * 0.20`, blended up by `mask` | `tint * 0.9` (bright)    |
-| solarized | `2` | `[0.992, 0.965, 0.890]` base3 paper | `sInk = mix(base00, tint, 0.5) * 0.75`, blended up by `mask` | `[0.71, 0.54, 0.0]` yellow |
-
-Solarized base00 ink is `[0.396, 0.482, 0.514]`.
-
-The pure helper `themeMix(tint, v, mask, theme): [number, number, number]`
-implements exactly these lines (including the `smoothstep`)
-for unit tests — it is reviewed against the GLSL term-for-term.
-(PM: `docs/architecture.md` §4.8 carries the same block — needs a matching update after accept.)
 
 ## CRT overlay (`src/render/crt.ts` + `crt.css`)
 
 The retro-terminal finish is a pure CSS layer that sits above the canvas and
 never captures mouse events. `mountCrt(parent)` appends a
 `<div class="crt" aria-hidden="true">` with two children — `.crt-scan` and
-`.crt-glow` — and returns the outer div. It imports `./crt.css`; wiring it
-into `main.ts`/`index.html` is a later ticket.
+`.crt-glow` — and returns the outer div. It imports `./crt.css`. Disable with
+`?crt=0`.
 
 | Layer       | Element       | What it does                                                        |
 |-------------|---------------|---------------------------------------------------------------------|
 | Container   | `.crt`        | `position: fixed; inset: 0; pointer-events: none; z-index: 5` — full-screen, click-through, above the canvas. |
 | Scanlines   | `.crt-scan`   | `repeating-linear-gradient` 3px bands with `mix-blend-mode: multiply` for faint horizontal lines. |
 | Vignette + glow | `.crt-glow` | Inset box-shadow: a dark 140px vignette around the edges plus a soft 24px green `rgba(72,224,106,.1)` phosphor bloom. |
-
-Nothing animates, so no `prefers-reduced-motion` handling is needed. To
-disable it once wired, drop the `mountCrt` call (a `?crt=0` switch is planned
-for a later ticket) or remove the element from the DOM — there is no runtime
-toggle yet.

@@ -160,3 +160,26 @@ body {
     width: 88vw;
   }
 }
+
+/* Render-style toast: bottom-left, HUD green on black, fades after 1.5 s. */
+#toast {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  margin: 0;
+  padding: 8px 12px;
+  background: #000;
+  color: var(--hud-green);
+  font-family: monospace;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  border: 1px solid var(--hud-border);
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.25s linear;
+}
+
+#toast.show {
+  opacity: 1;
+}

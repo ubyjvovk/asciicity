@@ -2,7 +2,7 @@
  * AsciiCity bootstrap and frame loop (docs/architecture.md §5). Loads or
  * synthesises the city, builds the world meshes (draped over terrain when the
  * dataset carries one), wires Controls / TouchControls / Hud / CollisionGrid /
- * ZoneIndex / Minimap / AsciiRenderer / CRT overlay, and runs the animation
+ * ZoneIndex / Minimap / StyleRenderer / CRT overlay, and runs the animation
  * loop with a live pose exposed on `window.__asciicity`.
  */
 import './style.css';
@@ -30,7 +30,9 @@ import {
 } from './player/controls';
 import { TouchControls, mergeInput } from './player/touch';
 import { makeCamera, makeRenderer, makeScene } from './render/scene';
-import { AsciiRenderer, type AsciiOptions } from './render/ascii';
+import { StyleRenderer } from './render/post';
+import { STYLE_ORDER } from './render/style';
+import { STYLES } from './render/styles/index';
 import { mountCrt } from './render/crt';
 import { Hud, type HudValues } from './hud/hud';
 import { buildShareUrl } from './hud/share';
@@ -50,6 +52,10 @@ declare global {
       city: string;
       /** True while flying (fly mode). */
       fly: boolean;
+      /** Live render-style id (`?render=`, `R` cycles). */
+      render: string;
+      /** Style ids in `R`-cycle order. */
+      styles: readonly string[];
       cols: number;
       rows: number;
     };
@@ -77,7 +83,7 @@ interface UrlOptions {
   crt: boolean;
   minimap: boolean;
   hud: boolean;
-  theme: number;
+  render: string;
   at: string | null;
   city: string | null;
   time: Date | null;
@@ -85,8 +91,8 @@ interface UrlOptions {
 }
 
 /**
- * Parse `?synthetic=1&seed=N&hills=1&city=…&cell=WxH&crt=0&minimap=0&hud=0&at=…&theme=…&time=…`.
- * Malformed values are ignored.
+ * Parse `?synthetic=1&seed=N&hills=1&city=…&cell=WxH&crt=0&minimap=0&hud=0&at=…&render=…&time=…`.
+ * Malformed values are ignored. `?theme=` / `?gloom=1` are aliases for `?render=`.
  */
 export function parseUrlOptions(search: string): UrlOptions {
   const params = new URLSearchParams(search);
@@ -112,23 +118,33 @@ export function parseUrlOptions(search: string): UrlOptions {
   const crt = params.get('crt') !== '0';
   const minimap = params.get('minimap') !== '0';
   const hud = params.get('hud') !== '0';
-  // `?theme=cyber|gloom|solarized|0|1|2`; invalid → 0. `?gloom=1` remains an
-  // alias for theme 1, but the `theme` param wins when both are present.
-  const themeRaw = params.get('theme');
-  const tv = themeRaw !== null ? themeRaw.trim().toLowerCase() : '';
-  const theme =
-    tv === 'gloom' || tv === '1'
-      ? 1
-      : tv === 'solarized' || tv === '2'
-        ? 2
-        : tv === 'cyber' || tv === '0' || tv === ''
-          ? 0
-          : params.get('gloom') === '1'
-            ? 1
-            : 0;
+  const render = resolveRenderId(params);
   const time = parseTimeParam(params.get('time'));
   const fly = params.get('fly') === '1';
-  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, theme, at, city, time, fly };
+  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, render, at, city, time, fly };
+}
+
+/**
+ * Resolve `?render=` (unknown → `ascii`). `?theme=` / `?gloom=1` are aliases
+ * (`cyber|0` → ascii, `gloom|1` → gloom, `solarized|2` → solarized); `render`
+ * wins when both are present.
+ */
+function resolveRenderId(params: URLSearchParams): string {
+  const order: readonly string[] = STYLE_ORDER;
+  const renderRaw = params.get('render');
+  if (renderRaw !== null) {
+    const id = renderRaw.trim().toLowerCase();
+    return order.includes(id) ? id : 'ascii';
+  }
+  const themeRaw = params.get('theme');
+  if (themeRaw !== null) {
+    const tv = themeRaw.trim().toLowerCase();
+    if (tv === 'gloom' || tv === '1') return 'gloom';
+    if (tv === 'solarized' || tv === '2') return 'solarized';
+    if (tv === 'cyber' || tv === '0' || tv === 'ascii' || tv === '') return 'ascii';
+  }
+  if (params.get('gloom') === '1') return 'gloom';
+  return 'ascii';
 }
 
 /**
@@ -341,7 +357,12 @@ async function main(): Promise<void> {
     'ontouchstart' in window || navigator.maxTouchPoints > 0
       ? new TouchControls(canvas)
       : undefined;
-  const hud = new Hud(hudRoot, touch ? 'LEFT: MOVE · RIGHT: LOOK' : undefined);
+  const hud = new Hud(
+    hudRoot,
+    touch
+      ? 'LEFT: MOVE · RIGHT: LOOK · R STYLE'
+      : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE',
+  );
 
   // `?hud=0` hides the panel (display-only) and skips its per-frame updates,
   // but the rest of the app — world, controls, minimap — still runs.
@@ -359,11 +380,13 @@ async function main(): Promise<void> {
 
   if (opts.crt) mountCrt(document.body);
 
-  const asciiOpts: Partial<AsciiOptions> = {};
-  if (opts.cellW !== undefined) asciiOpts.cellW = opts.cellW;
-  if (opts.cellH !== undefined) asciiOpts.cellH = opts.cellH;
-  asciiOpts.theme = opts.theme;
-  const ascii = new AsciiRenderer(renderer, asciiOpts);
+  const post = new StyleRenderer(renderer, STYLES, {
+    initial: opts.render,
+    cellW: opts.cellW,
+    cellH: opts.cellH,
+  });
+  const toast = mountToast();
+  toast.show(post.style.label);
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
   // otherwise resolve `?at=` (preset or coordinate) against the city origin,
@@ -407,6 +430,8 @@ async function main(): Promise<void> {
     y: state.y,
     fly: state.fly,
     city: cityId,
+    render: post.style.id,
+    styles: STYLES.map((s) => s.id),
     cols: 0,
     rows: 0,
   };
@@ -415,11 +440,11 @@ async function main(): Promise<void> {
   function applySize(): void {
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight);
-    ascii.setSize(w, h);
+    post.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    api.cols = ascii.cols;
-    api.rows = ascii.rows;
+    api.cols = post.cols;
+    api.rows = post.rows;
   }
   applySize();
   window.addEventListener('resize', applySize);
@@ -495,9 +520,14 @@ async function main(): Promise<void> {
     if (document.pointerLockElement !== canvas) setOverlay(true, true);
   });
 
-  // `G` cycles the colour theme cyber → gloom → solarized (and back); ignore key repeats.
+  // `R` cycles the render style (Shift+R backwards); ignore key repeats.
   window.addEventListener('keydown', (ev) => {
-    if (ev.code === 'KeyG' && !ev.repeat) ascii.setTheme((ascii.theme + 1) % 3);
+    if (ev.code !== 'KeyR' || ev.repeat) return;
+    post.next(ev.shiftKey ? -1 : 1);
+    api.render = post.style.id;
+    api.cols = post.cols;
+    api.rows = post.rows;
+    toast.show(post.style.label);
   });
 
   // Stable closure over collision — avoids allocating a new arrow per frame.
@@ -548,7 +578,7 @@ async function main(): Promise<void> {
     fleet.update(dt);
     boats?.update(dt);
 
-    ascii.render(scene, camera);
+    post.render(scene, camera);
 
     fpsFrames++;
     fpsElapsed += dt;
@@ -585,6 +615,27 @@ async function main(): Promise<void> {
     if (!api.ready) api.ready = true;
   }
   requestAnimationFrame(frame);
+}
+
+/**
+ * Create the `#toast` element (styled in `style.css`) and return a `show`
+ * helper that displays `RENDER: <LABEL>` for 1.5 s.
+ */
+function mountToast(): { show(label: string): void } {
+  const el = document.createElement('div');
+  el.id = 'toast';
+  document.body.append(el);
+  let timer = 0;
+  return {
+    show(label: string): void {
+      el.textContent = `RENDER: ${label}`;
+      el.classList.add('show');
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        el.classList.remove('show');
+      }, 1500);
+    },
+  };
 }
 
 void main();
