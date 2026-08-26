@@ -457,10 +457,16 @@ Pure: `PICO8_PALETTE`, `bayer4(x, y)`, `nearestPico8(rgb): number`.
 
 **edges** — wireframe/vector look. Cell 2×2, sub 1×1, `needsDepth: true`.
 `dC = linearDepth(uv)` at the cell centre and `dL/dR/dU/dD` one sub-sample
-away; `sky = d ≥ 0.98·cameraFar`. Edge when any neighbour differs by more
-than `0.02·min(dC, dN)` in linear depth, or when exactly one of the pair is
-sky. Output: edge → `(0.25, 1.0, 0.6)`; else `exposed scene · 0.12` (the
-floor grid stays faintly visible). Pure: `isEdge(dC, neighbours: number[4], far, k = 0.02): boolean`.
+away; `sky = d ≥ 0.98·cameraFar`. Work on **inverse depth** `w = 1/d`,
+which is exactly linear across any plane in screen space, so flat ground
+and long walls give zero response at every distance while silhouettes
+*and* creases (floor↔wall, building corners) still fire. Edge when
+`|wL + wR − 2·wC| > k·wC` or `|wU + wD − 2·wC| > k·wC` with `k = 0.02`
+(non-sky samples only), or when the centre and a neighbour disagree on
+`sky` (the sky/sky case is never an edge). Output: edge → `(0.25, 1.0, 0.6)`;
+else `exposed scene · 0.12` (the floor grid stays faintly visible). Pure:
+`isEdge(dC, neighbours: [dL, dR, dU, dD], far, k = 0.02): boolean`.
+(Revised 2026-08-27: the first-difference rule lit every grazing surface.)
 
 **hatch** — pen-and-ink cross-hatch on paper. Cell 6×12, sub 1×1. Level
 `L = round((1 − shaped(bright(cellMean)))·7)` (0 = blank paper, 7 = densest).
