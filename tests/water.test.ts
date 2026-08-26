@@ -114,4 +114,24 @@ describe('buildWaterMesh', () => {
     const n = vertexCount(m);
     expect(m.groups).toEqual([{ start: 0, count: n, materialIndex: 0 }]);
   });
+
+  it('with levels = [2] every y = 2.3', () => {
+    const m = buildWaterMesh([SQUARE], [2]);
+    expect(vertexCount(m)).toBeGreaterThan(0);
+    for (let i = 1; i < m.positions.length; i += 3) {
+      expect(m.positions[i]).toBeCloseTo(2.3);
+    }
+  });
+
+  it('without levels every y = 0.02', () => {
+    const m = buildWaterMesh([SQUARE]);
+    for (let i = 1; i < m.positions.length; i += 3) {
+      expect(m.positions[i]).toBeCloseTo(0.02);
+    }
+  });
+
+  it('levels shorter than rings throws an Error naming levels', () => {
+    expect(() => buildWaterMesh([SQUARE, SQUARE], [2])).toThrow(Error);
+    expect(() => buildWaterMesh([SQUARE, SQUARE], [2])).toThrow(/levels/);
+  });
 });

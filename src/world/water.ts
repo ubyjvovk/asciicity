@@ -1,12 +1,14 @@
 /**
- * Flat water polygons: triangulated rings sitting just above the ground
- * so the Thames and docks read as dark-blue surfaces.
+ * Water polygons: triangulated rings at a constant y (flat London, or a
+ * per-ring `levels[i] + 0.3` on terrain) so rivers and docks read as
+ * dark-blue surfaces.
  */
 import * as THREE from 'three';
 import type { Vec2 } from '../data/types';
 import { MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
 
 const WATER_Y = 0.02;
+const WATER_LEVEL_LIFT = 0.3;
 const AREA_EPS = 1;
 const WATER_NORMAL: Vec3 = [0, 1, 0];
 const WATER_UV: UV = [0, 0];
@@ -36,7 +38,7 @@ function waterColor(): Vec3 {
 }
 
 /** Emit water triangles for a normalised ring; flip so `cross.y > 0`. */
-function emitWater(mesh: MeshBuilder, ring: Vec2[], color: Vec3): void {
+function emitWater(mesh: MeshBuilder, ring: Vec2[], y: number, color: Vec3): void {
   const faces = THREE.ShapeUtils.triangulateShape(asContour(ring), []);
   const n = WATER_NORMAL;
   const uv = WATER_UV;
@@ -49,9 +51,9 @@ function emitWater(mesh: MeshBuilder, ring: Vec2[], color: Vec3): void {
     const rb = ring[ib];
     const rc = ring[ic];
     if (!ra || !rb || !rc) continue;
-    const a: Vec3 = [ra[0], WATER_Y, ra[1]];
-    const b: Vec3 = [rb[0], WATER_Y, rb[1]];
-    const c: Vec3 = [rc[0], WATER_Y, rc[1]];
+    const a: Vec3 = [ra[0], y, ra[1]];
+    const b: Vec3 = [rb[0], y, rb[1]];
+    const c: Vec3 = [rc[0], y, rc[1]];
     const e1x = b[0] - a[0];
     const e1z = b[2] - a[2];
     const e2x = c[0] - a[0];
@@ -62,23 +64,28 @@ function emitWater(mesh: MeshBuilder, ring: Vec2[], color: Vec3): void {
   }
 }
 
-/** Merged triangle soup of flat water polygons (y = 0.02, normal up). */
-export function buildWaterMesh(rings: Vec2[][]): MeshData {
+/** Merged triangle soup of water polygons (y = levels[i]+0.3, else 0.02). */
+export function buildWaterMesh(rings: Vec2[][], levels?: number[]): MeshData {
+  if (levels !== undefined && levels.length < rings.length) {
+    throw new Error('levels is shorter than rings');
+  }
   const mesh = new MeshBuilder();
   const color = waterColor();
-  for (const poly of rings) {
+  for (let i = 0; i < rings.length; i++) {
+    const poly = rings[i]!;
     if (poly.length < 3) continue;
     const ring = normalizeRing(poly);
     if (Math.abs(ringArea(ring)) < AREA_EPS) continue;
-    emitWater(mesh, ring, color);
+    const y = levels !== undefined ? levels[i]! + WATER_LEVEL_LIFT : WATER_Y;
+    emitWater(mesh, ring, y, color);
   }
   mesh.endGroup(0);
   return mesh.build();
 }
 
 /** Wrap `buildWaterMesh` in a single MeshBasicMaterial mesh with vertex colours. */
-export function makeWaterObject(rings: Vec2[][]): THREE.Mesh {
-  const geom = toGeometry(buildWaterMesh(rings));
+export function makeWaterObject(rings: Vec2[][], levels?: number[]): THREE.Mesh {
+  const geom = toGeometry(buildWaterMesh(rings, levels));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
   return new THREE.Mesh(geom, mat);
 }

@@ -9,21 +9,27 @@ PM-owned `MeshBuilder` in `src/world/mesh.ts`.
 
 Each `Building` is a ring of `[x, z]` metres (first point **not** repeated)
 plus a roof height `h`. Winding in the file is unspecified.
+`buildBuildingsMesh(buildings, heightAt = FLAT_HEIGHT)` and
+`makeBuildingsObject(buildings, windowTex, heightAt = FLAT_HEIGHT)` take
+an optional `HeightFn` (default `FLAT_HEIGHT`, so the flat world is
+unchanged).
 
 1. **`normalizeRing`** copies the ring and, if
    `THREE.ShapeUtils.area(ring as Vector2[])` is negative, reverses it so
    the area is positive (counter-clockwise in `x`/`z`, with `Vector2.y = z`).
 2. Rings with `|area| < 1` (square metres) are skipped entirely — no walls,
    no roof.
-3. **Walls** (all buildings, in order): for each edge `a → b` of the
-   normalised ring, emit one quad (two triangles, 6 vertices) from `y = 0`
-   to `y = h`. Vertex order is bottom-`a`, top-`a`, top-`b`, then
+3. Per building, `base` is the min and `top` the max of `heightAt(x, z)`
+   over the ring vertices. With `FLAT_HEIGHT` this is `base = 0`, `top = 0`.
+4. **Walls** (all buildings, in order): for each edge `a → b` of the
+   normalised ring, emit one quad (two triangles, 6 vertices) from `y = base`
+   to `y = top + h`. Vertex order is bottom-`a`, top-`a`, top-`b`, then
    bottom-`a`, top-`b`, bottom-`b`, so the geometric normal
    `cross(b−a, c−a)` agrees with the stored outward normal
    `n = normalize(b.z − a.z, 0, −(b.x − a.x))`. Degenerate (zero-length)
    edges are omitted.
-4. **Roofs** (all buildings, in order): `ShapeUtils.triangulateShape(ring, [])`
-   at `y = h`. Stored normal is `(0, 1, 0)`. If a triangulated face would
+5. **Roofs** (all buildings, in order): `ShapeUtils.triangulateShape(ring, [])`
+   at `y = top + h`. Stored normal is `(0, 1, 0)`. If a triangulated face would
    wind downward (`cross.y < 0`), its last two vertices are swapped so the
    roof faces up. Roof UVs are `(0, 0)`.
 
@@ -38,7 +44,8 @@ One window-texture tile is **24 m × 24 m** (8 × 8 windows of 3 m).
 
 - Wall `u = cumulativeDistanceAlongRing / 24` (so a 10×10 square, perimeter
   40 m, runs `u = 0 → 40/24` around the ring).
-- Wall `v = y / 24` (`0` at the base, `h/24` at the top; `h = 5` → `5/24`).
+- Wall `v = (y − base) / 24` (`0` at the base, `(top + h − base) / 24` at
+  the top; with `FLAT_HEIGHT` and `h = 5` this is still `5/24`).
 - UVs wrap (`RepeatWrapping` on the texture), so a long façade tiles.
 
 ## Groups and materials
@@ -110,7 +117,12 @@ Importing the module in node is safe; calling the function is not.
 
 `city.water` is an optional list of rings with the same rules as
 `Building.poly` (≥ 3 points, first not repeated; winding unspecified).
-Each ring becomes a flat dark-blue polygon just above the ground.
+Each ring becomes a dark-blue polygon at a constant y.
+`buildWaterMesh(rings, levels?)` / `makeWaterObject(rings, levels?)` take
+an optional `levels` array: ring `i` is triangulated at
+`y = levels[i] + 0.3`. Without `levels` the y is `0.02` (the flat London
+value). If `levels` is given but shorter than `rings`, the builder throws
+an `Error` whose message names `levels`.
 
 1. Rings with fewer than 3 points are skipped.
 2. **Normalise** a copy of the ring so `THREE.ShapeUtils.area(ring as
@@ -118,9 +130,9 @@ Each ring becomes a flat dark-blue polygon just above the ground.
    rule as building footprints.
 3. Rings with `|area| < 1` m² are skipped.
 4. **Triangulate** with `ShapeUtils.triangulateShape(ring, [])` at
-   `y = 0.02`. Stored normal is `(0, 1, 0)`. UVs are `(0, 0)`. If a
-   triangulated face would wind downward (`cross.y < 0`), its last two
-   vertices are swapped so the surface faces up.
+   `y = levels[i] + 0.3` or `0.02`. Stored normal is `(0, 1, 0)`. UVs are
+   `(0, 0)`. If a triangulated face would wind downward (`cross.y < 0`),
+   its last two vertices are swapped so the surface faces up.
 
 The result is one non-indexed triangle soup (`MeshData`) in a single
 group `{start: 0, count: N, materialIndex: 0}`. Empty input (or every
