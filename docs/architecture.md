@@ -36,7 +36,7 @@ Local metres relative to the origin (`docs/data-format.md`): `x` east,
 (`−z`), `+π/2` faces east (`+x`). Forward vector:
 `(sin(yaw), 0, −cos(yaw))`; right vector `(cos(yaw), 0, sin(yaw))`.
 Bearing in degrees for the HUD: `((yaw · 180/π) % 360 + 360) % 360`.
-Pitch is clamped to `±60°`. Eye height is `1.7` m.
+Pitch is clamped to `±60°`. Eye height is `1.7` m (`EYE_HEIGHT` in controls.ts).
 
 ## 4. Layout & module contract
 
@@ -165,25 +165,50 @@ export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if prese
 - `resolve(from, to, r = 0.6): Vec2`: returns `to` if not blocked; else tries
   `[to.x, from.z]` then `[from.x, to.z]` (wall sliding); else `from`.
 
-### 4.7 Player (src/player/controls.ts)
+### 4.7 Player (src/player/controls.ts) — wave 6: speeds + fly mode
 
 ```ts
-export interface PlayerState { x: number; z: number; yaw: number; pitch: number }
-export interface InputState { forward: number /* -1..1 */; strafe: number /* -1..1 */; turn: number /* -1..1 */; sprint: boolean; lookDx: number; lookDy: number /* px since last read */ }
-export const WALK_SPEED = 3, SPRINT_SPEED = 9, TURN_SPEED = Math.PI / 2 /* rad/s */, MOUSE_SENS = 0.0025 /* rad/px */;
-export function stepPlayer(s: PlayerState, i: InputState, dt: number, resolve: (from: Vec2, to: Vec2) => Vec2): PlayerState
+export interface PlayerState { x: number; z: number; y: number /* eye height, absolute world y */; yaw: number; pitch: number; fly: boolean }
+export interface InputState { forward: number /* -1..1 */; strafe: number /* -1..1 */; turn: number /* -1..1 */; sprint: boolean; lookDx: number; lookDy: number /* px since last read */; up: number /* -1..1: Space +1, KeyC −1 */; flyToggles: number /* KeyF presses since last read */ }
+export const EYE_HEIGHT = 1.7, WALK_SPEED = 9, SPRINT_SPEED = 27, FLY_SPEED = 30, FLY_SPRINT_SPEED = 90, FALL_SPEED = 30, MAX_ALTITUDE = 1500, TURN_SPEED = Math.PI / 2 /* rad/s */, MOUSE_SENS = 0.0025 /* rad/px */;
+export function stepPlayer(s: PlayerState, i: InputState, dt: number, resolve: (from: Vec2, to: Vec2) => Vec2, groundAt: HeightFn = FLAT_HEIGHT): PlayerState
 export function yawToBearingDeg(yaw: number): number   // 0 ≤ result < 360
 export class Controls { constructor(target: HTMLElement); readInput(): InputState; dispose(): void }
 ```
 
-`stepPlayer` is pure: yaw += turn·TURN_SPEED·dt + lookDx·MOUSE_SENS; pitch −=
-lookDy·MOUSE_SENS (clamped ±π/3); speed = sprint ? SPRINT : WALK; move along
-forward/right (§3) by `speed·dt`, normalising the (forward, strafe) vector when
-both are non-zero; position = `resolve(from, to)`. `Controls` maps
-`KeyW/ArrowUp`→forward 1, `KeyS/ArrowDown`→−1, `KeyA/KeyD`→strafe ∓1,
-`ArrowLeft/ArrowRight`→turn ∓1, `ShiftLeft/ShiftRight`→sprint; requests
-pointer lock on click of `target`, accumulates `movementX/Y` while locked, and
-`readInput()` returns the accumulated deltas and zeroes them.
+`stepPlayer` is pure. `fly = s.fly` flipped once per odd `i.flyToggles`; yaw +=
+turn·TURN_SPEED·dt + lookDx·MOUSE_SENS; pitch −= lookDy·MOUSE_SENS (clamped
+±π/3). Then:
+
+- **Walk** (`fly = false`): speed = sprint ? SPRINT_SPEED : WALK_SPEED; move
+  along forward/right (§3) by `speed·dt`, normalising the (forward, strafe)
+  vector when both are non-zero; `[x, z] = resolve(from, to)`;
+  `groundY = groundAt(x, z) + EYE_HEIGHT`;
+  `y = s.y > groundY ? max(groundY, s.y − FALL_SPEED·dt) : groundY`
+  (glued to the ground, or falling at a constant 30 m/s after leaving fly mode).
+- **Fly** (`fly = true`): speed = sprint ? FLY_SPRINT_SPEED : FLY_SPEED;
+  `look = (sin yaw·cos pitch, sin pitch, −cos yaw·cos pitch)`,
+  `right = (cos yaw, 0, sin yaw)`, `dir = forward·look + strafe·right + up·(0, 1, 0)`,
+  normalised when non-zero; `to = from + dir·speed·dt` with **no collision**
+  (noclip — `resolve` is not called); `y` clamped to
+  `[groundAt(x, z) + EYE_HEIGHT, MAX_ALTITUDE]`.
+
+`Controls` maps `KeyW/ArrowUp`→forward 1, `KeyS/ArrowDown`→−1, `KeyA/KeyD`→strafe
+∓1, `ArrowLeft/ArrowRight`→turn ∓1, `ShiftLeft/ShiftRight`→sprint,
+`Space`→up +1, `KeyC`→up −1 (held-key model, T-0013), `KeyF` keydown (no
+repeat) increments `flyToggles`; requests pointer lock on click of `target`,
+accumulates `movementX/Y` while locked, and `readInput()` returns the
+accumulated deltas/toggles and zeroes them. `Space` must `preventDefault`
+(page scroll).
+
+Frame loop consequences (§5): `camera.position.y = state.y`; `?fly=1` starts
+airborne; `window.__asciicity.fly`; fog density each frame
+`0.0018 / (1 + agl / 150)` with `agl = state.y − EYE_HEIGHT − groundAt(x, z)`
+(unchanged on the ground, thinning with altitude so the city stays visible
+from above); `camera.far = fly ? 6000 : 2000` (+ `updateProjectionMatrix`) on
+each toggle; HUD row `MODE ... FLY` (between LANDMARK and FPS) only while
+flying; the `ALT` row is shown when the city has terrain (`… M ASL`) **or**
+while flying (`… M AGL` when there is no terrain); help line gains `· F FLY`.
 
 ### 4.8 ASCII renderer (src/render/ascii.ts) — the core of the look
 
