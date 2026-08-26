@@ -22,8 +22,8 @@ export interface InputState {
   lookDx: number;   // px since last read
   lookDy: number;   // px since last read
 }
-export const WALK_SPEED = 3;            // m/s
-export const SPRINT_SPEED = 9;          // m/s
+export const WALK_SPEED = 9;            // m/s
+export const SPRINT_SPEED = 27;          // m/s
 export const TURN_SPEED = Math.PI / 2;  // rad/s
 export const MOUSE_SENS = 0.0025;       // rad/px
 export function stepPlayer(s, i, dt, resolve): PlayerState
@@ -114,7 +114,7 @@ unfocused cannot stick.
 - **Turn speed** — set `TURN_SPEED` (rad/s), default `Math.PI / 2`.
 - **Mouse sensitivity** — set `MOUSE_SENS` (rad/px), default `0.0025`.
 - **Walk/sprint speed** — set `WALK_SPEED` / `SPRINT_SPEED` (m/s), defaults
-  `3` / `9`.
+  `9` / `27`.
 - **Pitch clamp** — set `PITCH_LIMIT`, default `Math.PI / 3` (60°).
 
 These constants are exported from `src/player/controls.ts`; changing a value
