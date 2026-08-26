@@ -106,15 +106,15 @@ state.z)` so the discs stay 1200 m from the player (children keep
   `input = mergeInput(controls.readInput(), touch.readInput())` — each
   source accumulates and zeroes its own look deltas; `mergeInput` sums axes
   (clamped to [−1, 1]), ORs `sprint`, and sums look deltas.
-- `next = stepPlayer(state, input, dt, resolveMove)` — pure step; scalar
-  fields are copied back into the persistent `state` so
-  `window.__asciicity.state` stays a stable reference.
-- Camera update — position `(state.x, groundAt(x, z) + 1.7, state.z)`, rotation
+- `next = stepPlayer(state, input, dt, resolveMove, groundAt)` — pure step
+  (including fly/toggle and fall); scalar fields are copied back into the
+  persistent `state` so `window.__asciicity.state` stays a stable reference.
+- Camera update — position `(state.x, state.y, state.z)`, rotation
   `y = -state.yaw, x = state.pitch` (with `YXZ` order set at bootstrap).
-  Then one no-allocation line `sky.position.set(state.x, eyeY, state.z)` so
+  Then one no-allocation line `sky.position.set(state.x, state.y, state.z)` so
   the sky group rides with the camera at the same eye height. `api.y` is
-  refreshed with the eye height every frame so headless tests can read it
-  directly from `window.__asciicity.y`.
+  refreshed with the eye height every frame and `api.fly` with the fly state
+  so headless tests can read them from `window.__asciicity`.
 - `fleet.update(dt)` — each frame, before the ASCII render, the bus
   ambience (`BusFleet`, docs/world.md §Traffic) advances every walker by
   `dt · 7` m and writes its instance matrices via a single reused dummy.
@@ -123,10 +123,13 @@ state.z)` so the discs stay 1200 m from the player (children keep
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
 - HUD every 4th frame — mutate a persistent `HudValues` in place with
   `sectorOf`, `formatWorld`, `formatBearing(yawToBearingDeg(...))`,
-  `zone.zoneLabel`, and, when `city.terrain` is present,
-  `formatAlt(city.terrain.datum + groundAt(state.x, state.z))` on
-  `hudValues.alt` (leave `alt` unset on flat London so the panel stays six
-  rows). Then
+  `zone.zoneLabel`, and the altitude/mode rows:
+  - `alt` — when `city.terrain` is present,
+    `formatAlt(city.terrain.datum + groundAt(state.x, state.z), 'ASL')`;
+    else while flying `formatAlt(agl, 'AGL')`; otherwise `undefined` (cleared)
+    so the panel stays six rows on flat London.
+  - `mode` — `state.fly ? 'FLY' : undefined` (MODE row between LANDMARK and FPS).
+  Then
   `zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined`,
   followed by `hud.update(hudValues)` and, when enabled, `minimap.update(state)`.
 - After the first successful frame, set `api.ready = true`.
@@ -153,6 +156,8 @@ per-frame allocations are made inside `main.ts`.
 | `time`      | `?time=2026-06-21T12:00:00Z` or `?time=12:00` | Pin the sky to a fixed time. Accepts an ISO timestamp (pinned absolute instant) or `HH:MM` meaning *today* in local time. Invalid or absent → real clock (default). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
+| `fly`       | `?fly=1`       | Take off immediately — boot with `fly = true` (airborne, longer
+                 camera far plane; see [Fly mode](#fly-mode--fog)). Default off. |
 
 ### Spawn presets (`?at=<name>`)
 
@@ -277,12 +282,38 @@ Example: looking east (`yaw = π/2`) at local `(100, −50)` in Kyiv
 /?theme=gloom&city=kyiv&at=30.52481,50.45055,90
 ```
 
+## Fly mode & fog (T-0049)
+
+`?fly=1` boots airborne (`state.fly = true`); otherwise `F` toggles flight
+per press (§4.7). The frame loop follows each step:
+
+- `agl = state.y − EYE_HEIGHT − groundAt(state.x, state.z)` (metres above
+  the walkable ground).
+- Fog density is `0.0018 / (1 + agl / 150)` — unchanged at ground level,
+  roughly halving by ~150 m AGL so the whole city stays visible from above.
+  Guarded by `instanceof THREE.FogExp2` (the flat London world uses the same
+  `FogExp2`).
+- Camera `y` (and the sky group) follow `state.y`, not `groundAt + 1.7`.
+- On each fly toggle `camera.far = fly ? 6000 : 2000` and
+  `camera.updateProjectionMatrix()` — the far viewpoint from altitude needs
+  the longer plane.
+- `window.__asciicity` exposes `fly` (live) and `y` (eye height, absolute).
+- HUD `mode = fly ? 'FLY' : undefined` (MODE row between LANDMARK and FPS);
+  `alt` = `formatAlt(terrain.datum + groundAt, 'ASL')` on terrain cities, or
+  `formatAlt(agl, 'AGL')` while flying on flat cities (cleared otherwise).
+
+No collision while airborne (noclip); `Space`/`C` climb/descend, `Shift` is
+`FLY_SPRINT_SPEED`; leaving fly mode falls at constant `FALL_SPEED` until the
+ground catches the player.
+
 ## Keyboard
 
 | Key | Effect                                   |
 |-----|------------------------------------------|
 | `G` | Cycle colour theme: cyber → gloom → solarized → cyber. |
 | `1`…`9` | On the start picker only: choose city by index. |
+| `F` | Toggle fly mode (noclip flight).         |
+| `Space` / `C` | Climb / descend while flying (`Space` also `preventDefault`s). |
 
 ## `window.__asciicity`
 
@@ -295,7 +326,8 @@ interface Window {
     ready: boolean;    // false until the first frame has rendered
     state: PlayerState; // live reference — same object every frame
     fps: number;       // 1 s moving-average frames per second (0 until first window closes)
-    y: number;         // eye height in metres — groundAt(state.x, state.z) + 1.7 (added T-0045)
+    y: number;         // eye height in metres — state.y, follows the camera in fly mode
+    fly: boolean;      // true while flying (T-0049)
     city: string;      // 'london' | 'kyiv' | 'synthetic' (added T-0045)
     cols: number;      // AsciiRenderer.cols after the last resize
     rows: number;      // AsciiRenderer.rows after the last resize

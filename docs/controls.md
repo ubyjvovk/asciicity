@@ -13,7 +13,7 @@ when instantiated in a browser.
 ## Exports
 
 ```ts
-export interface PlayerState { x: number; z: number; yaw: number; pitch: number }
+export interface PlayerState { x: number; z: number; y: number; yaw: number; pitch: number; fly: boolean }
 export interface InputState {
   forward: number;  // -1..1
   strafe: number;   // -1..1
@@ -21,17 +21,14 @@ export interface InputState {
   sprint: boolean;
   lookDx: number;   // px since last read
   lookDy: number;   // px since last read
+  up: number;       // -1..1
+  flyToggles: number; // KeyF presses since last read
 }
-export const WALK_SPEED = 9;            // m/s
-export const SPRINT_SPEED = 27;          // m/s
-export const TURN_SPEED = Math.PI / 2;  // rad/s
-export const MOUSE_SENS = 0.0025;       // rad/px
-export function stepPlayer(s, i, dt, resolve): PlayerState
-export function yawToBearingDeg(yaw): number   // 0 ≤ result < 360
-export function axesFromHeld(held): Pick<InputState, 'forward' | 'strafe' | 'turn' | 'sprint'>
-export function isMouseSpike(dx, dy, limit = 300): boolean  // |dx| > limit || |dy| > limit
-export class Controls { constructor(target: HTMLElement); readInput(): InputState; dispose(): void }
+export const EYE_HEIGHT = 1.7;             // m
+...
 ```
+
+_See the source or §4.7 for the full constant list (`FLY_SPEED`, `FLY_SPRINT_SPEED`, `FALL_SPEED`, `MAX_ALTITUDE`)._
 
 ## stepPlayer
 
@@ -108,6 +105,47 @@ Opposite keys cancel to 0. Releasing one key of a pair leaves the other
 active (hold W, press S, release W → still reverse). A `window` `blur`
 listener clears the set and recomputes so keys released while the tab is
 unfocused cannot stick.
+
+## Fly mode (T-0049)
+
+Press `F` to toggle noclip flight (each press flips `PlayerState.fly`). While
+flying you steer where you look (mouse pitch steers vertically), `Space`/`C`
+climb/descend straight up/down, and `Shift` sprints at `FLY_SPRINT_SPEED`.
+
+### stepPlayer fly rules
+
+1. `fly = s.fly` flipped once per odd `i.flyToggles` (one press flips, two
+   leave it).
+2. Speed `= sprint ? FLY_SPRINT_SPEED : FLY_SPEED` (`90` / `30` m/s).
+3. Direction `dir = forward·look + strafe·right + up·(0,1,0)` where
+   `look = (sin yaw cos pitch, sin pitch, −cos yaw cos pitch)` and
+   `right = (cos yaw, 0, sin yaw)`; `dir` is normalised when non-zero.
+4. `to = from + dir·speed·dt` with **no collision** — `resolve` is never
+   called while flying (noclip through buildings).
+5. `y` is clamped to `[groundAt(x, z) + EYE_HEIGHT, MAX_ALTITUDE]` (never
+   below the ground, never above 1 500 m).
+
+### Walk / fall
+
+With `fly = false` the old walk code runs unchanged (horizontal move on the
+forward/right plane, diagonal normalised, `resolve` collision), then the
+height is glued to the ground or, after leaving fly mode, falls at a constant
+`FALL_SPEED` (30 m/s) until it lands on `groundAt(x, z) + EYE_HEIGHT`. The
+walk-ground default is `FLAT_HEIGHT`.
+
+`stepPlayer` now takes a `groundAt: HeightFn` (default `FLAT_HEIGHT`) so walk
+and fly both know the walkable height.
+
+### Keys
+
+| Input | Effect                          |
+|-------|---------------------------------|
+| `F`   | Toggle fly mode (no repeat)     |
+| `Space` / `C` | Climb / descend (held; `Space` calls `preventDefault`) |
+| `Shift` | Fly sprint (sprint while airborne) |
+
+`axesFromHeld` now also maps held `Space` (`up` +1) and `KeyC` (`up` −1)
+(both → 0).
 
 ## Changing sensitivity
 

@@ -6,6 +6,7 @@
  * loop with a live pose exposed on `window.__asciicity`.
  */
 import './style.css';
+import * as THREE from 'three';
 import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/types';
 import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
@@ -22,6 +23,7 @@ import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/t
 import { BoatFleet, BusFleet } from './world/traffic';
 import {
   Controls,
+  EYE_HEIGHT,
   stepPlayer,
   yawToBearingDeg,
   type PlayerState,
@@ -42,10 +44,12 @@ declare global {
       ready: boolean;
       state: PlayerState;
       fps: number;
-      /** Eye height in metres (walkable ground + EYE_HEIGHT). */
+      /** Eye height in metres (absolute world y: ground + EYE_HEIGHT, or airborne). */
       y: number;
       /** URL id of the loaded city (`'london'`, `'kyiv'`, or `'synthetic'`). */
       city: string;
+      /** True while flying (fly mode). */
+      fly: boolean;
       cols: number;
       rows: number;
     };
@@ -56,9 +60,6 @@ declare global {
 const CANVAS_ID = 'view';
 const HUD_ID = 'hud';
 const OVERLAY_ID = 'overlay';
-
-/** Eye height in metres (docs/architecture.md §3). */
-const EYE_HEIGHT = 1.7;
 
 /** Refresh the HUD once every N rendered frames. */
 const HUD_INTERVAL = 4;
@@ -80,6 +81,7 @@ interface UrlOptions {
   at: string | null;
   city: string | null;
   time: Date | null;
+  fly: boolean;
 }
 
 /**
@@ -125,7 +127,8 @@ export function parseUrlOptions(search: string): UrlOptions {
             ? 1
             : 0;
   const time = parseTimeParam(params.get('time'));
-  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, theme, at, city, time };
+  const fly = params.get('fly') === '1';
+  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, theme, at, city, time, fly };
 }
 
 /**
@@ -379,20 +382,30 @@ async function main(): Promise<void> {
   const state: PlayerState = {
     x: spawn.x,
     z: spawn.z,
+    y: groundAt(spawn.x, spawn.z) + EYE_HEIGHT,
     yaw: spawn.yaw,
     pitch: 0,
+    fly: opts.fly,
   };
 
-  // Reused across frames — no per-frame HUD allocation. `alt` starts unset
-  // and stays unset on flat London; on Kyiv the loop assigns each frame.
+  // `?fly=1` takes off immediately, so the camera needs the long far plane
+  // from the start; per-frame toggles swap it back and forth.
+  if (state.fly) {
+    camera.far = 6000;
+    camera.updateProjectionMatrix();
+  }
+
+  // Reused across frames — no per-frame HUD allocation. `alt`/`mode` start
+  // unset and are assigned each frame (ALT: on terrain ASL; while flying AGL;
+  // MODE only while flying).
   const hudValues: HudValues = { sector: '', world: '', bearing: '', zone: '', fps: 0 };
 
-  const initialEyeY = groundAt(state.x, state.z) + EYE_HEIGHT;
   const api = {
     ready: false,
     state,
     fps: 0,
-    y: initialEyeY,
+    y: state.y,
+    fly: state.fly,
     city: cityId,
     cols: 0,
     rows: 0,
@@ -503,18 +516,34 @@ async function main(): Promise<void> {
     const input = touch
       ? mergeInput(controls.readInput(), touch.readInput())
       : controls.readInput();
-    const next = stepPlayer(state, input, dt, resolveMove);
+    const next = stepPlayer(state, input, dt, resolveMove, groundAt);
+    const wasFlying = state.fly;
     state.x = next.x;
     state.z = next.z;
+    state.y = next.y;
     state.yaw = next.yaw;
     state.pitch = next.pitch;
+    state.fly = next.fly;
+    if (next.fly !== wasFlying) {
+      // On a fly toggle the far plane swaps so the whole city (flying) or just
+      // the street (walking) fills the view; the projection must be recomputed.
+      camera.far = next.fly ? 6000 : 2000;
+      camera.updateProjectionMatrix();
+    }
+    // Fog thins with altitude (`agl` = metres above the ground): at ground
+    // level it is the constant 0.0018, roughly halving by ~150 m AGL so the
+    // whole city stays visible from above.
+    const agl = state.y - EYE_HEIGHT - groundAt(state.x, state.z);
+    if (scene.fog instanceof THREE.FogExp2) {
+      scene.fog.density = 0.0018 / (1 + agl / 150);
+    }
 
-    const eyeY = groundAt(state.x, state.z) + EYE_HEIGHT;
-    camera.position.set(state.x, eyeY, state.z);
+    camera.position.set(state.x, state.y, state.z);
     camera.rotation.y = -state.yaw;
     camera.rotation.x = state.pitch;
-    sky.position.set(state.x, eyeY, state.z);
-    api.y = eyeY;
+    sky.position.set(state.x, state.y, state.z);
+    api.y = state.y;
+    api.fly = state.fly;
 
     fleet.update(dt);
     boats?.update(dt);
@@ -536,8 +565,13 @@ async function main(): Promise<void> {
       hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
       hudValues.zone = zone.zoneLabel(state.x, state.z);
       if (city.terrain) {
-        hudValues.alt = formatAlt(city.terrain.datum + groundAt(state.x, state.z));
+        hudValues.alt = formatAlt(city.terrain.datum + groundAt(state.x, state.z), 'ASL');
+      } else if (state.fly) {
+        hudValues.alt = formatAlt(agl, 'AGL');
+      } else {
+        hudValues.alt = undefined;
       }
+      hudValues.mode = state.fly ? 'FLY' : undefined;
       hudValues.landmark = zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined;
       hudValues.fps = api.fps;
       hud.update(hudValues);

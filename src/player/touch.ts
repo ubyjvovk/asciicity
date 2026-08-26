@@ -48,6 +48,8 @@ export function mergeInput(a: InputState, b: InputState): InputState {
     sprint: a.sprint || b.sprint,
     lookDx: a.lookDx + b.lookDx,
     lookDy: a.lookDy + b.lookDy,
+    up: clampAxis(a.up + b.up),
+    flyToggles: a.flyToggles + b.flyToggles,
   };
 }
 
@@ -112,6 +114,8 @@ export class TouchControls {
       sprint,
       lookDx: this.lookDx,
       lookDy: this.lookDy,
+      up: 0,
+      flyToggles: 0,
     };
     this.lookDx = 0;
     this.lookDy = 0;

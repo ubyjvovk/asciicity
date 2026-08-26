@@ -236,6 +236,65 @@ describe('Hud.update row count', () => {
     expect(lines[4]).toMatch(/^> LANDMARK\.+ ST PAULS$/);
     expect(lines[5]).toMatch(/^> FPS\.+ 60$/);
   });
+
+  it('renders 8 rows with ALT and MODE (ALT fourth, MODE between LANDMARK and FPS)', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, rows } = makeFakeDoc();
+    const hud = new Hud(root as unknown as HTMLElement);
+    hud.update({
+      sector: 'E00 / S00',
+      world: '0.00 / 0.00',
+      bearing: '000 DEG / NORTH',
+      zone: 'CITY',
+      alt: '156 M ASL',
+      mode: 'FLY',
+      landmark: 'ST PAULS',
+      fps: 60,
+    });
+    const lines = rows().textContent.split('\n');
+    expect(lines).toHaveLength(8);
+    expect(lines[4]).toMatch(/^> ALT\.+ 156 M ASL$/);
+    expect(lines[5]).toMatch(/^> LANDMARK\.+/);
+    expect(lines[6]).toMatch(/^> MODE\.+ FLY$/);
+    expect(lines[7]).toMatch(/^> FPS\.+ 60$/);
+  });
+
+  it('renders 7 rows with MODE (no ALT) — MODE sits between LANDMARK and FPS', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, rows } = makeFakeDoc();
+    const hud = new Hud(root as unknown as HTMLElement);
+    hud.update({
+      sector: 'E00 / S00',
+      world: '0.00 / 0.00',
+      bearing: '000 DEG / NORTH',
+      zone: 'CITY',
+      mode: 'FLY',
+      landmark: 'ST PAULS',
+      fps: 60,
+    });
+    const lines = rows().textContent.split('\n');
+    expect(lines).toHaveLength(7);
+    expect(lines[4]).toMatch(/^> LANDMARK\.+ ST PAULS$/);
+    expect(lines[5]).toMatch(/^> MODE\.+ FLY$/);
+    expect(lines[6]).toMatch(/^> FPS\.+ 60$/);
+  });
+
+  it('renders 6 rows without alt and mode — no MODE row', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, rows } = makeFakeDoc();
+    const hud = new Hud(root as unknown as HTMLElement);
+    hud.update({
+      sector: 'E00 / S00',
+      world: '0.00 / 0.00',
+      bearing: '000 DEG / NORTH',
+      zone: 'CITY',
+      landmark: 'X',
+      fps: 60,
+    });
+    const lines = rows().textContent.split('\n');
+    expect(lines).toHaveLength(6);
+    expect(lines.some((l) => l.startsWith('> MODE'))).toBe(false);
+  });
 });
 
 describe('nearestLandmark', () => {

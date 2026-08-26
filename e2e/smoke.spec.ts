@@ -136,3 +136,48 @@ test('smoke: hills exposes eye height above the synthetic heightfield and an ALT
   const hud = page.locator('#hud');
   await expect(hud).toContainText('ALT');
 });
+
+test('smoke: fly — Space climbs in fly mode, HUD shows MODE/FLY', async ({
+  page,
+}) => {
+  // `?fly=1` boots airborne; holding Space rises (up axis) in fly mode.
+  await page.goto('/?synthetic=1&fly=1');
+  await page.waitForFunction(
+    () => {
+      const api = (
+        window as unknown as { __asciicity?: { ready?: boolean } }
+      ).__asciicity;
+      return api?.ready === true;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  const canvas = page.locator('#view');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  const readFly = () =>
+    page.evaluate(() => {
+      const api = (
+        window as unknown as { __asciicity?: { y?: number; fly?: boolean } }
+      ).__asciicity;
+      return { y: api?.y ?? NaN, fly: api?.fly ?? false };
+    });
+
+  const before = await readFly();
+  expect(before.fly).toBe(true);
+
+  // Hold Space 500 ms — the player should climb several metres.
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(500);
+  await page.keyboard.up('Space');
+  const after = await readFly();
+  expect(after.y - before.y).toBeGreaterThanOrEqual(5);
+  expect(after.fly).toBe(true);
+
+  const hud = page.locator('#hud');
+  await expect(hud).toContainText('MODE');
+  await expect(hud).toContainText('FLY');
+});
