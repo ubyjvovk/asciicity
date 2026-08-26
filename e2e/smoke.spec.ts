@@ -6,6 +6,8 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { syntheticCity } from '../src/data/synthetic';
+import { terrainHeightAt } from '../src/world/terrain';
 
 /** Shape of the T-0010 debug contract exposed on `window.__asciicity`. */
 interface AsciiApi {
@@ -95,4 +97,42 @@ test('smoke: boots, renders, moves, shows HUD, saves screenshot', async ({
   const shotPath = 'e2e/__shots__/smoke.png';
   mkdirSync('e2e/__shots__', { recursive: true });
   await page.screenshot({ path: shotPath });
+});
+
+test('smoke: hills exposes eye height above the synthetic heightfield and an ALT row', async ({
+  page,
+}) => {
+  // The default synthetic seed is 1, blocks 12; hills=1 adds the terrain grid.
+  // Compute the expected eye height in node from the same seed the browser boots.
+  const hills = syntheticCity(1, 12, true);
+  if (!hills.terrain) throw new Error('syntheticCity(1, 12, true) must include terrain');
+  const expectedY = 1.7 + terrainHeightAt(hills.terrain, 0, 0);
+
+  await page.goto('/?synthetic=1&hills=1');
+  await page.waitForFunction(
+    () => {
+      const api = (
+        window as unknown as { __asciicity?: { ready?: boolean } }
+      ).__asciicity;
+      return api?.ready === true;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  // Read `y` and `city` from the extended debug contract.
+  const observed = await page.evaluate(() => {
+    const api = (
+      window as unknown as {
+        __asciicity?: { y?: number; city?: string };
+      }
+    ).__asciicity;
+    return { y: api?.y ?? NaN, city: api?.city ?? '' };
+  });
+  expect(observed.city).toBe('synthetic');
+  expect(Math.abs(observed.y - expectedY)).toBeLessThan(0.5);
+
+  // The HUD must render the ALT row when terrain is present.
+  const hud = page.locator('#hud');
+  await expect(hud).toContainText('ALT');
 });

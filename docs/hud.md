@@ -15,11 +15,15 @@ frame loop is T-0010.
 | WORLD   | `formatWorld(x, z)`               | `1234.50 / -321.00`             |
 | BEARING | `formatBearing(deg)`              | `267 DEG / WEST`                |
 | ZONE    | `ZoneIndex.zoneLabel(x, z)`       | `CHEAPSIDE` / `NEAR BANK` / `CITY` |
+| ALT     | `formatAlt(m)` (only when defined)| `156 M ASL`                     |
 | LANDMARK| `ZoneIndex.nearestLandmark` name  | `ST PAUL'S CATHEDRAL` / `-`        |
 | FPS     | integer (`Math.round`)            | `60`                            |
 
-The `<pre class="hud-rows">` text is those six `hudRow` lines, each prefixed
-with `> `.
+The `<pre class="hud-rows">` text is those six (or seven, with ALT) `hudRow`
+lines, each prefixed with `> `. ALT sits fourth in the seven-row form —
+between ZONE and LANDMARK — and is emitted only when `HudValues.alt` is
+defined; on flat cities (no `city.terrain`) it stays undefined and the
+panel keeps the classic six-row layout.
 
 ### `formatBearing`
 
@@ -54,6 +58,14 @@ South/north: `S` + `r` when `r >= 0`, else `N` + `−r`. Joined with `" / "`.
 ### `hudRow`
 
 `hudRow('SECTOR', 'E00 / S00')` → `"SECTOR..... E00 / S00"`.
+
+### `formatAlt`
+
+`formatAlt(m)` returns `` `${Math.round(m)} M ASL` ``. Fed with
+`city.terrain.datum + groundAt(state.x, state.z)` in the frame loop —
+metres above sea level of the ground under the player. `formatAlt(155.6)`
+→ `"156 M ASL"`. Never called on flat London; the row is only rendered
+when a dataset carries `terrain`.
 
 ## Zone rules
 

@@ -16,11 +16,13 @@ export interface SpawnPoint {
 }
 
 /**
- * A named spawn preset: either a named building matched against the dataset
- * (`{ building }`) or a fixed WGS84 position facing `bearingDeg`.
+ * A named spawn preset. Either a fixed WGS84 position facing `bearingDeg`,
+ * or a named building matched against the dataset (`{ building }`) — the
+ * building form may carry its own fallback coordinate used when the building
+ * is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string }
+  | { building: string; label: string; lon?: number; lat?: number; bearingDeg?: number }
   | { lon: number; lat: number; bearingDeg: number; label: string };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
@@ -65,10 +67,113 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 120,
     label: 'Victoria Embankment, facing the London Eye',
   },
+  // Kyiv presets (wave 5, docs/integration.md §Kyiv presets).
+  maidan: {
+    lon: 30.524,
+    lat: 50.45,
+    bearingDeg: 250,
+    label: 'Maidan Nezalezhnosti, facing Hotel Ukraina',
+  },
+  sophia: {
+    building: 'Sophia',
+    label: 'Facing Saint Sophia Cathedral',
+    lon: 30.5165,
+    lat: 50.453,
+    bearingDeg: 270,
+  },
+  michael: {
+    building: 'Michael',
+    label: "Facing St Michael's Golden-Domed Monastery",
+    lon: 30.521,
+    lat: 50.4553,
+    bearingDeg: 60,
+  },
+  lavra: {
+    lon: 30.556,
+    lat: 50.435,
+    bearingDeg: 100,
+    label: 'Pechersk Lavra, facing the Great Bell Tower',
+  },
+  motherland: {
+    lon: 30.561,
+    lat: 50.4275,
+    bearingDeg: 135,
+    label: 'Facing the Motherland Monument',
+  },
+  podil: {
+    lon: 30.517,
+    lat: 50.465,
+    bearingDeg: 180,
+    label: 'Kontraktova Square, Podil',
+  },
+  andriyivskyy: {
+    lon: 30.5165,
+    lat: 50.4586,
+    bearingDeg: 40,
+    label: "Top of Andriyivskyy Descent, facing St Andrew's Church",
+  },
+  goldengate: {
+    lon: 30.5133,
+    lat: 50.4485,
+    bearingDeg: 20,
+    label: 'Facing the Golden Gate',
+  },
+  arsenalna: {
+    lon: 30.5455,
+    lat: 50.4443,
+    bearingDeg: 90,
+    label: 'Arsenalna, the deepest metro station',
+  },
+  parkbridge: {
+    lon: 30.5335,
+    lat: 50.4557,
+    bearingDeg: 90,
+    label: 'Park Bridge, facing Trukhaniv Island',
+  },
+  glassbridge: {
+    lon: 30.5297,
+    lat: 50.4553,
+    bearingDeg: 45,
+    label: 'Klitschko glass bridge',
+  },
+  mariinsky: {
+    lon: 30.538,
+    lat: 50.4482,
+    bearingDeg: 90,
+    label: 'Facing Mariinsky Palace',
+  },
+  bessarabka: {
+    lon: 30.5209,
+    lat: 50.442,
+    bearingDeg: 0,
+    label: 'Bessarabska Square, looking down Khreshchatyk',
+  },
+  funicular: {
+    lon: 30.5231,
+    lat: 50.4592,
+    bearingDeg: 210,
+    label: 'Funicular lower station, looking up',
+  },
+  hydropark: {
+    lon: 30.577,
+    lat: 50.4459,
+    bearingDeg: 270,
+    label: 'Hydropark, facing the right-bank hills',
+  },
+  metrobridge: {
+    lon: 30.56,
+    lat: 50.4423,
+    bearingDeg: 90,
+    label: 'Metro Bridge over the Dnipro',
+  },
 };
 
 /** Maximum +x offset (metres) the spawn search scans when the point is blocked. */
 const SPAWN_MAX = 200;
+
+/** Parameter type for `resolveSpawn`'s `city` argument (bbox is optional for tests). */
+type SpawnCity = Pick<CityData, 'buildings' | 'roads'> &
+  Partial<Pick<CityData, 'bbox'>>;
 
 /**
  * Parse an `?at=` value. `null`/empty → `null`; a preset name (trimmed,
@@ -178,20 +283,53 @@ export function landmarkSpawn(
   return { x: px, z: pz, yaw };
 }
 
+/** True when the WGS84 point sits within `bbox = [minLon, minLat, maxLon, maxLat]`. */
+function insideBbox(
+  lon: number,
+  lat: number,
+  bbox: [number, number, number, number],
+): boolean {
+  return lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3];
+}
+
+/** Look up the fallback preset and require it to be a fixed-coordinate form. */
+function fixedFallback(name: string): {
+  lon: number;
+  lat: number;
+  bearingDeg: number;
+} {
+  const p = SPAWN_PRESETS[name];
+  if (
+    !p ||
+    'building' in p ||
+    !('lon' in p) ||
+    !('lat' in p) ||
+    typeof p.lon !== 'number' ||
+    typeof p.lat !== 'number'
+  ) {
+    throw new Error(
+      `resolveSpawn fallback '${name}' must be a fixed-coordinate preset`,
+    );
+  }
+  return { lon: p.lon, lat: p.lat, bearingDeg: p.bearingDeg };
+}
+
 /**
- * Resolve an `?at=` value to a spawn pose. `null`/empty/unknown → the
- * `bigben` preset (Westminster Bridge facing Big Ben); a named-building
- * preset with `city` given resolves via `landmarkSpawn` (falling back to
- * `bigben` when the building is absent or unmatchable); a coordinate or
- * fixed preset is projected to local metres and, if `blocked`, walked `+x`
- * in 1 m steps up to 200 m. Yaw comes from the bearing (degrees → radians,
- * wrapped to (−π, π]) or from `landmarkSpawn`.
+ * Resolve an `?at=` value to a spawn pose. Falls back to the `fallback`
+ * preset (default `'bigben'`) when: `param` is `null`/empty/unknown; a
+ * named-building preset has no `city` or its building is absent; the
+ * resolved WGS84 point lies outside `city.bbox`. A named-building preset
+ * that carries its own coordinates uses them (subject to the bbox check)
+ * before falling back to the city's fallback preset. Blocked spawn points
+ * walk `+x` in 1 m steps up to 200 m. Yaw comes from the bearing (degrees
+ * → radians, wrapped to (−π, π]) or from `landmarkSpawn`.
  */
 export function resolveSpawn(
   param: string | null,
   origin: { lat: number; lon: number },
   blocked: (p: Vec2) => boolean,
-  city?: Pick<CityData, 'buildings' | 'roads'>,
+  city?: SpawnCity,
+  fallback = 'bigben',
 ): SpawnPoint {
   const parsed = parseAt(param);
   const preset = parsed?.preset ? SPAWN_PRESETS[parsed.preset] : undefined;
@@ -200,35 +338,38 @@ export function resolveSpawn(
   if (preset && 'building' in preset && city) {
     const landmark = landmarkSpawn(preset.building, city);
     if (landmark) return landmark;
-    // Building absent → fall through to the bigben coordinate fallback.
+    // Building absent → fall through to this preset's own fallback coordinate
+    // (if any), then to the city's fallback preset.
   }
 
   // Coordinates from an explicit `lon,lat[,bearing]`, a fixed-coordinate
-  // preset, or the bigben fallback (a named-building preset that could not
-  // be resolved / no city given). parseAt returns either a preset name or
-  // coordinates, never both.
-  let lon: number;
-  let lat: number;
-  let bearingDeg: number;
+  // preset, a hybrid building preset's fallback coord, or the fallback
+  // preset. `parseAt` returns either a preset name or coordinates, never both.
+  let lon: number | undefined;
+  let lat: number | undefined;
+  let bearingDeg = 0;
   if (parsed?.lon !== undefined && parsed?.lat !== undefined) {
     lon = parsed.lon;
     lat = parsed.lat;
     bearingDeg = parsed.bearingDeg ?? 0;
-  } else if (preset && 'lon' in preset) {
+  } else if (preset && preset.lon !== undefined && preset.lat !== undefined) {
     lon = preset.lon;
     lat = preset.lat;
-    bearingDeg = preset.bearingDeg;
-  } else {
-    const fb = SPAWN_PRESETS.bigben;
-    if (!('lon' in fb)) {
-      throw new Error('bigben preset must be a fixed-coordinate preset');
-    }
+    bearingDeg = preset.bearingDeg ?? 0;
+  }
+
+  // If we ended up with a coordinate that lies outside the city's bbox, drop
+  // it and use the fallback preset instead (which must be fixed-coordinate).
+  const bbox = city?.bbox;
+  const haveCoord = lon !== undefined && lat !== undefined;
+  if (!haveCoord || (bbox && !insideBbox(lon!, lat!, bbox))) {
+    const fb = fixedFallback(fallback);
     lon = fb.lon;
     lat = fb.lat;
     bearingDeg = fb.bearingDeg;
   }
 
-  const [x0, z] = project(lon, lat, origin);
+  const [x0, z] = project(lon!, lat!, origin);
   let x = x0;
   const probe: Vec2 = [x0, z];
   for (let step = 0; step <= SPAWN_MAX; step++) {

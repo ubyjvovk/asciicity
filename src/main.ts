@@ -1,14 +1,15 @@
 /**
  * AsciiCity bootstrap and frame loop (docs/architecture.md §5). Loads or
- * synthesises the city, builds the world meshes, wires
- * Controls / TouchControls / Hud / CollisionGrid / ZoneIndex / Minimap /
- * AsciiRenderer / CRT overlay, and runs the animation loop with a live pose
- * exposed on `window.__asciicity`.
+ * synthesises the city, builds the world meshes (draped over terrain when the
+ * dataset carries one), wires Controls / TouchControls / Hud / CollisionGrid /
+ * ZoneIndex / Minimap / AsciiRenderer / CRT overlay, and runs the animation
+ * loop with a live pose exposed on `window.__asciicity`.
  */
 import './style.css';
-import type { CityData, Vec2 } from './data/types';
+import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/types';
 import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
+import { CITIES, cityById, type CityInfo } from './data/cities';
 import { resolveSpawn } from './data/spawn';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
@@ -17,6 +18,7 @@ import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
 import { makeSky, updateSky } from './world/sky';
+import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/terrain';
 import { BoatFleet, BusFleet } from './world/traffic';
 import {
   Controls,
@@ -31,7 +33,7 @@ import { mountCrt } from './render/crt';
 import { Hud, type HudValues } from './hud/hud';
 import { Minimap } from './hud/minimap';
 import { ZoneIndex } from './hud/zone';
-import { formatBearing, formatWorld, sectorOf } from './hud/format';
+import { formatAlt, formatBearing, formatWorld, sectorOf } from './hud/format';
 
 declare global {
   interface Window {
@@ -39,6 +41,10 @@ declare global {
       ready: boolean;
       state: PlayerState;
       fps: number;
+      /** Eye height in metres (walkable ground + EYE_HEIGHT). */
+      y: number;
+      /** URL id of the loaded city (`'london'`, `'kyiv'`, or `'synthetic'`). */
+      city: string;
       cols: number;
       rows: number;
     };
@@ -62,6 +68,7 @@ const FPS_WINDOW_S = 1;
 /** Sub-set of URL query parameters this bootstrap understands. */
 interface UrlOptions {
   synthetic: boolean;
+  hills: boolean;
   seed: number | undefined;
   cellW: number | undefined;
   cellH: number | undefined;
@@ -70,14 +77,20 @@ interface UrlOptions {
   hud: boolean;
   theme: number;
   at: string | null;
+  city: string | null;
   time: Date | null;
 }
 
-/** Parse `?synthetic=1&seed=N&cell=WxH&crt=0&minimap=0&hud=0&at=...`. Malformed values are ignored. */
+/**
+ * Parse `?synthetic=1&seed=N&hills=1&city=…&cell=WxH&crt=0&minimap=0&hud=0&at=…&theme=…&time=…`.
+ * Malformed values are ignored.
+ */
 export function parseUrlOptions(search: string): UrlOptions {
   const params = new URLSearchParams(search);
   const synthetic = params.get('synthetic') === '1';
+  const hills = params.get('hills') === '1';
   const at = params.get('at');
+  const city = params.get('city');
   const seedRaw = params.get('seed');
   const seedParsed = seedRaw !== null && seedRaw !== '' ? Number(seedRaw) : NaN;
   const seed = Number.isFinite(seedParsed) ? seedParsed : undefined;
@@ -111,7 +124,7 @@ export function parseUrlOptions(search: string): UrlOptions {
             ? 1
             : 0;
   const time = parseTimeParam(params.get('time'));
-  return { synthetic, seed, cellW, cellH, crt, minimap, hud, theme, at, time };
+  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, theme, at, city, time };
 }
 
 /**
@@ -135,16 +148,26 @@ function parseTimeParam(raw: string | null): Date | null {
   return null;
 }
 
-/** Return `syntheticCity()` on `?synthetic=1` or when the fetch fails. */
-async function chooseCity(opts: UrlOptions): Promise<CityData> {
+/**
+ * Return the resolved `CityData` plus the id string reported on
+ * `window.__asciicity.city`. `?synthetic=1` → `syntheticCity(seed, 12, hills)`
+ * with id `'synthetic'`; otherwise pick `cityById(opts.city) ?? CITIES[0]`
+ * and `loadCity(BASE_URL + info.file)`, falling back to `syntheticCity(seed)`
+ * on a fetch failure (log a console warning).
+ */
+async function chooseCity(
+  opts: UrlOptions,
+): Promise<{ city: CityData; id: string; info?: CityInfo }> {
   if (opts.synthetic) {
-    return syntheticCity(opts.seed);
+    return { city: syntheticCity(opts.seed, 12, opts.hills), id: 'synthetic' };
   }
+  const info = cityById(opts.city) ?? CITIES[0];
   try {
-    return await loadCity(import.meta.env.BASE_URL + 'data/city.json');
+    const city = await loadCity(import.meta.env.BASE_URL + info.file);
+    return { city, id: info.id, info };
   } catch (err) {
-    console.warn('city.json load failed, using synthetic city:', err);
-    return syntheticCity(opts.seed);
+    console.warn(`${info.file} load failed, using synthetic city:`, err);
+    return { city: syntheticCity(opts.seed), id: 'synthetic' };
   }
 }
 
@@ -163,7 +186,7 @@ async function main(): Promise<void> {
   }
 
   const opts = parseUrlOptions(window.location.search);
-  const city = await chooseCity(opts);
+  const { city, id: cityId, info: cityInfo } = await chooseCity(opts);
 
   const renderer = makeRenderer(canvas);
   const scene = makeScene();
@@ -172,21 +195,39 @@ async function main(): Promise<void> {
   );
   camera.rotation.order = 'YXZ';
 
-  scene.add(makeGround());
-  scene.add(makeRoadsObject(city.roads));
-  scene.add(makeBuildingsObject(city.buildings, makeWindowTexture()));
+  // Terrain (wave 5): builders and fleets get a `groundAt` HeightFn that
+  // combines the heightfield with any bridge decks. Without terrain the
+  // sampler is `FLAT_HEIGHT` and every call site behaves as before.
+  let terrain: Terrain | undefined;
+  let decks: BridgeDecks | undefined;
+  let groundAt: HeightFn = FLAT_HEIGHT;
+  if (city.terrain) {
+    terrain = new Terrain(city.terrain);
+    decks = new BridgeDecks(city.roads, terrain.heightAt);
+    groundAt = makeGroundAt(terrain, decks);
+  }
+
+  const groundMesh = makeGround();
+  if (terrain) groundMesh.position.y = terrain.min - 0.5;
+  scene.add(groundMesh);
+  if (terrain) scene.add(makeTerrainObject(terrain.data));
+  scene.add(makeRoadsObject(city.roads, groundAt));
+  scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
   if (city.water?.length) {
-    scene.add(makeWaterObject(city.water));
+    scene.add(makeWaterObject(city.water, city.waterLevels));
   }
 
   // Red double-deckers cruising the primary/secondary roads — pure ambience
   // (pass-through, no collision). Works on both the real and synthetic city.
-  const fleet = new BusFleet(city.roads);
+  const fleet = new BusFleet(city.roads, 12, 9, groundAt);
   scene.add(fleet.object);
 
   // A few grey boats gliding along the river centre-lines (T-0036), when the
-  // dataset carries them — pure ambience, no collision.
-  const boats = city.rivers?.length ? new BoatFleet(city.rivers) : undefined;
+  // dataset carries them — pure ambience, no collision. Boats ride on the
+  // terrain sampler (flattened river bed) so they float at water level.
+  const boats = city.rivers?.length
+    ? new BoatFleet(city.rivers, 4, 17, terrain ? terrain.heightAt : FLAT_HEIGHT)
+    : undefined;
   if (boats) scene.add(boats.object);
 
   // Sky is the fixed time if `?time=` pins it, otherwise the real clock; the
@@ -241,10 +282,18 @@ async function main(): Promise<void> {
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
   // otherwise resolve `?at=` (preset or coordinate) against the city origin,
-  // walking +x if the point is blocked inside a building.
+  // walking +x if the point is blocked inside a building. Presets/coords that
+  // fall outside `city.bbox` (a London preset in Kyiv, say) drop back to the
+  // city's `defaultSpawn`.
   const spawn = opts.synthetic
     ? { x: 0, z: 0, yaw: -Math.PI / 2 }
-    : resolveSpawn(opts.at, city.origin, (p: Vec2) => collision.blocked(p), city);
+    : resolveSpawn(
+        opts.at,
+        city.origin,
+        (p: Vec2) => collision.blocked(p),
+        city,
+        cityInfo?.defaultSpawn,
+      );
   const state: PlayerState = {
     x: spawn.x,
     z: spawn.z,
@@ -252,10 +301,20 @@ async function main(): Promise<void> {
     pitch: 0,
   };
 
-  // Reused across frames — no per-frame HUD allocation.
+  // Reused across frames — no per-frame HUD allocation. `alt` starts unset
+  // and stays unset on flat London; on Kyiv the loop assigns each frame.
   const hudValues: HudValues = { sector: '', world: '', bearing: '', zone: '', fps: 0 };
 
-  const api = { ready: false, state, fps: 0, cols: 0, rows: 0 };
+  const initialEyeY = groundAt(state.x, state.z) + EYE_HEIGHT;
+  const api = {
+    ready: false,
+    state,
+    fps: 0,
+    y: initialEyeY,
+    city: cityId,
+    cols: 0,
+    rows: 0,
+  };
   window.__asciicity = api;
 
   function applySize(): void {
@@ -325,10 +384,12 @@ async function main(): Promise<void> {
     state.yaw = next.yaw;
     state.pitch = next.pitch;
 
-    camera.position.set(state.x, EYE_HEIGHT, state.z);
+    const eyeY = groundAt(state.x, state.z) + EYE_HEIGHT;
+    camera.position.set(state.x, eyeY, state.z);
     camera.rotation.y = -state.yaw;
     camera.rotation.x = state.pitch;
-    sky.position.set(state.x, EYE_HEIGHT, state.z);
+    sky.position.set(state.x, eyeY, state.z);
+    api.y = eyeY;
 
     fleet.update(dt);
     boats?.update(dt);
@@ -349,6 +410,9 @@ async function main(): Promise<void> {
       hudValues.world = formatWorld(state.x, state.z);
       hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
       hudValues.zone = zone.zoneLabel(state.x, state.z);
+      if (city.terrain) {
+        hudValues.alt = formatAlt(city.terrain.datum + groundAt(state.x, state.z));
+      }
       hudValues.landmark = zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined;
       hudValues.fps = api.fps;
       hud.update(hudValues);

@@ -10,11 +10,13 @@ export interface HudValues {
   world: string;
   bearing: string;
   zone: string;
+  /** Metres above sea level, already formatted (`formatAlt`). Absent → no ALT row. */
+  alt?: string;
   landmark?: string;
   fps: number;
 }
 
-/** Renders title, six dotted rows, and the help line into a root element. */
+/** Renders title, six (or seven with ALT) dotted rows, and the help line. */
 export class Hud {
   private readonly rows: HTMLElement;
 
@@ -28,23 +30,21 @@ export class Hud {
     const rows = doc.createElement('pre');
     rows.className = 'hud-rows';
 
-    const helpEl = doc.createElement('div');
-    helpEl.className = 'hud-help';
-    helpEl.textContent = help;
-
     root.append(title, rows, help);
     this.rows = rows;
   }
 
-  /** Replace the six row lines from `v`. Touches only `textContent`. */
+  /** Rewrite the row lines from `v`. Touches only `textContent`. */
   update(v: HudValues): void {
-    this.rows.textContent = [
+    const lines = [
       `> ${hudRow('SECTOR', v.sector)}`,
       `> ${hudRow('WORLD', v.world)}`,
       `> ${hudRow('BEARING', v.bearing)}`,
       `> ${hudRow('ZONE', v.zone)}`,
-      `> ${hudRow('LANDMARK', v.landmark ?? '-')}`,
-      `> ${hudRow('FPS', String(Math.round(v.fps)))}`,
-    ].join('\n');
+    ];
+    if (v.alt !== undefined) lines.push(`> ${hudRow('ALT', v.alt)}`);
+    lines.push(`> ${hudRow('LANDMARK', v.landmark ?? '-')}`);
+    lines.push(`> ${hudRow('FPS', String(Math.round(v.fps)))}`);
+    this.rows.textContent = lines.join('\n');
   }
 }

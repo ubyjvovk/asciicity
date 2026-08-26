@@ -1,6 +1,8 @@
 /**
  * Unit tests for spawn presets and `?at=` resolution (`src/data/spawn.ts`).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   landmarkSpawn,
@@ -248,17 +250,34 @@ describe('resolveSpawn', () => {
   });
 
   it('exposes presets with lower-case keys and labels', () => {
+    // London + Westminster + Kyiv (wave 5, T-0045) presets.
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
+      'andriyivskyy',
+      'arsenalna',
       'bank',
       'barbican',
+      'bessarabka',
       'bigben',
       'embankment',
+      'funicular',
       'gherkin',
+      'glassbridge',
+      'goldengate',
+      'hydropark',
+      'lavra',
       'leadenhall',
       'liverpoolst',
       'lloyds',
+      'maidan',
+      'mariinsky',
+      'metrobridge',
+      'michael',
       'monument',
+      'motherland',
+      'parkbridge',
       'parliament',
+      'podil',
+      'sophia',
       'stpauls',
       'tower',
       'trafalgar',
@@ -319,5 +338,97 @@ describe('landmarkSpawn', () => {
       roads: [{ id: 3, cls: 'footway', pts: [[500, 0]] }],
     };
     expect(landmarkSpawn('test tower', emptyCity)).toBeNull();
+  });
+});
+
+// Kyiv-specific coverage for the T-0045 per-city fallback / bbox check.
+describe('resolveSpawn (per-city fallback + bbox check)', () => {
+  const KYIV: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
+  );
+  const KYIV_ORIGIN = KYIV.origin;
+  const KYIV_BBOX = KYIV.bbox;
+
+  it('unknown London preset in Kyiv falls back to the given fallback preset', () => {
+    // `gherkin` is a London-only named-building preset that will not resolve
+    // in kyiv.json → resolveSpawn must land on the `maidan` fallback.
+    const spawn = resolveSpawn(
+      'gherkin',
+      KYIV_ORIGIN,
+      () => false,
+      KYIV,
+      'maidan',
+    );
+    const maidan = SPAWN_PRESETS.maidan as { lon: number; lat: number };
+    const [ex, ez] = project(maidan.lon, maidan.lat, KYIV_ORIGIN);
+    expect(Math.hypot(spawn.x - ex, spawn.z - ez)).toBeLessThan(5);
+  });
+
+  it("a London coordinate '-0.1,51.5' in Kyiv falls back to the fallback preset", () => {
+    // The point is outside the Kyiv bbox → drop it and take the maidan preset.
+    const spawn = resolveSpawn(
+      '-0.1,51.5',
+      KYIV_ORIGIN,
+      () => false,
+      KYIV,
+      'maidan',
+    );
+    const maidan = SPAWN_PRESETS.maidan as { lon: number; lat: number };
+    const [ex, ez] = project(maidan.lon, maidan.lat, KYIV_ORIGIN);
+    expect(Math.hypot(spawn.x - ex, spawn.z - ez)).toBeLessThan(5);
+  });
+
+  it('every Kyiv preset coordinate lies inside the Kyiv bbox', () => {
+    const kyivKeys = [
+      'maidan',
+      'sophia',
+      'michael',
+      'lavra',
+      'motherland',
+      'podil',
+      'andriyivskyy',
+      'goldengate',
+      'arsenalna',
+      'parkbridge',
+      'glassbridge',
+      'mariinsky',
+      'bessarabka',
+      'funicular',
+      'hydropark',
+      'metrobridge',
+    ];
+    for (const key of kyivKeys) {
+      const preset = SPAWN_PRESETS[key] as { lon?: number; lat?: number };
+      expect(preset).toBeDefined();
+      expect(preset.lon).toBeDefined();
+      expect(preset.lat).toBeDefined();
+      expect(preset.lon!).toBeGreaterThanOrEqual(KYIV_BBOX[0]);
+      expect(preset.lon!).toBeLessThanOrEqual(KYIV_BBOX[2]);
+      expect(preset.lat!).toBeGreaterThanOrEqual(KYIV_BBOX[1]);
+      expect(preset.lat!).toBeLessThanOrEqual(KYIV_BBOX[3]);
+    }
+  });
+
+  it('each Kyiv building preset resolves via landmarkSpawn on kyiv.json', () => {
+    // Building presets carry both a name and a fallback coordinate. All should
+    // find a match in kyiv.json — none should fall through to the coordinate.
+    const buildingKeys = ['sophia', 'michael'];
+    for (const key of buildingKeys) {
+      const preset = SPAWN_PRESETS[key] as { building?: string };
+      expect(preset.building).toBeDefined();
+      const found = landmarkSpawn(preset.building!, KYIV);
+      expect(found, `landmarkSpawn(${preset.building}) on kyiv.json`).not.toBeNull();
+    }
+  });
+
+  it('throws when the fallback preset is a building form (no fixed coordinate)', () => {
+    // `sophia` in Kyiv is a hybrid (building + coord), but with the coord
+    // stripped the resolver has nothing to fall back to. Sanity check by
+    // asking for an unknown-fallback name — `stpauls` in London is pure
+    // building (no coord), so using it as a fallback in Kyiv must throw.
+    expect(() =>
+      // Force the bbox-outside branch → must consult the fallback.
+      resolveSpawn('-0.1,51.5', KYIV_ORIGIN, () => false, KYIV, 'stpauls'),
+    ).toThrow(/fixed-coordinate/);
   });
 });

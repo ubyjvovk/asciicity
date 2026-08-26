@@ -1,0 +1,88 @@
+/**
+ * Unit tests for `src/data/cities.ts` — the CityInfo registry and
+ * `cityById` lookup. Every entry's `defaultSpawn` is verified against the
+ * committed `public/data/<file>.bbox` so a picker choice always lands
+ * inside its own city.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { CITIES, cityById } from '../src/data/cities';
+import { SPAWN_PRESETS } from '../src/data/spawn';
+
+interface DatasetHeader {
+  bbox: [number, number, number, number];
+}
+
+/** Load a dataset's bbox from `public/data/<file>` without touching mesh data. */
+function loadBbox(file: string): DatasetHeader['bbox'] {
+  const raw = readFileSync(resolve(__dirname, '..', 'public', file), 'utf8');
+  return (JSON.parse(raw) as DatasetHeader).bbox;
+}
+
+describe('CITIES registry', () => {
+  it('lists london first (default) then kyiv', () => {
+    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv']);
+  });
+
+  it('carries the expected labels, files and blurbs', () => {
+    const london = CITIES[0];
+    expect(london.label).toBe('LONDON');
+    expect(london.file).toBe('data/city.json');
+    expect(london.defaultSpawn).toBe('bigben');
+    expect(london.blurb).toBe('City of London & Westminster · flat');
+
+    const kyiv = CITIES[1];
+    expect(kyiv.label).toBe('KYIV');
+    expect(kyiv.file).toBe('data/kyiv.json');
+    expect(kyiv.defaultSpawn).toBe('maidan');
+    expect(kyiv.blurb).toBe('Central Kyiv · Dnipro hills, 120 m of relief');
+  });
+});
+
+describe('cityById', () => {
+  it("cityById('KYIV ') → kyiv (trimmed + case-insensitive)", () => {
+    expect(cityById('KYIV ')?.id).toBe('kyiv');
+    expect(cityById('  london')?.id).toBe('london');
+    expect(cityById('KyIv')?.id).toBe('kyiv');
+  });
+
+  it('cityById(null) → undefined', () => {
+    expect(cityById(null)).toBeUndefined();
+  });
+
+  it('cityById(undefined) → undefined', () => {
+    expect(cityById(undefined)).toBeUndefined();
+  });
+
+  it("cityById('') → undefined", () => {
+    expect(cityById('')).toBeUndefined();
+    expect(cityById('   ')).toBeUndefined();
+  });
+
+  it('cityById of an unknown id → undefined', () => {
+    expect(cityById('paris')).toBeUndefined();
+  });
+});
+
+describe("every CITIES entry's defaultSpawn is a fixed-coordinate preset inside its bbox", () => {
+  for (const city of CITIES) {
+    it(`${city.id}.defaultSpawn (${city.defaultSpawn}) is a fixed coordinate inside its bbox`, () => {
+      const preset = SPAWN_PRESETS[city.defaultSpawn];
+      expect(preset).toBeDefined();
+      // Must be a fixed-coordinate preset (has lon/lat, no `building`) — the
+      // fallback must resolve to a coordinate `resolveSpawn` can project.
+      expect('building' in preset).toBe(false);
+      expect('lon' in preset).toBe(true);
+      const fixed = preset as { lon: number; lat: number; bearingDeg: number };
+      expect(Number.isFinite(fixed.lon)).toBe(true);
+      expect(Number.isFinite(fixed.lat)).toBe(true);
+      expect(Number.isFinite(fixed.bearingDeg)).toBe(true);
+      const bbox = loadBbox(city.file);
+      expect(fixed.lon).toBeGreaterThanOrEqual(bbox[0]);
+      expect(fixed.lon).toBeLessThanOrEqual(bbox[2]);
+      expect(fixed.lat).toBeGreaterThanOrEqual(bbox[1]);
+      expect(fixed.lat).toBeLessThanOrEqual(bbox[3]);
+    });
+  }
+});
