@@ -24,7 +24,12 @@ in your report instead of guessing.
   `sky.ts`; `textures.ts` (browser-only).
 - `src/player/controls.ts` — pure `stepPlayer` + DOM `Controls`.
 - `src/render/` — `scene.ts` (renderer/lights/fog/camera constants),
-  `ascii.ts` (the ASCII post-process: glyph atlas + shader).
+  `style.ts` (PM-owned `RenderStyle` contract + `STYLE_PRELUDE`), `post.ts`
+  (`StyleRenderer`: target + quad + style switching), `styles/<name>.ts`
+  (one look per module — ascii/gloom/solarized, braille, blocks, teletext,
+  dither/gameboy, pico8, edges, hatch, matrix; `R` cycles, `?render=<id>`).
+  A style is a fragment shader over the low-res scene target — read
+  `style.ts` and architecture.md §4.11 before writing one.
 - `src/hud/` — pure formatters, `ZoneIndex`, DOM `Hud`.
 - `src/main.ts` — bootstrap and frame loop (architecture.md §5).
 - `tests/` — vitest unit tests `tests/<module>.test.ts`; `tests/fixtures/`.
@@ -88,8 +93,8 @@ in your report instead of guessing.
 - Playwright is pinned to **1.55.1** because the worker image bakes
   chromium-1193 at `/opt/pw-browsers`; any other version tries to download a
   browser and fails offline.
-- `src/data/types.ts` and `src/world/mesh.ts` are PM-owned: import them, do
-  not edit them.
+- `src/data/types.ts`, `src/world/mesh.ts` and `src/render/style.ts` are
+  PM-owned: import them, do not edit them.
 - Terrain (wave 5): the world is flat unless `CityData.terrain` is present.
   Every builder takes a `HeightFn` (`(x, z) => y`, default `FLAT_HEIGHT` from
   `types.ts`) so London and the synthetic city keep rendering byte-identical

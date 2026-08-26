@@ -210,7 +210,13 @@ each toggle; HUD row `MODE ... FLY` (between LANDMARK and FPS) only while
 flying; the `ALT` row is shown when the city has terrain (`… M ASL`) **or**
 while flying (`… M AGL` when there is no terrain); help line gains `· F FLY`.
 
-### 4.8 ASCII renderer (src/render/ascii.ts) — the core of the look
+### 4.8 ASCII renderer — the core of the look (wave 6: now the `ascii`/`gloom`/`solarized` styles, §4.11)
+
+> Wave 6 moves this code to `src/render/styles/ascii.ts` behind the
+> `RenderStyle` contract (§4.11); `AsciiRenderer` becomes the generic
+> `StyleRenderer` in `src/render/post.ts`. The atlas, `glyphIndex`, the
+> shader and the three themes below are unchanged — they are the reference
+> implementation every other style imitates.
 
 ```ts
 export const DEFAULT_RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
@@ -360,6 +366,119 @@ export function buildShareUrl(href: string, cityId: string, state: { x: number; 
   fed with `terrain.datum + groundAt(x, z)`; London (no terrain) keeps the
   six-row panel.
 
+### 4.11 Render styles (wave 6) — `src/render/style.ts` (PM-owned), `src/render/post.ts`, `src/render/styles/*.ts`
+
+The scene is rendered once into a small target, then one full-screen
+fragment shader turns it into the look. A **style** is that shader plus its
+cell/sample geometry and its own uniforms (`RenderStyle` in `style.ts` —
+read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
+is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
+ship: `ascii`, `gloom`, `solarized` (the former themes), `braille`,
+`blocks`, `teletext`, `dither`, `gameboy`, `pico8`, `edges`, `hatch`,
+`matrix`. Every style must keep ≥ 30 fps on an integrated GPU: the scene
+target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
+
+```ts
+// src/render/post.ts
+export interface StyleRendererOptions { initial?: string; cellW?: number; cellH?: number; exposure?: number /* 1.7 */; gamma?: number /* 0.45 */ }
+export class StyleRenderer {
+  constructor(renderer: THREE.WebGLRenderer, styles: readonly RenderStyle[], opts?: StyleRendererOptions)
+  get styles(): readonly RenderStyle[]; get style(): RenderStyle
+  setStyle(id: string): boolean          // false + no-op for unknown ids; disposes the old style's uniforms
+  next(step = 1): RenderStyle             // cyclic; step −1 for Shift+R
+  setSize(width: number, height: number): void   // cols = floor(w / cellW), rows = floor(h / cellH); target = cols·subX × rows·subY (+ DepthTexture when needsDepth)
+  render(scene: THREE.Scene, camera: THREE.Camera): void  // scene → target, update common uniforms (time, cameraNear/Far from a PerspectiveCamera), style.update?, quad → canvas
+  get cols(): number; get rows(): number
+  dispose(): void
+}
+// src/render/styles/index.ts
+export const STYLES: readonly RenderStyle[]   // exactly STYLE_ORDER, one entry per id, from the per-style modules' `STYLES` exports
+```
+
+Each `src/render/styles/<module>.ts` exports `export const STYLES: readonly RenderStyle[]`
+(usually one entry; `ascii.ts` has three, `dither.ts` two) plus its pure
+helpers. `?cell=WxH` overrides `cellW/cellH` of every style. Common
+uniforms and helpers: see `STYLE_PRELUDE` in `style.ts`. `main.ts`: `R` →
+`next(1)`, `Shift+R` → `next(−1)`, `?render=<id>` (unknown → `ascii`),
+`?theme=`/`?gloom=1` accepted as aliases (`cyber|0 → ascii`, `gloom|1 → gloom`,
+`solarized|2 → solarized`; `render` wins), the `G` key is gone; every
+change shows a toast `<div id="toast">RENDER: <LABEL></div>` for 1.5 s;
+`window.__asciicity.render` (id) and `.styles` (ids in order);
+`buildShareUrl` keeps `render` instead of `theme`.
+
+Per-style algorithms (each ticket implements exactly one subsection; the
+"pure" exports are unit-tested in node, the shader mirrors them):
+
+**ascii / gloom / solarized** — `styles/ascii.ts`: §4.8 verbatim. Cell 6×12,
+sub 1×1. One factory `asciiStyle(id, label, theme)`; `DEFAULT_RAMP`,
+`glyphIndex`, `buildGlyphAtlas`, `themeMix` stay exported from this module.
+
+**braille** — cell 6×12, sub 2×4. Dot `(c, r)` (`c` ∈ {0,1} column, `r` ∈
+0..3 row from the **top**) is lit when `shaped(bright(sample)) > T[r][c]`,
+`T = [[1/9, 5/9], [7/9, 3/9], [2/9, 6/9], [8/9, 4/9]]`. Bits: dots 1–3 =
+left column rows 0–2 → bits 0–2; dots 4–6 = right column rows 0–2 → bits
+3–5; dot 7 = left row 3 → bit 6; dot 8 = right row 3 → bit 7 (Unicode
+braille order; tile index = bits, 256 tiles). Atlas: **procedural**, tile
+16×32, dot radius 2.5 px at x ∈ {4, 12}, y ∈ {4, 12, 20, 28} (top-first),
+white on black. Colour: `tintOf(cellMean) · clamp(shaped(bright(cellMean))·0.7 + 0.4, 0, 1) · mask`.
+Pure: `BRAILLE_THRESHOLDS`, `brailleBits(lums: number[8] /* row-major top-first, [r][c] */): number`, `brailleDots(bits): [c, r][]`.
+
+**blocks** — ANSI quadrant art. Cell 6×12, sub 2×2. `m` = mean of the four
+`shaped(bright(s))`; quadrant `q` (0 = bottom-left, 1 = bottom-right, 2 =
+top-left, 3 = top-right, matching `sampleSub` order) is "on" when its
+value `> m + 1e-4`; all-equal → all on. fg = mean exposed colour of the on
+quadrants, bg = mean of the off ones (each `tintOf(mean)·shaped(bright(mean))`).
+Drawn analytically: pixel quadrant from `fract(vUv·grid)`. Pure:
+`quadrantBits(lums: number[4]): number` (bit q), `splitMeans(colours, bits)`.
+
+**teletext** — Ceefax mosaic. Cell 6×12, sub 2×3 (sixels). Bit `k` for
+sample `(x, y)` = `y·2 + x` (bottom-first) on when `shaped(bright) > mean`
+(all-equal → all on). fg colour = nearest of the 8 teletext colours
+`[black, red, green, yellow, blue, magenta, cyan, white]` (components 0/1)
+to `tintOf(meanOn)` **after** normalising so its max channel is 1 (black
+only when `bright(meanOn) < 0.15`); bg black. Analytic drawing. Pure:
+`TELETEXT_PALETTE`, `teletextIndex(rgb): number`, `sixelBits(lums: number[6])`.
+
+**dither / gameboy** — `styles/dither.ts`, two styles. Cell 2×2, sub 1×1.
+`bayer8(x, y)` = the standard 8×8 Bayer matrix value `(M[y][x] + 0.5) / 64`
+with `M = [[0,32,8,40,2,34,10,42],[48,16,56,24,50,18,58,26],[12,44,4,36,14,46,6,38],[60,28,52,20,62,30,54,22],[3,35,11,43,1,33,9,41],[51,19,59,27,49,17,57,25],[15,47,7,39,13,45,5,37],[63,31,55,23,61,29,53,21]]`
+indexed by `cell mod 8`. `dither`: white `(0.9, 0.95, 0.9)` when
+`shaped(bright) > bayer8`, else black. `gameboy`: level
+`= clamp(floor(shaped(bright)·3 + bayer8), 0, 3)` → palette
+`[#0f380f, #306230, #8bac0f, #9bbc0f]`. Pure: `BAYER8`, `bayer8(x, y)`,
+`ditherOn(v, x, y)`, `gameboyLevel(v, x, y)`, `GAMEBOY_PALETTE`.
+
+**pico8** — cell 4×4, sub 1×1. Colour `c = pow(clamp(exposed, 0, 1), gamma)`
+per channel `+ (bayer4(x, y) − 0.5)/8` (`bayer4` = the 4×4 Bayer matrix
+`(M[y][x] + 0.5)/16`, `M = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]]`),
+then the nearest (squared RGB distance) of the 16 PICO-8 colours
+`#000000 #1D2B53 #7E2553 #008751 #AB5236 #5F574F #C2C3C7 #FFF1E8 #FF004D #FFA300 #FFEC27 #00E436 #29ADFF #83769C #FF77A8 #FFCCAA`.
+Pure: `PICO8_PALETTE`, `bayer4(x, y)`, `nearestPico8(rgb): number`.
+
+**edges** — wireframe/vector look. Cell 2×2, sub 1×1, `needsDepth: true`.
+`dC = linearDepth(uv)` at the cell centre and `dL/dR/dU/dD` one sub-sample
+away; `sky = d ≥ 0.98·cameraFar`. Edge when any neighbour differs by more
+than `0.02·min(dC, dN)` in linear depth, or when exactly one of the pair is
+sky. Output: edge → `(0.25, 1.0, 0.6)`; else `exposed scene · 0.12` (the
+floor grid stays faintly visible). Pure: `isEdge(dC, neighbours: number[4], far, k = 0.02): boolean`.
+
+**hatch** — pen-and-ink cross-hatch on paper. Cell 6×12, sub 1×1. Level
+`L = round((1 − shaped(bright(cellMean)))·7)` (0 = blank paper, 7 = densest).
+Procedural atlas of 8 tiles 16×32: levels 1–4 draw "/" diagonals with
+`4 · (5 − L)` px spacing (16, 12, 8, 4), levels 5–7 keep the 4-px "/" set
+and add "\" diagonals with spacing 12, 8, 4; 1.5-px ink lines. Paper
+`(0.96, 0.93, 0.86)`, ink `(0.13, 0.11, 0.10)`; output `mix(paper, ink, mask)`.
+Pure: `hatchLevel(v): number`, `hatchSpacing(level): { fwd: number | null; back: number | null }`.
+
+**matrix** — digital rain. Cell 6×12, sub 1×1, uses the `ascii` atlas
+(`buildGlyphAtlas` import). Glyph index for a cell changes every 1/8 s:
+`idx = floor(hash(cell.x, cell.y, floor(time·8)) · glyphCount)` with
+`hash(a, b, c) = fract(sin(a·12.9898 + b·78.233 + c·37.719)·43758.5453)`.
+Rain per column: `speed = 0.3 + 0.7·hash(cell.x, 1, 0)`, `phase = hash(cell.x, 2, 0)`,
+`trail = fract(phase + time·speed·0.25 − vUv.y)` → intensity `pow(trail, 3)`;
+head (`trail > 0.97`) white. Colour = `(0.2, 1.0, 0.3) · mask · (0.35 + 0.65·shaped(bright(scene))) · (0.4 + 0.6·intensity)`,
+head → `(0.9, 1.0, 0.9)·mask`. Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count)`, `rainIntensity(colX, y01, timeS)`.
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
 1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
@@ -377,7 +496,7 @@ export function buildShareUrl(href: string, cityId: string, state: { x: number; 
    spawn (`(x, groundAt(x, z) + 1.7, z)`); if the spawn is `blocked`, walk
    +x in 1 m steps until free (max 200 m).
 3. `CollisionGrid`, `ZoneIndex`, `Controls(canvas)`, `Hud(hudRoot)`,
-   `AsciiRenderer(renderer)`; `setSize` on load and on `resize`.
+   `StyleRenderer(renderer, STYLES, { initial: opts.render, cellW?, cellH? })` (§4.11); `setSize` on load and on `resize`.
 4. Overlay `<div id="overlay">` with the title and "CLICK TO ENTER"; hidden on
    the first click (which also requests pointer lock).
 5. Loop: `requestAnimationFrame`; `dt = min(0.1, elapsed)`;
