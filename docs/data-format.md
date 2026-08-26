@@ -101,7 +101,7 @@ element carries its own coordinates):
 (
   way["building"](51.497,-0.130,51.521,-0.070);
   relation["building"]["type"="multipolygon"](51.497,-0.130,51.521,-0.070);
-  way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|primary_link|secondary_link|trunk_link)$"](51.497,-0.130,51.521,-0.070);
+  way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|cycleway|primary_link|secondary_link|trunk_link)$"](51.497,-0.130,51.521,-0.070);
   node["place"](51.497,-0.130,51.521,-0.070);
   node["railway"="station"](51.497,-0.130,51.521,-0.070);
   node["tourism"="attraction"]["name"](51.497,-0.130,51.521,-0.070);
@@ -142,7 +142,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 | residential, living_street                         | `residential` |
 | service                                            | `service`     |
 | pedestrian                                         | `pedestrian`  |
-| footway                                            | **dropped** (→ `null`; never emitted) — except a footway with a `bridge` tag ≠ `no`, emitted as `pedestrian` + `bridge: true` (wave 5: Kyiv's pedestrian bridges) |
+| footway, cycleway                                  | **dropped** (→ `null`; never emitted) — except a footway/cycleway with a `bridge` tag ≠ `no`, emitted as `pedestrian` + `bridge: true` (wave 5: Kyiv's Parkovyi and Klitschko bridges are `highway=cycleway` + `bridge=yes`) |
 
 `name` copied when present. Ways with < 2 distinct points are dropped.
 `bridge: true` is emitted when the way has a `bridge` tag whose value is not `no` (bridges are walkable corridors over water; T-0030).
