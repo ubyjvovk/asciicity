@@ -2,6 +2,8 @@
  * Unit tests for the data layer: validator, synthetic city and loader
  * (`src/data/validate.ts`, `src/data/synthetic.ts`, `src/data/load.ts`).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateCity } from '../src/data/validate';
 import { mulberry32, syntheticCity } from '../src/data/synthetic';
@@ -330,6 +332,50 @@ describe('syntheticCity', () => {
 
   it('hills = true validates', () => {
     expect(() => validateCity(syntheticCity(1, 12, true))).not.toThrow();
+  });
+});
+
+describe('committed public/data/kyiv.json', () => {
+  const raw = readFileSync(resolve(__dirname, '../public/data/kyiv.json'), 'utf8');
+  const city = JSON.parse(raw);
+
+  it('validates with no throw', () => {
+    expect(() => validateCity(city)).not.toThrow();
+  });
+
+  it('has the central-Kyiv bbox and Maidan origin', () => {
+    expect(city.bbox).toEqual([30.495, 50.422, 30.585, 50.47]);
+    expect(city.origin.lat).toBeCloseTo(50.4501, 5);
+    expect(city.origin.lon).toBeCloseTo(30.5234, 5);
+  });
+
+  it('carries a terrain grid with a Kyiv-plausible datum (150–165 m ASL)', () => {
+    expect(city.terrain).toBeDefined();
+    const t = city.terrain;
+    expect(t.step).toBe(20);
+    expect(t.datum).toBeGreaterThanOrEqual(150);
+    expect(t.datum).toBeLessThanOrEqual(165);
+    expect(t.heights).toHaveLength(t.cols * t.rows);
+  });
+
+  it('waterLevels has one entry per water ring', () => {
+    expect(Array.isArray(city.water)).toBe(true);
+    expect(city.water.length).toBeGreaterThan(0);
+    expect(city.waterLevels).toHaveLength(city.water.length);
+    for (const lvl of city.waterLevels) {
+      expect(Number.isFinite(lvl)).toBe(true);
+    }
+  });
+
+  it('every terrain height is within ±150 of 0', () => {
+    for (const h of city.terrain.heights) {
+      expect(h).toBeGreaterThanOrEqual(-150);
+      expect(h).toBeLessThanOrEqual(150);
+    }
+  });
+
+  it('file size is under 10 MB', () => {
+    expect(raw.length).toBeLessThan(10 * 1024 * 1024);
   });
 });
 

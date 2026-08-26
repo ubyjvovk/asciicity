@@ -191,8 +191,9 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
 
   it('omits the bridge key when the tag is absent', () => {
     const city = convert();
+    const bridgedIds = new Set([17, 19]); // 17 = Westminster Bridge, 19 = footway bridge
     for (const r of city.roads) {
-      if (r.id !== 17) expect(r.bridge).toBeUndefined();
+      if (!bridgedIds.has(r.id)) expect(r.bridge).toBeUndefined();
     }
   });
 });
@@ -300,6 +301,112 @@ describe('osm-convert assembleRings', () => {
   });
 });
 
+describe('osm-convert --lang', () => {
+  it('without lang the plain (Cyrillic) name is used for buildings', () => {
+    const city = convert();
+    const b = city.buildings.find((bd) => bd.id === 1);
+    expect(b?.name).toBe('Софійський собор');
+  });
+
+  it('without lang the plain name is used for roads', () => {
+    const city = convert();
+    const r = city.roads.find((rd) => rd.id === 10);
+    expect(r?.name).toBe('Cheapside');
+  });
+
+  it("lang: 'en' picks name:en for the fixture building", () => {
+    const city = convertOverpass(loadFixture(), { origin: ORIGIN, lang: 'en' });
+    const b = city.buildings.find((bd) => bd.id === 1);
+    expect(b?.name).toBe('Saint Sophia Cathedral');
+  });
+
+  it("lang: 'en' picks name:en for the fixture road", () => {
+    const city = convertOverpass(loadFixture(), { origin: ORIGIN, lang: 'en' });
+    const r = city.roads.find((rd) => rd.id === 10);
+    expect(r?.name).toBe('Cheapside (English)');
+  });
+
+  it("lang: 'en' falls back to name where name:en is absent (Guildhall relation)", () => {
+    const city = convertOverpass(loadFixture(), { origin: ORIGIN, lang: 'en' });
+    const b = city.buildings.find((bd) => bd.id === 900);
+    // The relation has only `name: Guildhall` (no name:en) — the fallback keeps it.
+    expect(b?.name).toBe('Guildhall');
+  });
+
+  it("lang: 'en' still finds the Bank place (no name:en, falls back to name)", () => {
+    const city = convertOverpass(loadFixture(), { origin: ORIGIN, lang: 'en' });
+    expect(city.places.some((p) => p.name === 'Bank')).toBe(true);
+  });
+});
+
+describe('osm-convert footway bridges (wave 5)', () => {
+  const city = convert();
+
+  it("emits a footway+bridge=yes way as cls 'pedestrian' with bridge: true", () => {
+    const r = city.roads.find((rd) => rd.id === 19);
+    expect(r).toBeDefined();
+    expect(r?.cls).toBe('pedestrian');
+    expect(r?.bridge).toBe(true);
+    expect(r?.name).toBe('Park Bridge');
+  });
+
+  it('still drops a plain footway (no bridge tag)', () => {
+    expect(city.roads.some((r) => r.id === 13)).toBe(false);
+  });
+});
+
+describe('osm-convert --dem terrain', () => {
+  // A stub Dem: elevation rises linearly with lat so the sampler produces
+  // finite, formula-consistent heights without needing a real SRTM tile.
+  const stubDem = {
+    elevationAt(lat: number, _lon: number): number {
+      return 100 + (lat - 51.5133) * 1000;
+    },
+  };
+
+  it('emits terrain with cols/rows matching the buildTerrain formula', () => {
+    const bbox: [number, number, number, number] = [
+      -0.09,
+      51.512,
+      -0.087,
+      51.514,
+    ];
+    const city = convertOverpass(loadFixture(), {
+      origin: ORIGIN,
+      bbox,
+      dem: stubDem,
+      step: 20,
+    });
+    expect(city.terrain).toBeDefined();
+    const t = city.terrain!;
+    // Formula (data-format.md §Terrain): x0 = floor(minX/step)*step − step, etc.
+    // Just check that heights.length matches cols*rows and step is 20.
+    expect(t.step).toBe(20);
+    expect(t.cols).toBeGreaterThanOrEqual(2);
+    expect(t.rows).toBeGreaterThanOrEqual(2);
+    expect(t.heights).toHaveLength(t.cols * t.rows);
+    for (const h of t.heights) expect(Number.isFinite(h)).toBe(true);
+  });
+
+  it('emits waterLevels with the same length as water (fixture has 2 rings)', () => {
+    const city = convertOverpass(loadFixture(), {
+      origin: ORIGIN,
+      dem: stubDem,
+      step: 20,
+    });
+    expect(city.water).toBeDefined();
+    expect(city.waterLevels).toBeDefined();
+    expect(city.waterLevels!.length).toBe(city.water!.length);
+    for (const lvl of city.waterLevels!) expect(Number.isFinite(lvl)).toBe(true);
+  });
+
+  it('without dem, neither terrain nor waterLevels appears', () => {
+    const city = convert();
+    expect(city.terrain).toBeUndefined();
+    expect(city.waterLevels).toBeUndefined();
+  });
+});
+
 describe('osm-convert rivers', () => {
   const city = convert();
 
@@ -384,7 +491,7 @@ describe('osm-convert output invariants', () => {
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
     expect(city.buildings).toHaveLength(6);
-    expect(city.roads).toHaveLength(6); // footway and steps dropped, bridge ways kept
+    expect(city.roads).toHaveLength(7); // footway (13) and steps (14) dropped; footway-bridge (19) kept
   });
 
   it('round1 rounds to a single decimal', () => {

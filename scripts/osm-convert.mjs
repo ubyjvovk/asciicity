@@ -15,6 +15,8 @@
  *   buildings:Array<Object>, roads:Array<Object>, places:Array<Object>}} CityData
  */
 
+import { buildTerrain } from './dem.mjs';
+
 const DEG = Math.PI / 180;
 
 /** Default City of London bbox (minLon,minLat,maxLon,maxLat) per data-format. */
@@ -60,7 +62,9 @@ const ROAD_CLASS = {
   // footway is deliberately unmapped (dropped like `steps`): footways are
   // invisible at cell resolution and were ~40 % of the old file. `footway`
   // stays in the `RoadClass` type/validator for compatibility, just never
-  // emitted.
+  // emitted. Exception (wave 5): a footway with a `bridge` tag ≠ `no` is
+  // emitted as `pedestrian` + `bridge: true` (Kyiv Park / Klitschko pedestrian
+  // bridges); the per-element caller applies that rule.
 };
 
 /**
@@ -314,14 +318,43 @@ function toXY(p, origin) {
 }
 
 /**
+ * Pick the display name for an element per the `--lang` rule: with `lang`
+ * set, prefer `name:<lang>` (trimmed) and fall back to plain `name`; without
+ * `lang`, use `name`. Returns undefined when neither yields a non-empty
+ * string.
+ * @param {Record<string, string>} tags OSM tags
+ * @param {string|undefined} lang two-letter language code, e.g. `'en'`
+ * @returns {string|undefined} trimmed display name, or undefined
+ */
+export function pickName(tags, lang) {
+  if (lang) {
+    const localised = tags[`name:${lang}`];
+    if (typeof localised === 'string') {
+      const t = localised.trim();
+      if (t) return t;
+    }
+  }
+  const n = tags.name;
+  if (typeof n === 'string') {
+    const t = n.trim();
+    if (t) return t;
+  }
+  return undefined;
+}
+
+/**
  * Convert an Overpass `[out:json]` response into a `CityData` object.
  * @param {{elements: unknown[]}} json Overpass response (`out geom;`)
- * @param {{origin: LatLon, bbox?: [number,number,number,number]}} opts
+ * @param {{origin: LatLon, bbox?: [number,number,number,number],
+ *   lang?: string,
+ *   dem?: {elevationAt(lat:number, lon:number): number},
+ *   step?: number}} opts
  * @returns {CityData} city model (see `src/data/types.ts`)
  */
 export function convertOverpass(json, opts) {
   const { origin } = opts;
   const bbox = opts.bbox ?? DEFAULT_BBOX;
+  const { lang, dem, step } = opts;
   const buildings = [];
   const roads = [];
   const places = [];
@@ -383,12 +416,15 @@ export function convertOverpass(json, opts) {
     water.push(clipped);
   }
 
-  const buildEntry = (id, tags, poly) => ({
-    id,
-    h: heightOf(tags),
-    ...(tags.name ? { name: String(tags.name).trim() } : {}),
-    poly,
-  });
+  const buildEntry = (id, tags, poly) => {
+    const name = pickName(tags, lang);
+    return {
+      id,
+      h: heightOf(tags),
+      ...(name ? { name } : {}),
+      poly,
+    };
+  };
 
   for (const el of elements) {
     if (!el || typeof el !== 'object') continue;
@@ -400,7 +436,14 @@ export function convertOverpass(json, opts) {
         const poly = toRing(el.geometry, origin);
         if (poly) buildings.push(buildEntry(el.id, tags, poly));
       } else if (tags.highway !== undefined) {
-        const cls = roadClassOf(tags.highway);
+        let cls = roadClassOf(tags.highway);
+        // Wave-5 exception: a `footway` with a `bridge` tag ≠ `no` becomes a
+        // `pedestrian` bridge (Kyiv Park + Klitschko pedestrian bridges).
+        // Plain footways stay dropped.
+        const bridged = tags.bridge !== undefined && tags.bridge !== 'no';
+        if (cls === null && tags.highway === 'footway' && bridged) {
+          cls = 'pedestrian';
+        }
         if (cls === null) continue;
         const pts = [];
         for (const p of el.geometry || []) {
@@ -409,15 +452,14 @@ export function convertOverpass(json, opts) {
           if (!last || last[0] !== xy[0] || last[1] !== xy[1]) pts.push(xy);
         }
         if (pts.length < 2) continue;
+        const name = pickName(tags, lang);
         roads.push({
           id: el.id,
-          ...(tags.name ? { name: String(tags.name).trim() } : {}),
+          ...(name ? { name } : {}),
           cls,
           // Bridges are walkable corridors over water (T-0030): set the flag
           // when the `bridge` tag exists and is not `no`; omit the key otherwise.
-          ...(tags.bridge !== undefined && tags.bridge !== 'no'
-            ? { bridge: true }
-            : {}),
+          ...(bridged ? { bridge: true } : {}),
           pts,
         });
       } else if (tags.waterway === 'river') {
@@ -455,8 +497,8 @@ export function convertOverpass(json, opts) {
         tags.place !== undefined ||
         tags.railway === 'station' ||
         (tags.tourism === 'attraction' && tags.name);
-      if (isPlace && tags.name) {
-        const name = String(tags.name).trim();
+      if (isPlace) {
+        const name = pickName(tags, lang);
         if (name && !seenPlace.has(name)) {
           seenPlace.add(name);
           const [x, z] = toXY(el, origin);
@@ -464,6 +506,21 @@ export function convertOverpass(json, opts) {
         }
       }
     }
+  }
+
+  let terrain;
+  let waterLevels;
+  if (dem) {
+    const built = buildTerrain({
+      bbox,
+      origin,
+      dem,
+      ...(step !== undefined ? { step } : {}),
+      waterRings: water,
+    });
+    terrain = built.terrain;
+    // Omit waterLevels when there is no water (data-format.md §Terrain step 4).
+    if (water.length > 0) waterLevels = built.waterLevels;
   }
 
   const result = {
@@ -475,6 +532,8 @@ export function convertOverpass(json, opts) {
     places,
     ...(water.length > 0 ? { water } : {}),
     ...(rivers.length > 0 ? { rivers } : {}),
+    ...(terrain ? { terrain } : {}),
+    ...(waterLevels ? { waterLevels } : {}),
   };
   // Non-enumerable escape hatch for the fetch summary line; not serialized.
   Object.defineProperty(result, 'skippedRelations', {

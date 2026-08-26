@@ -3,7 +3,12 @@
     {
       "type": "way",
       "id": 1,
-      "tags": { "building": "yes", "height": "20 m" },
+      "tags": {
+        "building": "yes",
+        "height": "20 m",
+        "name": "Софійський собор",
+        "name:en": "Saint Sophia Cathedral"
+      },
       "geometry": [
         { "lat": 51.5133, "lon": -0.0887 },
         { "lat": 51.5134, "lon": -0.0886 },
@@ -128,7 +133,11 @@
     {
       "type": "way",
       "id": 10,
-      "tags": { "highway": "primary", "name": "Cheapside" },
+      "tags": {
+        "highway": "primary",
+        "name": "Cheapside",
+        "name:en": "Cheapside (English)"
+      },
       "geometry": [
         { "lat": 51.5133, "lon": -0.0887 },
         { "lat": 51.5134, "lon": -0.0886 }
@@ -193,6 +202,15 @@
       "type": "way",
       "id": 18,
       "tags": { "highway": "secondary", "bridge": "no" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 19,
+      "tags": { "highway": "footway", "bridge": "yes", "name": "Park Bridge" },
       "geometry": [
         { "lat": 51.5133, "lon": -0.0887 },
         { "lat": 51.5134, "lon": -0.0886 }
