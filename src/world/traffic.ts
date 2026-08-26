@@ -8,7 +8,8 @@
  */
 import * as THREE from 'three';
 import { mulberry32 } from '../data/synthetic';
-import type { Road, RoadClass, Vec2 } from '../data/types';
+import { FLAT_HEIGHT } from '../data/types';
+import type { HeightFn, Road, RoadClass, Vec2 } from '../data/types';
 
 /** Metres driven per second by every bus. */
 const BUS_SPEED_MPS = 7;
@@ -255,12 +256,16 @@ export class BusFleet {
   private walkers: PathWalker[];
   private mesh: THREE.InstancedMesh | null;
   private dummy: THREE.Object3D;
+  private readonly heightAt: HeightFn;
 
   /**
    * Build `count` walkers over the primary/secondary road graph and a matching
    * instanced double-decker mesh. A graph with no edges yields `count 0`.
+   * `heightAt` is sampled in `update()` to seat each bus on the ground; the
+   * default `FLAT_HEIGHT` keeps the flat world at `y = BUS_HALF_HEIGHT`.
    */
-  constructor(roads: Road[], count = 12, seed = 9) {
+  constructor(roads: Road[], count = 12, seed = 9, heightAt: HeightFn = FLAT_HEIGHT) {
+    this.heightAt = heightAt;
     const graph = buildRoadGraph(roads, BUS_CLASSES);
     const n = graph.edges.length > 0 ? count : 0;
     this.count = n;
@@ -293,7 +298,7 @@ export class BusFleet {
     for (let i = 0; i < this.walkers.length; i++) {
       const w = this.walkers[i];
       w.advance(dt * BUS_SPEED_MPS);
-      this.dummy.position.set(w.x, BUS_HALF_HEIGHT, w.z);
+      this.dummy.position.set(w.x, this.heightAt(w.x, w.z) + BUS_HALF_HEIGHT, w.z);
       this.dummy.rotation.y = -w.heading;
       this.dummy.updateMatrix();
       this.mesh!.setMatrixAt(i, this.dummy.matrix);
@@ -316,14 +321,18 @@ export class BoatFleet {
   private walkers: PathWalker[];
   private mesh: THREE.InstancedMesh | null;
   private dummy: THREE.Object3D;
+  private readonly heightAt: HeightFn;
 
   /**
    * Build `count` ping-pong walkers over the river centre-lines and a matching
    * instanced boat mesh. Rivers are treated as isolated edges (no inter-river
    * connections), so each boat stays on one polyline and reverses at its ends.
-   * No valid rivers → `count 0`.
+   * `heightAt` is sampled in `update()` to seat each boat on the water; the
+   * default `FLAT_HEIGHT` keeps the flat world at `y = BOAT_Y`. No valid rivers
+   * → `count 0`.
    */
-  constructor(rivers: Vec2[][], count = 4, seed = 17) {
+  constructor(rivers: Vec2[][], count = 4, seed = 17, heightAt: HeightFn = FLAT_HEIGHT) {
+    this.heightAt = heightAt;
     const graph = buildRoadGraph(
       rivers.map((pts, i) => ({ id: i, cls: 'primary' as RoadClass, pts })),
       ['primary'],
@@ -359,7 +368,7 @@ export class BoatFleet {
     for (let i = 0; i < this.walkers.length; i++) {
       const w = this.walkers[i];
       w.advance(dt * BOAT_SPEED_MPS);
-      this.dummy.position.set(w.x, BOAT_Y, w.z);
+      this.dummy.position.set(w.x, this.heightAt(w.x, w.z) + BOAT_Y, w.z);
       this.dummy.rotation.y = -w.heading;
       this.dummy.updateMatrix();
       this.mesh!.setMatrixAt(i, this.dummy.matrix);

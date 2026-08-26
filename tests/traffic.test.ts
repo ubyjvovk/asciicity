@@ -150,6 +150,41 @@ describe('BusFleet', () => {
     expect(mesh.instanceMatrix.version).toBeGreaterThan(version);
     expect(mesh.instanceMatrix.array).not.toEqual(before);
   });
+
+  it('defaults keep buses at y = 2.15 (flat world)', () => {
+    const fleet = new BusFleet([road('primary', [[0, 0], [500, 0]], 1)], 1, 9);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      expect(mesh.instanceMatrix.array[i * 16 + 13]).toBeCloseTo(2.15, 5);
+    }
+  });
+
+  it('with heightAt = () => 10 every bus sits at y = 12.15 after one update', () => {
+    const fleet = new BusFleet([road('primary', [[0, 0], [500, 0]], 1)], 12, 9, () => 10);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      const y = mesh.instanceMatrix.array[i * 16 + 13];
+      expect(y).toBeCloseTo(12.15, 5);
+    }
+  });
+
+  it('with a plane heightAt = (x, z) => 0.1·x each bus y = 0.1·x + 2.15 for its own x', () => {
+    const fleet = new BusFleet(
+      [road('primary', [[0, 0], [500, 0]], 1)],
+      12,
+      9,
+      (x) => 0.1 * x,
+    );
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      const x = mesh.instanceMatrix.array[i * 16 + 12];
+      const y = mesh.instanceMatrix.array[i * 16 + 13];
+      expect(y).toBeCloseTo(0.1 * x + 2.15, 5);
+    }
+  });
 });
 
 describe('BoatFleet', () => {
@@ -169,6 +204,36 @@ describe('BoatFleet', () => {
     fleet.update(0.5); // boats move
     expect(mesh.instanceMatrix.version).toBeGreaterThan(version);
     expect(mesh.instanceMatrix.array).not.toEqual(before);
+  });
+
+  it('defaults keep boats at y = 1.0 (flat world)', () => {
+    const fleet = new BoatFleet(RIVERS, 4, 17);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      expect(mesh.instanceMatrix.array[i * 16 + 13]).toBeCloseTo(1.0, 5);
+    }
+  });
+
+  it('with heightAt = () => 10 every boat sits at y = 11.0 after one update', () => {
+    const fleet = new BoatFleet(RIVERS, 4, 17, () => 10);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      const y = mesh.instanceMatrix.array[i * 16 + 13];
+      expect(y).toBeCloseTo(11.0, 5);
+    }
+  });
+
+  it('with a plane heightAt = (x, z) => 0.1·x each boat y = 0.1·x + 1.0 for its own x', () => {
+    const fleet = new BoatFleet(RIVERS, 4, 17, (x) => 0.1 * x);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      const x = mesh.instanceMatrix.array[i * 16 + 12];
+      const y = mesh.instanceMatrix.array[i * 16 + 13];
+      expect(y).toBeCloseTo(0.1 * x + 1.0, 5);
+    }
   });
 
   it('is seed-deterministic: two fleets with the same seed drive identical paths', () => {

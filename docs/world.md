@@ -206,15 +206,17 @@ correct direction) or reverses along the same edge when the node is a dead
 end. `x`/`z` are the live position; `heading` is the current segment yaw
 `atan2(dx, −dz)` (0 faces north, +π/2 east — architecture.md §3).
 
-**`BusFleet(roads, count = 12, seed = 9)`** wraps `count` `PathWalker`s over
-`buildRoadGraph(roads, ['primary','secondary'])`, each seeded with
-`mulberry32(seed + i)`, at **7 m/s**. Geometry is a single
+**`BusFleet(roads, count = 12, seed = 9, heightAt = FLAT_HEIGHT)`** wraps `count`
+`PathWalker`s over `buildRoadGraph(roads, ['primary','secondary'])`, each seeded
+with `mulberry32(seed + i)`, at **7 m/s**. Geometry is a single
 `THREE.InstancedMesh` of `BoxGeometry(2.5, 4.3, 10.2)` (a 10.2 m double-decker,
 length along z) with `MeshLambertMaterial({ color: 0xc0392b })`, one instance
 per bus. `update(dt)` advances every walker and writes its matrix through **one
-reused `THREE.Object3D` dummy** (`position.set(x, 2.15, z)`,
+reused `THREE.Object3D` dummy** (`position.set(x, heightAt(x, z) + 2.15, z)`,
 `rotation.y = −heading`, `updateMatrix`, `setMatrixAt`,
-`instanceMatrix.needsUpdate`) — no per-frame allocation. A network with no
+`instanceMatrix.needsUpdate`) — no per-frame allocation. `heightAt` is a
+`HeightFn` sampled in `update()` to seat each bus on the ground; the default
+`FLAT_HEIGHT` reproduces the flat `y = 2.15` world. A network with no
 primary/secondary roads yields `count 0` and an inert group whose `update` is
 a no-op.
 
@@ -225,16 +227,18 @@ as pure ambience — no collision, wakes or tides. Boats reuse `PathWalker` with
 its **`reverseAtEnds`** option: each walker stays on one polyline and reverses
 direction at both ends (ping-pong; no graph turns).
 
-**`BoatFleet(rivers, count = 4, seed = 17)`** turns each `Vec2[]` river
-polyline into an isolated road edge (via `buildRoadGraph` on `cls: 'primary'`,
-so the same ≥ 2-point / non-degenerate filtering and quantised-node machinery
-apply) and wraps `count` `PathWalker(graph, mulberry32(seed + i), true)`
-s at **4 m/s**. Geometry is a single `THREE.InstancedMesh` of
-`BoxGeometry(4, 2, 14)` (a 14 m boat, length along z) with
-`MeshLambertMaterial({ color: 0xbfc8cc })`, one instance per boat. `update(dt)`
-advances every walker and writes its matrix through one reused
-`THREE.Object3D` dummy (`position.set(x, 1.0, z)`, `rotation.y = −heading`,
-`updateMatrix`, `setMatrixAt`, `instanceMatrix.needsUpdate`) — no per-frame
-allocation. Empty/absent rivers yield `count 0` and an inert group whose
-`update` is a no-op. `main.ts` instantiates it only when `city.rivers?.length`
-is non-zero.
+**`BoatFleet(rivers, count = 4, seed = 17, heightAt = FLAT_HEIGHT)`** turns each
+`Vec2[]` river polyline into an isolated road edge (via `buildRoadGraph` on
+`cls: 'primary'`, so the same ≥ 2-point / non-degenerate filtering and
+quantised-node machinery apply) and wraps `count`
+`PathWalker(graph, mulberry32(seed + i), true)`s at **4 m/s**. Geometry is a
+single `THREE.InstancedMesh` of `BoxGeometry(4, 2, 14)` (a 14 m boat, length
+along z) with `MeshLambertMaterial({ color: 0xbfc8cc })`, one instance per
+boat. `update(dt)` advances every walker and writes its matrix through one
+reused `THREE.Object3D` dummy (`position.set(x, heightAt(x, z) + 1.0, z)`,
+`rotation.y = −heading`, `updateMatrix`, `setMatrixAt`,
+`instanceMatrix.needsUpdate`) — no per-frame allocation. `heightAt` is a
+`HeightFn` sampled in `update()` to seat each boat on the water; the default
+`FLAT_HEIGHT` reproduces the flat `y = 1.0` world. Empty/absent rivers yield
+`count 0` and an inert group whose `update` is a no-op. `main.ts` instantiates
+it only when `city.rivers?.length` is non-zero.
