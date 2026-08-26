@@ -139,6 +139,105 @@ describe('validateCity', () => {
     ];
     expect(() => validateCity(c)).toThrow(/rivers\[0\]/);
   });
+
+  it('accepts a valid 2x2 terrain', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: 0, heights: [0, 1, 2, 3] };
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects a terrain heights array of the wrong length, naming terrain.heights', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: 0, heights: [0, 1, 2] };
+    expect(() => validateCity(c)).toThrow(/terrain\.heights/);
+  });
+
+  it('rejects a non-array terrain heights, naming terrain.heights', () => {
+    const c = base() as unknown as {
+      terrain?: Record<string, unknown>;
+    };
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: 0, heights: 'x' };
+    expect(() => validateCity(c)).toThrow(/terrain\.heights/);
+  });
+
+  it('rejects terrain step: 0, naming terrain.step', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 0, cols: 2, rows: 2, datum: 0, heights: [0, 1, 2, 3] };
+    expect(() => validateCity(c)).toThrow(/terrain\.step/);
+  });
+
+  it('rejects terrain cols: 1, naming terrain.cols', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 1, rows: 2, datum: 0, heights: [0, 1] };
+    expect(() => validateCity(c)).toThrow(/terrain\.cols/);
+  });
+
+  it('rejects terrain cols: 2.5, naming terrain.cols', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2.5, rows: 2, datum: 0, heights: [0, 1, 2, 3, 4] };
+    expect(() => validateCity(c)).toThrow(/terrain\.cols/);
+  });
+
+  it('rejects a NaN terrain height, naming terrain.heights[3]', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: 0, heights: [0, 1, 2, NaN] };
+    expect(() => validateCity(c)).toThrow(/terrain\.heights\[3\]/);
+  });
+
+  it('rejects a non-finite terrain datum, naming terrain.datum', () => {
+    const c = base();
+    c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: Infinity, heights: [0, 1, 2, 3] };
+    expect(() => validateCity(c)).toThrow(/terrain\.datum/);
+  });
+
+  it('accepts waterLevels of the same length as water', () => {
+    const c = base();
+    c.water = [
+      [
+        [0, 0],
+        [10, 0],
+        [5, 8],
+      ],
+    ];
+    c.waterLevels = [-2.5];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects waterLevels of a different length from water, naming waterLevels', () => {
+    const c = base();
+    c.water = [
+      [
+        [0, 0],
+        [10, 0],
+        [5, 8],
+      ],
+    ];
+    c.waterLevels = [-2.5, 0];
+    expect(() => validateCity(c)).toThrow(/waterLevels/);
+  });
+
+  it('rejects waterLevels present without water, naming waterLevels', () => {
+    const c = base();
+    c.waterLevels = [-2.5];
+    expect(() => validateCity(c)).toThrow(/waterLevels/);
+  });
+
+  it('rejects a non-finite waterLevels entry, naming waterLevels[0]', () => {
+    const c = base();
+    c.water = [
+      [
+        [0, 0],
+        [10, 0],
+        [5, 8],
+      ],
+    ];
+    c.waterLevels = [NaN];
+    expect(() => validateCity(c)).toThrow(/waterLevels\[0\]/);
+  });
+
+  it('validates a city with neither terrain nor waterLevels', () => {
+    expect(() => validateCity(base())).not.toThrow();
+  });
 });
 
 describe('syntheticCity', () => {
@@ -178,6 +277,59 @@ describe('syntheticCity', () => {
       expect(va).toBeGreaterThanOrEqual(0);
       expect(va).toBeLessThan(1);
     }
+  });
+
+  it('hills = false has no terrain key and no waterLevels', () => {
+    expect(syntheticCity(1, 12).terrain).toBeUndefined();
+    expect(syntheticCity(1, 12).waterLevels).toBeUndefined();
+  });
+
+  it('hills = true yields step 20 with heights.length === cols*rows', () => {
+    const t = syntheticCity(1, 12, true).terrain!;
+    expect(t.step).toBe(20);
+    expect(t.datum).toBe(0);
+    expect(t.heights).toHaveLength(t.cols * t.rows);
+  });
+
+  it('hills = true grid bounds enclose +/- (blocks*74/2) with one cell of margin', () => {
+    const blocks = 12;
+    const t = syntheticCity(1, blocks, true).terrain!;
+    const extent = (blocks * 74) / 2;
+    const minNodeX = t.x0;
+    const maxNodeX = t.x0 + (t.cols - 1) * t.step;
+    const minNodeZ = t.z0;
+    const maxNodeZ = t.z0 + (t.rows - 1) * t.step;
+    expect(minNodeX).toBeLessThanOrEqual(-extent - t.step);
+    expect(maxNodeX).toBeGreaterThanOrEqual(extent + t.step);
+    expect(minNodeZ).toBeLessThanOrEqual(-extent - t.step);
+    expect(maxNodeZ).toBeGreaterThanOrEqual(extent + t.step);
+  });
+
+  it('hills = true node nearest the origin matches the formula within 0.1', () => {
+    const t = syntheticCity(1, 12, true).terrain!;
+    const c = Math.round((0 - t.x0) / t.step);
+    const r = Math.round((0 - t.z0) / t.step);
+    const x = t.x0 + c * t.step;
+    const z = t.z0 + r * t.step;
+    const h =
+      30 * Math.exp(-((x - 200) ** 2 + (z + 150) ** 2) / (2 * 220 ** 2)) +
+      z / 200;
+    expect(t.heights[r * t.cols + c]).toBeCloseTo(h, 1);
+  });
+
+  it('hills = true every height is a multiple of 0.1', () => {
+    const heights = syntheticCity(1, 12, true).terrain!.heights;
+    heights.forEach((v) => {
+      expect(Math.abs(v * 10 - Math.round(v * 10))).toBeLessThan(1e-9);
+    });
+  });
+
+  it('hills = true is deterministic: two calls are deep-equal', () => {
+    expect(syntheticCity(1, 12, true)).toEqual(syntheticCity(1, 12, true));
+  });
+
+  it('hills = true validates', () => {
+    expect(() => validateCity(syntheticCity(1, 12, true))).not.toThrow();
   });
 });
 
