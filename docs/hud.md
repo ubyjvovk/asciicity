@@ -26,11 +26,12 @@ when `HudValues.alt` is defined), `LANDMARK`, then `MODE` (only when
 `HudValues.mode` is defined), then `FPS`:
 
 - **ALT** sits fourth — between ZONE and LANDMARK — and is emitted only when
-  `HudValues.alt` is defined. On flat cities (no `city.terrain`) it stays
-  undefined **unless** the player is flying, when it reads AGL
-  (`formatAlt(agl, 'AGL')`, metres above the ground); on terrain cities it is
-  always ASL. Unset on flat London when not flying so the panel keeps the
-  classic six rows.
+  `HudValues.alt` is defined. It is always the **eye altitude** (where the
+  camera is, not the ground below). On flat cities (no `city.terrain`) it
+  stays undefined **unless** the player is flying, when it reads AGL
+  (`formatAlt(agl, 'AGL')`, metres of eye above the ground); on terrain cities
+  it is always ASL (`datum + state.y − EYE_HEIGHT`). Unset on flat London when
+  not flying so the panel keeps the classic six rows.
 - **MODE** sits sixth — between LANDMARK and FPS — and is emitted only while
   flying (`HudValues.mode = 'FLY'`).
 
@@ -74,11 +75,13 @@ South/north: `S` + `r` when `r >= 0`, else `N` + `−r`. Joined with `" / "`.
 ### `formatAlt`
 
 `formatAlt(m, unit = 'ASL')` returns `` `${Math.round(m)} M ${unit}` ``. Fed with
-`city.terrain.datum + groundAt(state.x, state.z)` in the frame loop —
-metres above sea level of the ground under the player (`formatAlt(155.6)`
-→ `"156 M ASL"`) — or with the height above ground while flying on a flat
-city (`formatAlt(agl, 'AGL')` → `"12 M AGL"`). The ALT row is only rendered
-when `HudValues.alt` is non-`undefined`.
+`city.terrain.datum + state.y − EYE_HEIGHT` in the frame loop — the **eye
+altitude** in metres above sea level (`formatAlt(305.6)` → `"306 M ASL"`) —
+or with the eye height above ground while flying on a flat city
+(`formatAlt(agl, 'AGL')` → `"12 M AGL"`). On the ground the eye altitude
+equals the ground height (`y − EYE_HEIGHT === groundAt`), so the walking row
+is unchanged. The ALT row is only rendered when `HudValues.alt` is
+non-`undefined`.
 
 ## Zone rules
 

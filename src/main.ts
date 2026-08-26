@@ -564,8 +564,12 @@ async function main(): Promise<void> {
       hudValues.world = formatWorld(state.x, state.z);
       hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
       hudValues.zone = zone.zoneLabel(state.x, state.z);
+      // `ALT` is the eye altitude: on terrain it is the datum plus the eye
+      // height above sea level (walking: y − EYE_HEIGHT === groundAt, so the
+      // row is unchanged); without terrain it is only shown while flying, as
+      // metres above the ground.
       if (city.terrain) {
-        hudValues.alt = formatAlt(city.terrain.datum + groundAt(state.x, state.z), 'ASL');
+        hudValues.alt = formatAlt(city.terrain.datum + state.y - EYE_HEIGHT, 'ASL');
       } else if (state.fly) {
         hudValues.alt = formatAlt(agl, 'AGL');
       } else {

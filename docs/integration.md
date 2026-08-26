@@ -124,8 +124,8 @@ state.z)` so the discs stay 1200 m from the player (children keep
 - HUD every 4th frame — mutate a persistent `HudValues` in place with
   `sectorOf`, `formatWorld`, `formatBearing(yawToBearingDeg(...))`,
   `zone.zoneLabel`, and the altitude/mode rows:
-  - `alt` — when `city.terrain` is present,
-    `formatAlt(city.terrain.datum + groundAt(state.x, state.z), 'ASL')`;
+  - `alt` (eye altitude) — when `city.terrain` is present,
+    `formatAlt(city.terrain.datum + state.y − EYE_HEIGHT, 'ASL')`;
     else while flying `formatAlt(agl, 'AGL')`; otherwise `undefined` (cleared)
     so the panel stays six rows on flat London.
   - `mode` — `state.fly ? 'FLY' : undefined` (MODE row between LANDMARK and FPS).
@@ -299,8 +299,10 @@ per press (§4.7). The frame loop follows each step:
   the longer plane.
 - `window.__asciicity` exposes `fly` (live) and `y` (eye height, absolute).
 - HUD `mode = fly ? 'FLY' : undefined` (MODE row between LANDMARK and FPS);
-  `alt` = `formatAlt(terrain.datum + groundAt, 'ASL')` on terrain cities, or
-  `formatAlt(agl, 'AGL')` while flying on flat cities (cleared otherwise).
+  `alt` (the **eye altitude** — where the camera is, not the ground below) =
+  `formatAlt(terrain.datum + state.y − EYE_HEIGHT, 'ASL')` on terrain cities,
+  or `formatAlt(agl, 'AGL')` while flying on flat cities (cleared
+  otherwise).
 
 No collision while airborne (noclip); `Space`/`C` climb/descend, `Shift` is
 `FLY_SPRINT_SPEED`; leaving fly mode falls at constant `FALL_SPEED` until the
