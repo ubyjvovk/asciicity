@@ -245,6 +245,16 @@ async function main(): Promise<void> {
     throw new Error(`Expected a <div id="${OVERLAY_ID}">`);
   }
   const menuRoot = overlay.querySelector('#menu');
+  // Anything inside `#menu` (the pause buttons and the `#share` input) must not
+  // resume the game: a click on the read-only field has to focus/select it, not
+  // hide the overlay. One container-level guard for click/mousedown/pointerdown
+  // rather than a listener duplicated on each child (`drawCityPicker`'s buttons
+  // stop propagation on their own).
+  if (menuRoot instanceof HTMLElement) {
+    for (const evt of ['click', 'mousedown', 'pointerdown'] as const) {
+      menuRoot.addEventListener(evt, (e) => e.stopPropagation());
+    }
+  }
 
   const opts = parseUrlOptions(window.location.search);
 
@@ -436,19 +446,21 @@ async function main(): Promise<void> {
     shareInput.id = 'share';
     shareInput.type = 'text';
     shareInput.readOnly = true;
-    copyBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
+    // Hidden until it holds a URL so the pause menu shows just the two buttons
+    // before the player copies for the first time.
+    shareInput.hidden = true;
+    copyBtn.addEventListener('click', () => {
       const url = buildShareUrl(window.location.href, cityId, state, city.origin);
       navigator.clipboard?.writeText(url).catch(() => undefined);
       shareInput.value = url;
+      shareInput.hidden = false;
       shareInput.select();
       copyBtn.textContent = 'COPIED';
       window.setTimeout(() => {
         copyBtn.textContent = 'COPY LINK TO HERE';
       }, 1500);
     });
-    switchBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
+    switchBtn.addEventListener('click', () => {
       const params = new URLSearchParams(window.location.search);
       params.delete('city');
       params.delete('at');
