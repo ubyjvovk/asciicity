@@ -68,6 +68,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-26 21:15 — **Wave 5 boarded (8 tickets, 38 done).** Contract commit be2e146, board 353d698. Graph: T-0039 dem.mjs (P0) · T-0041 validator+synthetic hills (P0) · T-0042 terrain.ts (P0) all claimable now → T-0040 pipeline + `kyiv.json` (needs 39, 41) · T-0043 drape builders (needs 42) → T-0044 traffic heights (needs 43) → T-0045 main.ts integration, `?city=`, Kyiv presets, ALT row, hills e2e (C3, needs 40/42/43/44) → T-0046 city picker + Esc pause menu + share link (needs 45). PM follow-ups after T-0045: GPU visual review from `?city=kyiv&at=maidan` / `hydropark` / `parkbridge`, look-tune the slope shade if hills read badly, then T-0046 review and push.
 
+- 2026-08-26 21:35 — T-0041 (ds-1, $0.02) and T-0042 (grok-2, $0.16) accepted first pass; both gates green in-container (`WORKER_IMAGE=tigerteam-agents:base bash .tigerteam/scripts/in-container.sh <wt> -- bash scripts/check.sh`). terrain.ts is exactly §4.9. Minor: `makeGroundAt` allocates a `[x, z]` pair per call (contract signature) — negligible, revisit only if profiling says so. T-0039 (ds-2) still running; T-0043 now claimable.
+
 ## Next actions
 1. Wave 5 in flight — process digests (review/ then blocked/). After T-0045 lands: GPU screenshots of Kyiv (`?city=kyiv&at=maidan|hydropark|parkbridge|lavra`) before accepting; the slope shade (`0.6 + 0.5·n·L`) and fog (0.0018) are PM tuning knobs.
 2. After T-0046: push main; the GitHub Pages deploy picks up `kyiv.json` (~5 MB) automatically. Later ideas: touch pause button (no Esc on phones), remember last city, bus pitch on slopes, Kyiv landmark colours table, more cities (bbox+origin+`--lang` are all CLI args).
