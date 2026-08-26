@@ -12,7 +12,7 @@ const KYIV_ORIGIN = { lat: 50.4501, lon: 30.5234 };
 
 describe('buildShareUrl', () => {
   it('keeps only listed params, adds city+at, drops unlisted ones', () => {
-    const href = 'https://x.test/asciicity/?theme=gloom&foo=1';
+    const href = 'https://x.test/asciicity/?render=gloom&foo=1';
     const url = buildShareUrl(
       href,
       'kyiv',
@@ -20,12 +20,12 @@ describe('buildShareUrl', () => {
       KYIV_ORIGIN,
     );
     const { lon, lat } = unproject(100, -50, KYIV_ORIGIN);
-    const expected = `https://x.test/asciicity/?theme=gloom&city=kyiv&at=${lon.toFixed(5)},${lat.toFixed(5)},90`;
+    const expected = `https://x.test/asciicity/?render=gloom&city=kyiv&at=${lon.toFixed(5)},${lat.toFixed(5)},90`;
     expect(url).toBe(expected);
   });
 
   it('drops a hash from href', () => {
-    const href = 'https://x.test/asciicity/?theme=gloom#section';
+    const href = 'https://x.test/asciicity/?render=gloom#section';
     const url = buildShareUrl(
       href,
       'kyiv',

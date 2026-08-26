@@ -55,7 +55,10 @@ The app runs a single asynchronous `main()` when the module executes.
    `new Controls(canvas)`, and when `'ontouchstart' in window` or
    `navigator.maxTouchPoints > 0`, `new TouchControls(canvas)`. Then
    `new Hud(hudRoot)`,
-   `new AsciiRenderer(renderer, { cellW?, cellH?, theme? })` — `theme` is taken from `?theme=` (with `?gloom=1` as an alias for 1); afterwards the `G` key cycles `ascii.setTheme((ascii.theme + 1) % 3)`.
+   `new StyleRenderer(renderer, STYLES, { initial: opts.render, cellW?, cellH? })`
+   — `opts.render` comes from `?render=` (with `?theme=` / `?gloom=1` as
+   aliases; unknown → `ascii`). `R` cycles forward, `Shift+R` backward; a
+   `#toast` shows `RENDER: <LABEL>` for 1.5 s on every change.
    When `minimap` is enabled (default), append a `<canvas id="minimap">` to
    `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
    and help line — the canvas is not in `index.html` so it stays below those
@@ -75,7 +78,7 @@ The app runs a single asynchronous `main()` when the module executes.
    walk happens), and the player can walk across the Thames.
 7. **Publish** `window.__asciicity` (see contract below).
 8. **Resize.** Call the size handler once and register it on `window`
-   `resize`. The handler forwards to `AsciiRenderer.setSize`, updates the
+   `resize`. The handler forwards to `StyleRenderer.setSize`, updates the
    camera aspect, and refreshes `cols`/`rows` on the API.
 9. **Overlay + pointer lock.** The overlay starts visible with the title +
    `CLICK TO ENTER` (or, before a city is chosen, the picker showing
@@ -118,7 +121,7 @@ state.z)` so the discs stay 1200 m from the player (children keep
 - `fleet.update(dt)` — each frame, before the ASCII render, the bus
   ambience (`BusFleet`, docs/world.md §Traffic) advances every walker by
   `dt · 7` m and writes its instance matrices via a single reused dummy.
-- `ascii.render(scene, camera)` — the ASCII post-process.
+- `post.render(scene, camera)` — the active render-style post-process.
 - Rolling FPS — accumulate frame count and elapsed seconds; when the window
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
 - HUD every 4th frame — mutate a persistent `HudValues` in place with
@@ -147,12 +150,13 @@ per-frame allocations are made inside `main.ts`.
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
 | `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
-| `cell`      | `?cell=8x16`   | Overrides the ASCII cell size (`cellW × cellH` in pixels). |
+| `cell`      | `?cell=8x16`   | Overrides every style's cell size (`cellW × cellH` in pixels). |
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
 | `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
 | `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
-| `gloom`     | `?gloom=1`     | Start in gloom theme (alias for `theme=1`, ignored when `theme` is present — default off). |
-| `theme`     | `?theme=solarized` | Start theme: `cyber`/`0`, `gloom`/`1`, `solarized`/`2` (invalid or absent → `cyber`). `?gloom=1` is an accepted alias for `1`, but `theme` wins when both are present (default `cyber`). |
+| `render`    | `?render=solarized` | Start render style (`ascii`, `gloom`, `solarized`, `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`, `edges`, `hatch`, `matrix`). Unknown or absent → `ascii`. Wins over `theme` / `gloom`. |
+| `gloom`     | `?gloom=1`     | Alias for `?render=gloom` when `render` is absent. Ignored when `theme` or `render` is present. |
+| `theme`     | `?theme=solarized` | Alias for `?render=`: `cyber`/`0` → `ascii`, `gloom`/`1` → `gloom`, `solarized`/`2` → `solarized`. `render` wins when both are present. |
 | `time`      | `?time=2026-06-21T12:00:00Z` or `?time=12:00` | Pin the sky to a fixed time. Accepts an ISO timestamp (pinned absolute instant) or `HH:MM` meaning *today* in local time. Invalid or absent → real clock (default). |
 | `at`        | `?at=gherkin`  | Spawn at a landmark preset (name) or `lon,lat[,bearing]`
                  coordinate instead of Bank (ignored with `synthetic`). |
@@ -244,7 +248,7 @@ With no `?synthetic=1` and no *valid* `?city=` the start overlay becomes a
 picker: one `button.city` per `CITIES` entry, each with a `<label>` on the
 first line and a smaller `<blurb>` below. Keys `1`…`9` select by index.
 Choosing calls `history.replaceState` with the current query plus
-`city=<id>` (every other parameter kept, so `?theme=gloom` survives the
+`city=<id>` (every other parameter kept, so `?render=gloom` survives the
 choice) and boots that city. Data loading happens only after the choice.
 `?synthetic=1` or a valid `?city=` skips the picker entirely.
 
@@ -267,7 +271,7 @@ as before):
 
 `buildShareUrl` (`src/hud/share.ts`, pure) turns the live `href` plus the
 player pose into a URL that reopens the same city at the exact spot and
-heading. It keeps only `theme`, `time`, `cell`, `crt`, `minimap`, `hud` from
+heading. It keeps only `render`, `time`, `cell`, `crt`, `minimap`, `hud` from
 `href` (in that order, when present) and drops everything else, then adds
 `city=<id>` and `at=<lon 5dp>,<lat 5dp>,<bearing whole degrees>` — lon/lat
 from `unproject(x, z, origin)` (`src/geo.ts`), bearing from
@@ -279,7 +283,7 @@ Example: looking east (`yaw = π/2`) at local `(100, −50)` in Kyiv
 (`origin 50.4501, 30.5234`):
 
 ```
-/?theme=gloom&city=kyiv&at=30.52481,50.45055,90
+/?render=gloom&city=kyiv&at=30.52481,50.45055,90
 ```
 
 ## Fly mode & fog (T-0049)
@@ -312,7 +316,8 @@ ground catches the player.
 
 | Key | Effect                                   |
 |-----|------------------------------------------|
-| `G` | Cycle colour theme: cyber → gloom → solarized → cyber. |
+| `R` | Next render style (`STYLE_ORDER`). A toast `#toast` shows `RENDER: <LABEL>` for 1.5 s. |
+| `Shift+R` | Previous render style. |
 | `1`…`9` | On the start picker only: choose city by index. |
 | `F` | Toggle fly mode (noclip flight).         |
 | `Space` / `C` | Climb / descend while flying (`Space` also `preventDefault`s). |
@@ -331,8 +336,10 @@ interface Window {
     y: number;         // eye height in metres — state.y, follows the camera in fly mode
     fly: boolean;      // true while flying (T-0049)
     city: string;      // 'london' | 'kyiv' | 'synthetic' (added T-0045)
-    cols: number;      // AsciiRenderer.cols after the last resize
-    rows: number;      // AsciiRenderer.rows after the last resize
+    render: string;    // live style id (`ascii`, `gloom`, …) — updates on R
+    styles: string[];  // ids in STYLE_ORDER (R-cycle order)
+    cols: number;      // StyleRenderer.cols after the last resize / style change
+    rows: number;      // StyleRenderer.rows after the last resize / style change
   };
 }
 ```

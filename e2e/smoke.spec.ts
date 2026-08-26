@@ -13,6 +13,9 @@ import { terrainHeightAt } from '../src/world/terrain';
 interface AsciiApi {
   ready: boolean;
   state: { x: number; z: number };
+  render?: string;
+  styles?: string[];
+  fps?: number;
 }
 
 /** Read the live player x/z from `window.__asciicity.state` (mirrors §5). */
@@ -181,3 +184,129 @@ test('smoke: fly — Space climbs in fly mode, HUD shows MODE/FLY', async ({
   await expect(hud).toContainText('MODE');
   await expect(hud).toContainText('FLY');
 });
+
+/** Fraction of canvas pixels that are not rgb(0,0,0). */
+async function nonBlackFraction(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const el = document.getElementById('view');
+    if (!(el instanceof HTMLCanvasElement)) return 0;
+    const w = el.width;
+    const h = el.height;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return 0;
+    ctx.drawImage(el, 0, 0);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let nonBlack = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 0 || data[i + 1] > 0 || data[i + 2] > 0) nonBlack++;
+    }
+    return nonBlack / (w * h);
+  });
+}
+
+/** Wait until `__asciicity.ready` is true. */
+async function waitReady(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const api = (
+        window as unknown as { __asciicity?: { ready?: boolean } }
+      ).__asciicity;
+      return api?.ready === true;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+}
+
+test('smoke: R cycles every render style and each paints', async ({ page }) => {
+  // `?cell=3x6` so SwiftShader's 64-row blanking does not hide the lower half.
+  await page.goto('/?synthetic=1&cell=3x6');
+  await waitReady(page);
+
+  const styles = await page.evaluate(() => {
+    const api = (
+      window as unknown as { __asciicity?: { styles?: string[] } }
+    ).__asciicity;
+    return api?.styles ?? [];
+  });
+  expect(styles.length).toBe(12);
+
+  mkdirSync('e2e/__shots__', { recursive: true });
+
+  for (let i = 0; i < styles.length; i++) {
+    const current = await page.evaluate(() => {
+      const api = (
+        window as unknown as { __asciicity?: { render?: string } }
+      ).__asciicity;
+      return api?.render ?? '';
+    });
+    const nextId = styles[(styles.indexOf(current) + 1) % styles.length];
+    await page.keyboard.press('KeyR');
+    await page.waitForFunction(
+      (id) => {
+        const api = (
+          window as unknown as { __asciicity?: { render?: string } }
+        ).__asciicity;
+        return api?.render === id;
+      },
+      nextId,
+    );
+    await page.evaluate(
+      () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+    );
+    const painted = await nonBlackFraction(page);
+    expect(painted, nextId).toBeGreaterThan(0.02);
+    await page.screenshot({ path: `e2e/__shots__/style-${nextId}.png` });
+  }
+});
+
+test('smoke: ?render= aliases and R / Shift+R cycle', async ({ page }) => {
+  await page.goto('/?synthetic=1&render=solarized');
+  await waitReady(page);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __asciicity?: { render?: string } }).__asciicity
+          ?.render,
+    ),
+  ).toBe('solarized');
+
+  await page.keyboard.press('KeyR');
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __asciicity?: { render?: string } }).__asciicity
+        ?.render === 'braille',
+  );
+
+  await page.keyboard.press('Shift+KeyR');
+  await page.keyboard.press('Shift+KeyR');
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __asciicity?: { render?: string } }).__asciicity
+        ?.render === 'gloom',
+  );
+
+  await page.goto('/?synthetic=1&theme=gloom');
+  await waitReady(page);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __asciicity?: { render?: string } }).__asciicity
+          ?.render,
+    ),
+  ).toBe('gloom');
+
+  await page.goto('/?synthetic=1&render=nope');
+  await waitReady(page);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __asciicity?: { render?: string } }).__asciicity
+          ?.render,
+    ),
+  ).toBe('ascii');
+});
+

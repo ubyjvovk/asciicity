@@ -7,10 +7,10 @@ import { unproject } from '../geo';
 import { yawToBearingDeg } from '../player/controls';
 
 /** Query keys carried over from `href` (in output order). Everything else is dropped. */
-const SHARE_KEEP = ['theme', 'time', 'cell', 'crt', 'minimap', 'hud'] as const;
+const SHARE_KEEP = ['render', 'time', 'cell', 'crt', 'minimap', 'hud'] as const;
 
 /**
- * Build a shareable URL for the given pose: keep `theme`/`time`/`cell`/
+ * Build a shareable URL for the given pose: keep `render`/`time`/`cell`/
  * `crt`/`minimap`/`hud` from `href` (in that order, when present), add
  * `city=<id>` and `at=<lon 5dp>,<lat 5dp>,<bearing rounded>` — lon/lat from
  * `unproject(x, z, origin)`, bearing from `yawToBearingDeg(yaw)` — and return
