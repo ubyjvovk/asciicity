@@ -111,6 +111,50 @@ relation that emits several disjunct outer rings gets a unique id per ring
 (the first keeps the relation id; later ones are `el.id*1000+n`), so every
 emitted ring passes the validator's per-array id-uniqueness rule.
 
+## Terrain (`scripts/dem.mjs`)
+
+Central Kyiv is hilly (wave 5). Its height grid is built from public SRTM
+1-arc-second elevation, served from the AWS Terrain Tiles **skadi** mirror:
+`https://s3.amazonaws.com/elevation-tiles-prod/skadi/<NS><lat>/<NS><lat><EW><lon>.hgt.gz`
+(e.g. `skadi/N50/N50E030.hgt.gz` covers lat 50–51, lon 30–31; no key, no
+meaningful rate limit). Tiles are cached under `.cache/dem/` (gitignored) so a
+warm run never hits the network.
+
+The module `scripts/dem.mjs` (pure, zero-dependency, node ≥ 22) exposes
+`hgtTileName`, `hgtUrl`, `decodeHgt`, `Dem`, `fetchDemTiles`, `buildTerrain`
+and `unproject` — every formula is documented in
+`docs/data-format.md` §Coordinate system and §Terrain and implemented exactly
+there, so this section only cross-references them:
+
+- **Tile naming / URL** — `hgtTileName`/`hgtUrl` (floor of lat/lon, `N`/`S` +
+  2 digits, `E`/`W` + 3 digits), see data-format.md §Terrain.
+- **HGT format** — `decodeHgt` reads big-endian `int16` samples (`-32768` =
+  void), `side = sqrt(bytes / 2)`; `Dem.elevationAt` does that tile's
+  bilinear lookup with the void-corner rule (data-format.md §Terrain).
+- **Projection inverse** — `unproject(x, z, origin)` mirrors `project` from
+  `osm-convert.mjs` (data-format.md §Coordinate system), so grid nodes can be
+  turned back into `(lon, lat)` for sampling.
+- **Grid build** — `buildTerrain({bbox, origin, dem, step, waterRings})`
+  follows data-format.md §Terrain steps 1–4: project + margin the bbox,
+  sample every node relative to `datum`, then flatten nodes inside each water
+  ring to that ring's 10th-percentile level.
+- **Fetch** — `fetchDemTiles(bbox, {cacheDir, fetchImpl})` downloads every
+  tile touching the bbox, gunzips, caches the `.hgt.gz` body, and returns a
+  `Dem`; it fails loudly (throws) when a tile cannot be fetched — never a
+  partial file. T-0040 wires this into `fetch-osm.mjs` (`--dem 1`).
+
+Run the module's tests (requires node ≥ 22 and, for the single cached-tile
+case, no network):
+
+```
+bash .tigerteam/scripts/run-tests.sh tests/dem.test.ts
+```
+
+The tests cover `hgtTileName`/`hgtUrl`, `decodeHgt` (including the void and
+non-square-throw paths), `Dem.elevationAt` (exact/bilinear/north-edge/
+void/missing-tile), `unproject`, `buildTerrain` (grid formula for the Kyiv
+bbox, rounding/row ordering, water flattening) and `fetchDemTiles` caching.
+
 ## Known limitations
 
 - **Multipolygon ring assembly is not done.** A building that spans several
