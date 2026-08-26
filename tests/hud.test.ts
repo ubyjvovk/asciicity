@@ -4,7 +4,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Building, Place, Road } from '../src/data/types';
-import { formatBearing, formatWorld, hudRow, sectorOf } from '../src/hud/format';
+import {
+  formatAlt,
+  formatBearing,
+  formatWorld,
+  hudRow,
+  sectorOf,
+} from '../src/hud/format';
 import { ZoneIndex } from '../src/hud/zone';
 
 describe('formatBearing', () => {
@@ -60,6 +66,21 @@ describe('sectorOf', () => {
 describe('hudRow', () => {
   it("hudRow('SECTOR', 'E00 / S00') → \"SECTOR..... E00 / S00\"", () => {
     expect(hudRow('SECTOR', 'E00 / S00')).toBe('SECTOR..... E00 / S00');
+  });
+});
+
+describe('formatAlt', () => {
+  it('formatAlt(155.6) → "156 M ASL"', () => {
+    expect(formatAlt(155.6)).toBe('156 M ASL');
+  });
+
+  it('formatAlt rounds down at 0.4', () => {
+    expect(formatAlt(155.4)).toBe('155 M ASL');
+  });
+
+  it('formatAlt handles zero and negatives', () => {
+    expect(formatAlt(0)).toBe('0 M ASL');
+    expect(formatAlt(-12.6)).toBe('-13 M ASL');
   });
 });
 
@@ -123,6 +144,97 @@ describe('ZoneIndex', () => {
     expect(index.nearestRoad(0, 0)).toBeNull();
     expect(index.nearestPlace(0, 0)).toBeNull();
     expect(index.zoneLabel(0, 0)).toBe('CITY');
+  });
+});
+
+// A tiny stand-in for the DOM so `Hud` can be exercised in the node vitest
+// environment. It captures the last `textContent` written to the rows element.
+interface FakeElement {
+  ownerDocument: FakeDocument;
+  className: string;
+  textContent: string;
+  style: { display: string };
+  append(...items: (FakeElement | string)[]): void;
+}
+interface FakeDocument {
+  createElement(tag: string): FakeElement;
+}
+
+function makeFakeDoc(): { root: FakeElement; rows: () => FakeElement } {
+  const created: FakeElement[] = [];
+  const doc: FakeDocument = {
+    createElement(_tag: string) {
+      const el: FakeElement = {
+        ownerDocument: doc,
+        className: '',
+        textContent: '',
+        style: { display: '' },
+        append() {
+          /* not needed for the row assertions */
+        },
+      };
+      created.push(el);
+      return el;
+    },
+  };
+  const root: FakeElement = {
+    ownerDocument: doc,
+    className: '',
+    textContent: '',
+    style: { display: '' },
+    append() {
+      /* the constructor calls this but we only need to check `rows.textContent` */
+    },
+  };
+  // The `pre.hud-rows` element is always the second createElement call.
+  const rows = () => created[1];
+  return { root, rows };
+}
+
+describe('Hud.update row count', () => {
+  it('renders 7 rows with ALT fourth when alt is set', async () => {
+    // Use a fake element as root — Hud is browser-only but does not touch
+    // window/document itself; it goes through root.ownerDocument.createElement.
+    const { Hud } = await import('../src/hud/hud');
+    const { root, rows } = makeFakeDoc();
+    const hud = new Hud(root as unknown as HTMLElement);
+    hud.update({
+      sector: 'E00 / S00',
+      world: '0.00 / 0.00',
+      bearing: '000 DEG / NORTH',
+      zone: 'CITY',
+      alt: '156 M ASL',
+      landmark: 'ST PAULS',
+      fps: 60,
+    });
+    const lines = rows().textContent.split('\n');
+    expect(lines).toHaveLength(7);
+    expect(lines[0]).toMatch(/^> SECTOR\.+ /);
+    expect(lines[1]).toMatch(/^> WORLD\.+ /);
+    expect(lines[2]).toMatch(/^> BEARING\.+ /);
+    expect(lines[3]).toMatch(/^> ZONE\.+ /);
+    expect(lines[4]).toMatch(/^> ALT\.+ 156 M ASL$/);
+    expect(lines[5]).toMatch(/^> LANDMARK\.+ ST PAULS$/);
+    expect(lines[6]).toMatch(/^> FPS\.+ 60$/);
+  });
+
+  it('renders 6 rows (no ALT) when alt is undefined', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, rows } = makeFakeDoc();
+    const hud = new Hud(root as unknown as HTMLElement);
+    hud.update({
+      sector: 'E00 / S00',
+      world: '0.00 / 0.00',
+      bearing: '000 DEG / NORTH',
+      zone: 'CITY',
+      landmark: 'ST PAULS',
+      fps: 60,
+    });
+    const lines = rows().textContent.split('\n');
+    expect(lines).toHaveLength(6);
+    expect(lines.some((l) => l.startsWith('> ALT'))).toBe(false);
+    expect(lines[4]).toMatch(/^> LANDMARK\.+ ST PAULS$/);
+    expect(lines[5]).toMatch(/^> FPS\.+ 60$/);
   });
 });
 

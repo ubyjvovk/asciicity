@@ -14,16 +14,28 @@ The app runs a single asynchronous `main()` when the module executes.
    (title/prompt). Any missing element is a hard error.
 2. **Parse URL** (`window.location.search`) into `UrlOptions` — see
    [URL parameters](#url-parameters).
-3. **Choose city.** With `?synthetic=1`, call `syntheticCity(seed)`. Otherwise
-   `loadCity(BASE_URL + 'data/city.json')`; on any failure log a
-   `console.warn` and fall back to `syntheticCity(seed)`.
+3. **Choose city.** With `?synthetic=1`, call
+   `syntheticCity(seed, 12, hills)` (`?hills=1` toggles the deterministic
+   heightfield). Otherwise pick `cityById(opts.city) ?? CITIES[0]` (London
+   is `CITIES[0]`, so no `?city=` boots London) and
+   `loadCity(BASE_URL + info.file)`; on any failure log a `console.warn`
+   and fall back to `syntheticCity(seed)`. The chosen `CityInfo` id is
+   surfaced on `window.__asciicity.city` (`'london'` / `'kyiv'` /
+   `'synthetic'`); the city picker overlay is T-0046.
 4. **Build the scene.** `makeRenderer(canvas)`, `makeScene()`,
    `makeCamera(aspect)`; set `camera.rotation.order = 'YXZ'` (architecture §5).
-   Add the world meshes:
-   - `makeGround()`
-   - `makeRoadsObject(city.roads)`
-   - `makeBuildingsObject(city.buildings, makeWindowTexture())`
-   - `makeWaterObject(city.water)` when `city.water?.length` is truthy
+   Compute the walkable `HeightFn` (`groundAt`): with `city.terrain`
+   present, `terrain = new Terrain(city.terrain)`,
+   `decks = new BridgeDecks(city.roads, terrain.heightAt)`, and
+   `groundAt = makeGroundAt(terrain, decks)`; otherwise `groundAt = FLAT_HEIGHT`
+   (London / synthetic-without-`hills` behaviour is byte-identical). Add
+   the world meshes, passing `groundAt` to every draped builder:
+   - `makeGround()` — with terrain, `.position.y = terrain.min − 0.5` (void
+     filler under the heightfield)
+   - `makeTerrainObject(terrain.data)` — only when terrain is present
+   - `makeRoadsObject(city.roads, groundAt)`
+   - `makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt)`
+   - `makeWaterObject(city.water, city.waterLevels)` when `city.water?.length` is truthy
    - `makeSky(opts.time ?? new Date(), city.origin)` — the sun/moon/stars sky (docs/world.md §Sky)
 5. **Wire helpers.** `new CollisionGrid(buildings, 25, corridors)` where
    `buildings` is the building footprints, plus — when there is water — each
@@ -44,9 +56,15 @@ The app runs a single asynchronous `main()` when the module executes.
    and help line — the canvas is not in `index.html` so it stays below those
    nodes) and construct `new Minimap(canvas, city)`. When `crt` is enabled
    (default), `mountCrt(document.body)`.
-6. **Pick a spawn.** Start at `(0, 0)`. If `collision.blocked([0, 0])`, walk
-   `+x` in 1 m steps up to 200 m and take the first free spot. Initial pose:
-   `{ x: spawn, z: 0, yaw: -π/2, pitch: 0 }` (facing west, per §5 step 2).
+6. **Pick a spawn.**
+   `resolveSpawn(opts.at, city.origin, collision.blocked, city, cityInfo.defaultSpawn)`
+   with `?synthetic=1` short-circuiting to `(0, 0, −π/2)`. The city's own
+   `defaultSpawn` (London → `bigben`, Kyiv → `maidan`) is the fallback used
+   when `?at=` is absent, unknown, a building preset with no match, or a
+   preset/coordinate whose WGS84 point falls **outside `city.bbox`** — a
+   London preset in Kyiv drops back to `maidan` rather than dropping the
+   player 2 000 km into the void. A blocked spawn walks `+x` in 1 m steps up
+   to 200 m. Initial pose: `{ x: spawn.x, z: spawn.z, yaw: spawn.yaw, pitch: 0 }`.
    With bridge corridors in the grid, the default `bigben` spawn stays on
    Westminster Bridge (it is on a corridor, so `blocked` is false and no +x
    walk happens), and the player can walk across the Thames.
@@ -84,10 +102,12 @@ state.z)` so the discs stay 1200 m from the player (children keep
 - `next = stepPlayer(state, input, dt, resolveMove)` — pure step; scalar
   fields are copied back into the persistent `state` so
   `window.__asciicity.state` stays a stable reference.
-- Camera update — position `(state.x, 1.7, state.z)`, rotation
+- Camera update — position `(state.x, groundAt(x, z) + 1.7, state.z)`, rotation
   `y = -state.yaw, x = state.pitch` (with `YXZ` order set at bootstrap).
-  Then one no-allocation line `sky.position.set(state.x, EYE_HEIGHT, state.z)`
-  so the sky group rides with the camera.
+  Then one no-allocation line `sky.position.set(state.x, eyeY, state.z)` so
+  the sky group rides with the camera at the same eye height. `api.y` is
+  refreshed with the eye height every frame so headless tests can read it
+  directly from `window.__asciicity.y`.
 - `fleet.update(dt)` — each frame, before the ASCII render, the bus
   ambience (`BusFleet`, docs/world.md §Traffic) advances every walker by
   `dt · 7` m and writes its instance matrices via a single reused dummy.
@@ -96,9 +116,12 @@ state.z)` so the discs stay 1200 m from the player (children keep
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
 - HUD every 4th frame — mutate a persistent `HudValues` in place with
   `sectorOf`, `formatWorld`, `formatBearing(yawToBearingDeg(...))`,
-  `zone.zoneLabel`, and
+  `zone.zoneLabel`, and, when `city.terrain` is present,
+  `formatAlt(city.terrain.datum + groundAt(state.x, state.z))` on
+  `hudValues.alt` (leave `alt` unset on flat London so the panel stays six
+  rows). Then
   `zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined`,
-  then `hud.update(hudValues)` and, when enabled, `minimap.update(state)`.
+  followed by `hud.update(hudValues)` and, when enabled, `minimap.update(state)`.
 - After the first successful frame, set `api.ready = true`.
 
 The `resolveMove` closure is created once (captures `collision`) so the loop
@@ -110,7 +133,9 @@ per-frame allocations are made inside `main.ts`.
 
 | Name        | Example        | Effect                                                     |
 |-------------|----------------|------------------------------------------------------------|
+| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`). Trimmed + case-insensitive; unknown / absent → London (the picker overlay is T-0046). Ignored when `?synthetic=1`. |
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
+| `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
 | `cell`      | `?cell=8x16`   | Overrides the ASCII cell size (`cellW × cellH` in pixels). |
 | `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
@@ -145,21 +170,53 @@ per-frame allocations are made inside `main.ts`.
 | `embankment`  | Fixed coordinate — Victoria Embankment, facing the London Eye (yaw 120°).|
 
 **Data-driven presets** (`stpauls`, `gherkin`, `monument`, `tower`,
-`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`): the
-named building is located in `city.json` by a case-insensitive substring
-match on `Building.name`, its centroid computed, and the game spawns on the
-nearest road vertex ~70 m away from it (falling back to any road vertex
-within 200 m), facing the building. If the building is absent from the
-bbox (e.g. `tower`), the preset falls back to `bigben` — nothing is logged.
+`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`,
+`sophia`, `michael`): the named building is located in the loaded dataset
+by a case-insensitive substring match on `Building.name`, its centroid
+computed, and the game spawns on the nearest road vertex ~70 m away from
+it (falling back to any road vertex within 200 m), facing the building. If
+the building is absent from the bbox (e.g. `tower`), the preset falls back
+to the current city's `defaultSpawn` (London → `bigben`, Kyiv → `maidan`)
+— nothing is logged. `sophia` and `michael` also carry a static
+coordinate fallback in case the OSM name changes upstream.
 
-With no `?at=` the game spawns at the `bigben` preset (Westminster Bridge,
-facing Big Ben). The `bank` preset is still available as `?at=bank`.
+With no `?at=` the game spawns at the current city's `defaultSpawn`
+(London → `bigben` on Westminster Bridge, Kyiv → `maidan` on Maidan
+Nezalezhnosti). A preset or coordinate whose WGS84 point falls **outside
+`city.bbox`** (e.g. a London preset while `?city=kyiv`) drops back to the
+same city fallback rather than teleporting the player 2 000 km into the
+void.
 
 Coordinate form: `?at=lon,lat[,bearing]`, e.g. `?at=-0.0984,51.5138,90`
 (bearing in degrees; defaults to 0 / north if omitted). Presets and
 coordinates are ignored when `?synthetic=1`.
 
 Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
+
+### Kyiv presets
+
+Available with `?city=kyiv&at=<name>`. Coordinate presets are fixed WGS84
+points; building presets resolve against `kyiv.json` via `landmarkSpawn`
+and fall back to their listed coordinates if the name goes missing.
+
+| Key            | Kind        | Description                                                                 |
+|----------------|-------------|-----------------------------------------------------------------------------|
+| `maidan`       | coordinate  | Maidan Nezalezhnosti, facing Hotel Ukraina (default).                       |
+| `sophia`       | building    | Facing Saint Sophia Cathedral (`Sophia`).                                   |
+| `michael`      | building    | Facing St Michael's Golden-Domed Monastery (`Michael`).                     |
+| `lavra`        | coordinate  | Pechersk Lavra, facing the Great Bell Tower.                                |
+| `motherland`   | coordinate  | Facing the Motherland Monument.                                             |
+| `podil`        | coordinate  | Kontraktova Square, Podil.                                                  |
+| `andriyivskyy` | coordinate  | Top of Andriyivskyy Descent, facing St Andrew's Church.                     |
+| `goldengate`   | coordinate  | Facing the Golden Gate.                                                     |
+| `arsenalna`    | coordinate  | Arsenalna, the deepest metro station.                                       |
+| `parkbridge`   | coordinate  | Park Bridge, facing Trukhaniv Island.                                       |
+| `glassbridge`  | coordinate  | Klitschko glass bridge.                                                     |
+| `mariinsky`    | coordinate  | Facing Mariinsky Palace.                                                    |
+| `bessarabka`   | coordinate  | Bessarabska Square, looking down Khreshchatyk.                              |
+| `funicular`    | coordinate  | Funicular lower station, looking up.                                        |
+| `hydropark`    | coordinate  | Hydropark, facing the right-bank hills.                                     |
+| `metrobridge`  | coordinate  | Metro Bridge over the Dnipro.                                               |
 
 ## Keyboard
 
@@ -178,6 +235,8 @@ interface Window {
     ready: boolean;    // false until the first frame has rendered
     state: PlayerState; // live reference — same object every frame
     fps: number;       // 1 s moving-average frames per second (0 until first window closes)
+    y: number;         // eye height in metres — groundAt(state.x, state.z) + 1.7 (added T-0045)
+    city: string;      // 'london' | 'kyiv' | 'synthetic' (added T-0045)
     cols: number;      // AsciiRenderer.cols after the last resize
     rows: number;      // AsciiRenderer.rows after the last resize
   };
