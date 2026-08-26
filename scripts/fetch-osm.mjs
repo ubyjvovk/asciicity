@@ -17,6 +17,7 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { fetchDemTiles } from './dem.mjs';
 import { convertOverpass } from './osm-convert.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -30,10 +31,14 @@ const ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
-/** Build the Overpass QL query string for the given bbox. */
-function buildQuery(bbox) {
+/**
+ * Build the Overpass QL query string for the given bbox. `timeoutSec` is the
+ * Overpass server-side timeout — 180 s for London, bumped to 300 s for the
+ * larger Kyiv bbox (data-format.md §Fetch script CLI).
+ */
+function buildQuery(bbox, timeoutSec = 180) {
   const [minLon, minLat, maxLon, maxLat] = bbox;
-  return `[out:json][timeout:180];
+  return `[out:json][timeout:${timeoutSec}];
 (
   way["building"](${minLat},${minLon},${maxLat},${maxLon});
   relation["building"]["type"="multipolygon"](${minLat},${minLon},${maxLat},${maxLon});
@@ -156,41 +161,66 @@ function isCityShape(o) {
   );
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const bbox = args.bbox ? parseBbox(args.bbox) : DEFAULT_BBOX;
   const origin = args.origin ? parseOrigin(args.origin) : DEFAULT_ORIGIN;
   const out = args.out || DEFAULT_OUT;
+  const lang = args.lang || undefined;
+  const useDem = args.dem === '1' || args.dem === 'true';
+  const step = args.step !== undefined ? Number(args.step) : undefined;
+  if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
+    throw new Error(`bad --step "${args.step}" (want positive number)`);
+  }
+  // The Kyiv bbox is larger than the City of London — bump the Overpass
+  // timeout so the server does not cut the response short.
+  const timeoutSec = useDem ? 300 : 180;
 
-  const query = buildQuery(bbox);
+  const query = buildQuery(bbox, timeoutSec);
 
-  fetchJson(query)
-    .then((json) => {
-      const city = convertOverpass(json, { origin, bbox });
-      if (!isCityShape(city)) {
-        process.stderr.write('fetch: converted result failed shape check\n');
-        process.exit(1);
-      }
-      const bytes = Buffer.byteLength(JSON.stringify(city), 'utf8');
-      const kb = Math.round(bytes / 1024);
-      const line = `city.json: ${city.buildings.length} buildings, ${
-        city.roads.length
-      } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${
-        city.rivers?.length ?? 0
-      } rivers, ${kb} KB (skipped ${
-        city.skippedRelations ?? 0
-      } relations, dropped ${city.skippedOpenWaterChains ?? 0} open water chains)`;
-
-      const tmp = `${out}.tmp`;
-      mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(tmp, JSON.stringify(city));
-      renameSync(tmp, out); // atomic-ish: never leaves a partial file at `out`
-      process.stdout.write(line + '\n');
-    })
-    .catch((err) => {
-      process.stderr.write(`fetch: ${err && err.message ? err.message : err}\n`);
-      process.exit(1);
+  try {
+    // Prefetch DEM tiles first so a converter failure never leaves a stale
+    // half-downloaded cache; both errors are equally fatal (non-zero exit).
+    let dem;
+    if (useDem) {
+      dem = await fetchDemTiles(bbox);
+    }
+    const json = await fetchJson(query);
+    const city = convertOverpass(json, {
+      origin,
+      bbox,
+      ...(lang ? { lang } : {}),
+      ...(dem ? { dem } : {}),
+      ...(step !== undefined ? { step } : {}),
     });
+    if (!isCityShape(city)) {
+      process.stderr.write('fetch: converted result failed shape check\n');
+      process.exit(1);
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(city), 'utf8');
+    const kb = Math.round(bytes / 1024);
+    const outName = out.split('/').pop() || out;
+    const base = `${outName}: ${city.buildings.length} buildings, ${
+      city.roads.length
+    } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${
+      city.rivers?.length ?? 0
+    } rivers`;
+    const terrainPart = city.terrain
+      ? `, terrain ${city.terrain.cols}x${city.terrain.rows} @ ${city.terrain.step} m (${dem?.voids ?? 0} voids)`
+      : '';
+    const line = `${base}${terrainPart}, ${kb} KB (skipped ${
+      city.skippedRelations ?? 0
+    } relations, dropped ${city.skippedOpenWaterChains ?? 0} open water chains)`;
+
+    const tmp = `${out}.tmp`;
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(tmp, JSON.stringify(city));
+    renameSync(tmp, out); // atomic-ish: never leaves a partial file at `out`
+    process.stdout.write(line + '\n');
+  } catch (err) {
+    process.stderr.write(`fetch: ${err && err.message ? err.message : err}\n`);
+    process.exit(1);
+  }
 }
 
 main();
