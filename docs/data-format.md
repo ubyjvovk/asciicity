@@ -20,6 +20,30 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
 - Numbers are rounded to 0.1 m (`Math.round(v * 10) / 10`) to keep the file
   small. The fetch output is minified JSON (no pretty print).
 
+## Datasets (one file per city)
+
+| id (`?city=`) | file                      | origin                         | terrain |
+|---------------|---------------------------|--------------------------------|---------|
+| `london`      | `public/data/city.json`   | Bank junction                  | none (flat) |
+| `kyiv`        | `public/data/kyiv.json`   | Maidan Nezalezhnosti `lat 50.4501, lon 30.5234` | SRTM 1″ grid, step 20 m |
+
+Every file obeys the same schema; `terrain`/`waterLevels` are simply absent
+for London. The registry the app uses is `src/data/cities.ts`
+(architecture.md §4.10). Size budget per file: **under 10 MB** minified.
+
+### Central Kyiv (`kyiv.json`, wave 5)
+
+- **bbox**: `30.495, 50.422, 30.585, 50.470` — Golden Gate / Sophia / Podil
+  (Kontraktova Square) in the west and north, Pechersk Lavra and the
+  Motherland Monument in the south, Trukhaniv Island and the Hydropark strip
+  of the left bank in the east. ≈ 6.4 km × 5.3 km.
+- **origin**: Maidan Nezalezhnosti, `lat 50.4501, lon 30.5234` (DEM ≈ 156 m
+  ASL; the Dnipro is ≈ 94 m, Pechersk/Sophia hills ≈ 190–200 m).
+- Names: fetched with `--lang en` so `name:en` wins over the Cyrillic `name`
+  when present (buildings, roads, places alike).
+- Command: `node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --out public/data/kyiv.json`
+  (`npm run fetch-data:kyiv`).
+
 ## The real dataset: City of London to Westminster
 
 - **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`
@@ -42,7 +66,10 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]], "bridge": true } ],   // bridge optional (T-0030)
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
   "water":     [ [[x,z],[x,z],[x,z]] ],         // optional, rings (T-0023)
-  "rivers":    [ [[x,z],[x,z]] ]                // optional, centre-line polylines (T-0036)
+  "rivers":    [ [[x,z],[x,z]] ],               // optional, centre-line polylines (T-0036)
+  "terrain":   { "x0": -3260, "z0": -2740, "step": 20, "cols": 323, "rows": 268,
+                 "datum": 156, "heights": [ -62.1, -61.8, ... ] },   // optional, wave 5
+  "waterLevels": [ -62.0 ]                      // optional, one per water ring, wave 5
 }
 ```
 
@@ -56,6 +83,13 @@ Rules every producer must follow and `validateCity` must enforce:
 - `id` unique within each array.
 - `water` (optional): array of rings obeying the `poly` rules; may be absent or empty.
 - `rivers` (optional): array of polylines (≥ 2 finite points each); may be absent or empty.
+- `terrain` (optional): `x0`, `z0`, `datum` finite; `step > 0`; `cols ≥ 2`,
+  `rows ≥ 2` integers; `heights` is an array of exactly `cols * rows` finite
+  numbers (row-major, row 0 = north edge). Metres relative to `datum`,
+  rounded to 0.1 m. Absent ⇒ flat world.
+- `waterLevels` (optional): finite numbers, **same length as `water`**
+  (error path `waterLevels` when the lengths differ, `waterLevels[i]` for a
+  bad entry). Metres relative to `terrain.datum`. Absent ⇒ every ring at 0.
 
 ## OSM → JSON conversion rules (`scripts/osm-convert.mjs`)
 
@@ -108,7 +142,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 | residential, living_street                         | `residential` |
 | service                                            | `service`     |
 | pedestrian                                         | `pedestrian`  |
-| footway                                            | **dropped** (→ `null`; never emitted) |
+| footway                                            | **dropped** (→ `null`; never emitted) — except a footway with a `bridge` tag ≠ `no`, emitted as `pedestrian` + `bridge: true` (wave 5: Kyiv's pedestrian bridges) |
 
 `name` copied when present. Ways with < 2 distinct points are dropped.
 `bridge: true` is emitted when the way has a `bridge` tag whose value is not `no` (bridges are walkable corridors over water; T-0030).
@@ -117,17 +151,60 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 `tourism=attraction` selectors with a non-empty `name`. Deduplicate by
 name (keep the first).
 
+**Names and `--lang`** — by default the display name of a building, road or
+place is the OSM `name` tag. With `--lang <code>` the converter prefers
+`name:<code>` and falls back to `name` (both trimmed). London is fetched
+without `--lang`; Kyiv with `--lang en`.
+
+## Terrain (`scripts/dem.mjs`, wave 5)
+
+Elevation comes from the public AWS Terrain Tiles "skadi" mirror of SRTM
+1-arc-second: `https://s3.amazonaws.com/elevation-tiles-prod/skadi/<NS><lat>/<NS><lat><EW><lon>.hgt.gz`
+— e.g. `skadi/N50/N50E030.hgt.gz` covers lat 50–51, lon 30–31 (≈ 4.7 MB
+gzipped; no key, no rate limit worth mentioning). Tile name rule: lat/lon of
+the tile's **south-west** corner, `N`/`S` + 2 digits, `E`/`W` + 3 digits
+(`Math.floor` of the coordinate, so London is `N51W001`).
+
+HGT format: gunzip → big-endian `int16` samples, `side × side` square
+(`side = sqrt(bytes / 2)` = 3601 for 1″), row 0 = the tile's **north** edge
+(lat + 1), column 0 = the west edge; `-32768` = void. Sample `(lat, lon)`
+→ `row = (tileLat + 1 − lat) · (side − 1)`, `col = (lon − tileLon) · (side − 1)`,
+bilinear over the four surrounding samples; a void corner is replaced by the
+mean of the non-void corners (all four void → 0; count voids in the summary).
+
+The converter (`--dem 1`, default off) builds `terrain` as follows:
+
+1. Project the four bbox corners; `minX/maxX/minZ/maxZ` over them.
+2. `step = 20` (override `--step`); `x0 = floor(minX / step) · step − step`,
+   `z0 = floor(minZ / step) · step − step`; `cols = ceil((maxX − x0) / step) + 2`,
+   `rows = ceil((maxZ − z0) / step) + 2` (one cell of margin all round).
+3. `datum = round1(dem(origin))`. For every node: `heights[r·cols + c] =
+   round1(dem(unproject(x0 + c·step, z0 + r·step)) − datum)`.
+4. **Water flattening**: for each (clipped) water ring `i`, sample the raw
+   DEM (minus datum) at every ring vertex, sort ascending, take the 10th
+   percentile (`sorted[floor(0.1 · (n − 1))]`) → `waterLevels[i]`
+   (rounded 0.1). Then every grid node whose `(x, z)` is inside ring `i`
+   (ray-casting point-in-polygon) gets `heights = waterLevels[i]` — so the
+   river bed is a flat plane the water mesh sits 0.3 m above and nothing
+   pokes through. Rings are processed in array order.
+5. Tiles are cached under `.cache/dem/` (gitignored); the fetch fails
+   loudly (non-zero exit) when a needed tile cannot be downloaded — never a
+   partial file.
+
+Summary line with `--dem 1`: `<out>: N buildings, M roads, K places, W water, R rivers, terrain CxR @ S m (V voids), S KB (skipped …)`.
+
 ## Fetch script CLI (`scripts/fetch-osm.mjs`)
 
 ```
-node scripts/fetch-osm.mjs [--bbox minLon,minLat,maxLon,maxLat] [--origin lon,lat] [--out public/data/city.json]
+node scripts/fetch-osm.mjs [--bbox minLon,minLat,maxLon,maxLat] [--origin lon,lat] [--out public/data/city.json] [--lang en] [--dem 1] [--step 20]
 ```
 
 Node ≥ 22, zero dependencies (global `fetch`). Defaults are the City of
 London values above. Prints exactly one summary line on success:
 `city.json: N buildings, M roads, K places, S KB (skipped R relations)`.
 Non-zero exit and a one-line reason on failure; never writes a partial file.
-`npm run fetch-data` is the alias.
+`npm run fetch-data` is the alias (London); `npm run fetch-data:kyiv` runs
+the Kyiv command from the table above.
 
 ## Synthetic city (`src/data/synthetic.ts`)
 
@@ -136,7 +213,13 @@ by unit tests, the e2e smoke test (`?synthetic=1`), and as the runtime
 fallback when `city.json` fails to load. Blocks are 60 m squares separated by
 14 m streets, centred on the origin; every block holds one rectangular
 building inset 4 m with height from a seeded PRNG (mulberry32) in `[8, 120]`;
-every 5th building is named `Block <i>`. Streets alternate `primary`
+every 5th building is named `Block <i>`.
+`syntheticCity(seed, blocks, hills = true)` additionally emits a `terrain`
+grid (step 20, covering the blocks plus one cell of margin, `datum` 0) with
+`h(x, z) = 30 · exp(−((x − 200)² + (z + 150)²) / (2 · 220²)) + z / 200`
+rounded to 0.1 — one 30 m hill north-east of the origin on a gentle
+north-up tilt — so hills can be exercised without real data
+(`?synthetic=1&hills=1`). Streets alternate `primary`
 (every 4th) and `residential`, named `Avenue <n>` (north–south) / `Street <n>`
 (east–west). Places: one, `{ name: 'Centre', x: 0, z: 0 }`. Same seed ⇒
 byte-identical output.

@@ -24,7 +24,7 @@ FPS.
 | Unit tests   | Vitest, `environment: 'node'`, files `tests/**/*.test.ts`   |
 | E2E          | `@playwright/test` **1.55.1 exactly** (matches the worker image's baked chromium-1193 at `/opt/pw-browsers`) |
 | Lint gate    | `tsc --noEmit` (no eslint)                                  |
-| Data         | `public/data/city.json` — see `docs/data-format.md`         |
+| Data         | `public/data/<city>.json` — see `docs/data-format.md` (London `city.json`, Kyiv `kyiv.json`) |
 
 `package.json` / `package-lock.json` are **PM-owned after T-0001**: workers
 never add or upgrade a dependency; if you need one, block with a question.
@@ -53,12 +53,16 @@ src/data/types.ts          CityData & friends (PM-owned)
 src/data/validate.ts       validateCity(raw: unknown): CityData — throws Error naming the offending path
 src/data/synthetic.ts      syntheticCity(seed?, blocks?): CityData (deterministic, spec in data-format.md)
 src/data/load.ts           loadCity(url: string, fetchImpl?: typeof fetch): Promise<CityData> (fetch → json → validateCity)
+src/data/cities.ts         CITIES registry + cityById (§4.10, wave 5)
+src/data/spawn.ts          SPAWN_PRESETS, parseAt, landmarkSpawn, resolveSpawn (per-city fallback, §4.10)
 src/world/palette.ts       PALETTE, LANDMARK_PALETTE (readonly number[] hex), colorFor(b: Building): number
 src/world/textures.ts      makeWindowTexture(): THREE.CanvasTexture (browser-only)
 src/world/mesh.ts          MeshData, MeshBuilder, toGeometry (PM-owned; already written — use MeshBuilder)
 src/world/buildings.ts     buildBuildingsMesh(buildings: Building[]): MeshData (pure); makeBuildingsObject(buildings, windowTex): THREE.Mesh
 src/world/roads.ts         ROAD_WIDTH: Record<RoadClass, number>; buildRoadsMesh(roads: Road[]): MeshData (pure); makeRoadsObject(roads): THREE.Mesh
 src/world/ground.ts        makeGridTexture(): THREE.CanvasTexture; makeGround(size?: number): THREE.Mesh (plane at y=0 with the grid texture)
+src/world/terrain.ts       Terrain, buildTerrainGeometry, makeTerrainObject, bridgeProfile, BridgeDecks, makeGroundAt (§4.9, wave 5)
+src/hud/share.ts           buildShareUrl (pure, §4.10)
 src/world/collision.ts     pointInPolygon, distToSegment, class CollisionGrid { blocked(p, r?), resolve(from, to, r?) }
 src/player/controls.ts     PlayerState, InputState, stepPlayer(...) (pure), class Controls (DOM), yawToBearingDeg(yaw)
 src/render/scene.ts        makeRenderer(canvas), makeScene(), makeCamera() — lights, fog, camera constants (§6)
@@ -87,18 +91,22 @@ single group 0. Read the file before using it.
 
 - Normalise each ring so `THREE.ShapeUtils.area(ring as Vector2[]) > 0`
   (reverse when negative). Skip rings with `|area| < 1`.
+- **Terrain (wave 5)**: `buildBuildingsMesh(buildings, heightAt: HeightFn = FLAT_HEIGHT)`.
+  Per building `base = min` and `top = max` of `heightAt(x, z)` over the
+  ring's vertices; walls run from `y = base` to `y = top + h`, the roof sits
+  at `y = top + h`. With `FLAT_HEIGHT` this is exactly the old `0 … h`.
 - **Walls**: for each edge `a→b` of the normalised ring emit one quad (two
-  triangles, 6 vertices) from `y=0` to `y=h`. Outward normal
+  triangles, 6 vertices) from `y=base` to `y=top+h`. Outward normal
   `n = normalize(b.z − a.z, 0, −(b.x − a.x))`. Triangle winding must be
   counter-clockwise seen from outside (`cross(v1−v0, v2−v0) · n > 0`).
-  UVs: `u = cumulativeDistanceAlongRing / 24`, `v = y / 24` (one texture tile
+  UVs: `u = cumulativeDistanceAlongRing / 24`, `v = (y − base) / 24` (one texture tile
   = 24 m × 24 m = 8 × 8 windows of 3 m).
 - **Roofs**: `THREE.ShapeUtils.triangulateShape(ring, [])`; normal `(0,1,0)`,
   winding so `cross(...).y > 0`; uv `(0,0)`.
 - Colour: `colorFor(building)` (§4.3) → `new THREE.Color(hex)`; write the
   linear `.r .g .b` for every vertex of that building.
 - Groups: all wall triangles first (group 0), then all roof triangles (group 1).
-- `makeBuildingsObject` = one `THREE.Mesh(toGeometry(data), [wallMat, roofMat])`
+- `makeBuildingsObject(buildings, windowTex, heightAt = FLAT_HEIGHT)` = one `THREE.Mesh(toGeometry(data), [wallMat, roofMat])`
   with `wallMat = MeshLambertMaterial({ vertexColors: true, map: windowTex })`
   and `roofMat = MeshLambertMaterial({ vertexColors: true, color: 0x606060 })`.
   One draw call per material for the whole city.
@@ -126,12 +134,25 @@ export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if prese
 ### 4.5 Roads & ground
 
 - `ROAD_WIDTH = { primary: 12, secondary: 9, tertiary: 7, residential: 6, service: 4, pedestrian: 4, footway: 2 }` (metres).
-- `buildRoadsMesh`: for each segment `p→q` emit one flat quad at `y = 0.05`,
-  normal `(0,1,0)`, uv `(0,0)`, colour `0x585858` for primary/secondary,
-  `0x404040` otherwise. Corners are not mitred (overlap is fine).
+- `buildRoadsMesh(roads, heightAt: HeightFn = FLAT_HEIGHT)`: for each segment
+  `p→q` of length `len`, split it into `n = max(1, ceil(len / 10))` equal
+  sub-segments and emit one quad per sub-segment, normal `(0,1,0)`, uv
+  `(0,0)`, colour `0x585858` for primary/secondary, `0x404040` otherwise.
+  Corners are not mitred (overlap is fine). Height (`ROAD_LIFT = 0.15`):
+  - ordinary road: each of the quad's four corners gets its own
+    `y = heightAt(corner.x, corner.z) + ROAD_LIFT`;
+  - `bridge: true` road: `ys = bridgeProfile(road.pts, heightAt)` (§4.9)
+    gives one deck height per polyline vertex; a sub-segment corner at
+    fraction `f` along segment `i` gets `y = lerp(ys[i], ys[i+1], f) + ROAD_LIFT`
+    (both edges identical — the deck is flat across).
+  With `FLAT_HEIGHT` every vertex sits at `y = 0.15`.
+- `buildWaterMesh(rings, levels?: number[])` / `makeWaterObject(rings, levels?)`:
+  ring `i` is triangulated at `y = levels[i] + 0.3` when `levels` is given,
+  else at `0.02` (the flat London value).
 - `makeGround(size = 6000)`: `PlaneGeometry(size, size)` rotated to lie on
   `y = 0`, `MeshBasicMaterial({ map: makeGridTexture() })`, texture `repeat`
-  set to `size / 40`.
+  set to `size / 40`. With terrain the same plane is kept as the void-filler
+  under the heightfield (`position.y = terrain.min − 0.5`).
 
 ### 4.6 Collision (src/world/collision.ts)
 
@@ -222,22 +243,122 @@ void main() {
 
 `glyphIndex(v, count, gamma)` in TS must mirror the shader's `idx` formula exactly (unit-tested); `v` is the exposed max-channel brightness, not luminance — so a saturated blue wall is as dense as a white one and only the hue differs.
 
+### 4.9 Terrain (src/world/terrain.ts, wave 5)
+
+```ts
+export class Terrain {
+  constructor(data: TerrainData)
+  readonly data: TerrainData
+  readonly min: number; readonly max: number        // over data.heights
+  heightAt(x: number, z: number): number             // the HeightFn — see below
+}
+export function terrainHeightAt(t: TerrainData, x: number, z: number): number  // pure; Terrain.heightAt delegates to it
+export function buildTerrainGeometry(t: TerrainData): THREE.BufferGeometry     // indexed heightfield (works in node)
+export function makeTerrainObject(t: TerrainData): THREE.Mesh                   // browser-only: grid texture + slope shade
+export function bridgeProfile(pts: Vec2[], heightAt: HeightFn): number[]       // deck height per polyline vertex
+export class BridgeDecks {
+  constructor(roads: Road[], heightAt: HeightFn, cell = 25)                     // keeps roads with bridge === true
+  deckAt(p: Vec2): number | undefined                                           // deck height under p, or undefined
+}
+export function makeGroundAt(terrain: Terrain | undefined, decks: BridgeDecks | undefined): HeightFn
+```
+
+- **Sampling** (`terrainHeightAt`): `u = (x − x0) / step`, `v = (z − z0) / step`,
+  each clamped to `[0, cols − 1]` / `[0, rows − 1]` (outside the grid = the
+  edge value). `c = min(floor(u), cols − 2)`, `r = min(floor(v), rows − 2)`,
+  `fu = u − c`, `fv = v − r`, `h(cc, rr) = heights[rr · cols + cc]`. The cell
+  is split along the diagonal `(c, r) → (c + 1, r + 1)`:
+  `fu ≥ fv` ⇒ `h00 + fu · (h10 − h00) + fv · (h11 − h10)`, else
+  `h00 + fv · (h01 − h00) + fu · (h11 − h01)`. This is exactly the surface the
+  geometry below draws, so draped geometry never floats or sinks at sample points.
+- **Geometry** (`buildTerrainGeometry`): `cols · rows` vertices, vertex
+  `(c, r)` at `(x0 + c·step, h(c, r), z0 + r·step)`, `uv = (x / 40, z / 40)`
+  (one grid tile = 40 m, as the flat ground); per cell the two index
+  triangles `(i00, i01, i11)` and `(i00, i11, i10)` with `i01 = (r+1)·cols + c`
+  etc. — the same diagonal as the sampler, wound so normals point `+y`.
+  `computeVertexNormals()`, then a `color` attribute holding the slope shade
+  `s = min(1, 0.6 + 0.5 · max(0, n · L))`, `L = normalize(1, 2, 0.5)` (flat
+  ground ⇒ 1.0 — identical to London's unlit floor), `computeBoundingSphere()`.
+- `makeTerrainObject(t)` = `Mesh(buildTerrainGeometry(t), MeshBasicMaterial({ map: makeGridTexture(), vertexColors: true }))`
+  (texture `repeat` left at 1: the uvs already count tiles).
+- **Bridges** (`bridgeProfile`): `ya = heightAt(pts[0])`, `yb = heightAt(pts[last])`,
+  `t_i` = cumulative length / total length; `ys[i] = max(ya + (yb − ya) · t_i, heightAt(pts[i]))`
+  — a straight deck between the abutments that never dips below the ground
+  (over the flattened river bed it is the straight line; a 2-point polyline
+  gives `[ya, yb]`). `BridgeDecks` buckets every segment of every
+  `bridge: true` road (half-width `ROAD_WIDTH[cls] / 2 + 1`, the same
+  corridor the `CollisionGrid` uses) into a 25 m spatial hash; `deckAt(p)`
+  returns the **maximum** over all segments whose corridor contains `p` of
+  `lerp(ys[i], ys[i+1], t)` with `t` the clamped projection of `p` onto the
+  segment; `undefined` when no corridor contains `p`.
+- `makeGroundAt(terrain, decks)(x, z) = max(terrain?.heightAt(x, z) ?? 0, decks?.deckAt([x, z]) ?? −Infinity)`
+  — the walkable height: the player, the buses and the sky ride on this;
+  boats ride on `terrain.heightAt` alone (the river bed is flattened to the
+  water level, so a boat's `y = level + 1` falls out for free).
+
+### 4.10 Cities, spawn fallback, overlay menu (wave 5)
+
+```ts
+// src/data/cities.ts
+export interface CityInfo { id: string; label: string; file: string; defaultSpawn: string; blurb: string }
+export const CITIES: readonly CityInfo[]   // london (data/city.json, 'bigben'), kyiv (data/kyiv.json, 'maidan')
+export function cityById(id: string | null | undefined): CityInfo | undefined   // trimmed, case-insensitive
+// src/data/spawn.ts
+export function resolveSpawn(param, origin, blocked, city?, fallback = 'bigben'): SpawnPoint
+// src/hud/share.ts
+export function buildShareUrl(href: string, cityId: string, state: { x: number; z: number; yaw: number }, origin: { lat: number; lon: number }): string
+```
+
+- `?city=<id>` picks the dataset. No `?city=` (and no `?synthetic=1`) ⇒ the
+  start overlay becomes a **city picker**: one button per `CITIES` entry
+  (`label` + `blurb`, keys `1`/`2`… also work); choosing writes `?city=<id>`
+  into the URL with `history.replaceState`, keeps every other parameter, and
+  boots that city. `?synthetic=1` never shows the picker.
+- `resolveSpawn` fallback is the city's `defaultSpawn`; a preset or
+  coordinate that projects **outside the city's bbox** also falls back
+  (a London preset in Kyiv must not drop the player 2 000 km into the void).
+  Kyiv presets are listed in `docs/integration.md`.
+- **Pause menu**: losing pointer lock (Esc) shows the resume overlay with
+  `CLICK TO RESUME` plus two buttons that stop propagation:
+  `COPY LINK TO HERE` — `buildShareUrl(location.href, city.id, state, city.origin)`
+  copied via `navigator.clipboard.writeText` (best effort) **and** shown in a
+  read-only `<input>` selected for manual copy, button text `COPIED` for
+  1.5 s — and `SWITCH CITY`, which navigates to `location.pathname` plus
+  the current query minus `city`/`at` (i.e. back to the picker).
+  `buildShareUrl` keeps `theme`, `time`, `cell`, `crt`, `minimap`, `hud` from
+  `href`, drops everything else, sets `city` and
+  `at=<lon 5 dp>,<lat 5 dp>,<bearing rounded>` via `unproject` (§3), and
+  returns an absolute URL; a round trip through `parseAt` + `project` lands
+  within 1 m of the original state.
+- HUD gains an `ALT` row (`HudValues.alt?: string`, rendered between `ZONE`
+  and `LANDMARK` only when defined): `formatAlt(m) = "<round(m)> M ASL"`,
+  fed with `terrain.datum + groundAt(x, z)`; London (no terrain) keeps the
+  six-row panel.
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
-1. Parse `location.search`: `synthetic=1` → `syntheticCity()`; else
-   `loadCity(import.meta.env.BASE_URL + 'data/city.json')`, falling back to
-   `syntheticCity()` on error (log a console warning). `cell=WxH` overrides
-   cell size.
-2. Build: ground, roads, buildings (one mesh each) → scene. Camera at the
-   spawn (`(0, 1.7, 0)`, yaw = `−π/2` i.e. facing west); if `(0,0)` is
-   `blocked`, walk +x in 1 m steps until free (max 200 m).
+1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
+   (`hills=1` adds the synthetic terrain); else the city picker / `?city=`
+   (§4.10) → `loadCity(import.meta.env.BASE_URL + city.file)`, falling back
+   to `syntheticCity()` on error (log a console warning). `cell=WxH`
+   overrides cell size.
+2. Build: ground, roads, buildings (one mesh each) → scene. With
+   `city.terrain`: `terrain = new Terrain(city.terrain)`,
+   `decks = new BridgeDecks(city.roads, terrain.heightAt)`,
+   `groundAt = makeGroundAt(terrain, decks)`; `makeTerrainObject` is added
+   and the flat ground plane is lowered to `terrain.min − 0.5`; every builder
+   and fleet receives `groundAt` (boats: `terrain.heightAt`). Without
+   terrain `groundAt = FLAT_HEIGHT` and nothing changes. Camera at the
+   spawn (`(x, groundAt(x, z) + 1.7, z)`); if the spawn is `blocked`, walk
+   +x in 1 m steps until free (max 200 m).
 3. `CollisionGrid`, `ZoneIndex`, `Controls(canvas)`, `Hud(hudRoot)`,
    `AsciiRenderer(renderer)`; `setSize` on load and on `resize`.
 4. Overlay `<div id="overlay">` with the title and "CLICK TO ENTER"; hidden on
    the first click (which also requests pointer lock).
 5. Loop: `requestAnimationFrame`; `dt = min(0.1, elapsed)`;
    `stepPlayer` → camera position/rotation (`camera.rotation.order = 'YXZ'`,
-   `rotation.y = −yaw`, `rotation.x = pitch`) → `ascii.render` →
+   `position.y = groundAt(x, z) + 1.7`, `rotation.y = −yaw`, `rotation.x = pitch`;
+   the sky group is moved to the same point) → `ascii.render` →
    `hud.update` every 4th frame (sector/world/bearing/zone/fps; FPS is a
    1-second moving average).
 
@@ -252,8 +373,10 @@ void main() {
 ## 7. Performance budget
 
 ≥ 55 fps on an integrated GPU at 1080p with cell 6×12 (≈ 320×90 cells). The
-whole city is four meshes (ground, roads, buildings, water) → ≤ 6 draw calls per
-frame plus the ASCII quad. Never allocate per frame in the loop.
+whole city is five meshes (ground, terrain, roads, buildings, water) plus two
+instanced fleets → ≤ 8 draw calls per frame plus the ASCII quad. Never
+allocate per frame in the loop. The Kyiv heightfield is ≈ 87 k vertices /
+170 k indexed triangles — one draw call, well inside budget.
 
 ## 8. Testing strategy
 

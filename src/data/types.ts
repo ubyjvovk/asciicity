@@ -12,6 +12,40 @@
 /** `[x, z]` in local metres. */
 export type Vec2 = [number, number];
 
+/**
+ * Ground-height sampler in local metres: `y` of the walkable ground at
+ * `(x, z)`. Every world builder takes one so geometry can be draped over
+ * terrain; the default `FLAT_HEIGHT` reproduces the flat `y = 0` world.
+ * Added 2026-08-26 (wave 5, terrain).
+ */
+export type HeightFn = (x: number, z: number) => number;
+
+/** The flat world: ground is `y = 0` everywhere (London, synthetic city). */
+export const FLAT_HEIGHT: HeightFn = () => 0;
+
+/**
+ * Regular height grid (a DEM sample) in local metres, relative to `datum`.
+ * Node `(c, r)` sits at `(x0 + c·step, z0 + r·step)` — row 0 is the NORTH
+ * edge (smallest z), column 0 the west edge — and its height is
+ * `heights[r * cols + c]`. Heights are metres above the origin's own ground
+ * (`datum` metres above sea level), rounded to 0.1 m. Producers cover the
+ * bbox plus one cell of margin on every side. Added 2026-08-26 (wave 5).
+ */
+export interface TerrainData {
+  x0: number;
+  z0: number;
+  /** Metres between grid nodes (20 for the shipped datasets). */
+  step: number;
+  /** Nodes per row (≥ 2). */
+  cols: number;
+  /** Rows (≥ 2). */
+  rows: number;
+  /** Metres above sea level of height 0 (the DEM elevation at `origin`). */
+  datum: number;
+  /** `rows * cols` finite numbers, row-major. */
+  heights: number[];
+}
+
 export type RoadClass =
   | 'primary'
   | 'secondary'
@@ -72,4 +106,17 @@ export interface CityData {
    * metres — boat paths. Absent when the producer has none. Added 2026-08-24 (T-0036).
    */
   rivers?: Vec2[][];
+  /**
+   * Optional height grid. Absent → the world is flat (`y = 0`). When present
+   * every builder drapes geometry over it via a `HeightFn` (architecture.md
+   * §4.9). Added 2026-08-26 (wave 5).
+   */
+  terrain?: TerrainData;
+  /**
+   * Optional water surface heights, one per `water[]` ring (same order and
+   * length), metres relative to `terrain.datum`. Absent → every ring is at
+   * 0. Producers flatten the terrain nodes inside each ring to its level.
+   * Added 2026-08-26 (wave 5).
+   */
+  waterLevels?: number[];
 }
