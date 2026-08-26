@@ -92,14 +92,16 @@ exactly per `docs/data-format.md`:
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
   dropped, heights clamped to `[3, 320]`.
-- **Roads** — `highway` → `cls` via the mapping table; `footway` and other
-  unmapped values (e.g. `steps`) are dropped; ways with < 2 distinct points
-  are dropped. A road whose way carries a `bridge` tag with a value other than
-  `no` (`yes`, `viaduct`, `movable`, …) is emitted with `bridge: true`;
-  otherwise the key is omitted (T-0030 — bridges are walkable corridors).
-  **Wave-5 exception (T-0040):** a `footway` with a `bridge` tag ≠ `no` is
-  emitted as `cls: 'pedestrian'` + `bridge: true` (Kyiv's Park and Klitschko
-  pedestrian bridges) — plain footways stay dropped.
+- **Roads** — `highway` → `cls` via the mapping table; `footway`, `cycleway`
+  and other unmapped values (e.g. `steps`) are dropped; ways with < 2
+  distinct points are dropped. A road whose way carries a `bridge` tag with a
+  value other than `no` (`yes`, `viaduct`, `movable`, …) is emitted with
+  `bridge: true`; otherwise the key is omitted (T-0030 — bridges are walkable
+  corridors). **Wave-5 exception (T-0040, extended T-0047):** a `footway` or
+  `cycleway` with a `bridge` tag ≠ `no` is emitted as `cls: 'pedestrian'` +
+  `bridge: true` (Kyiv's Parkovyi and Klitschko bridges are
+  `highway=cycleway` + `bridge=yes`) — plain footways and cycleways stay
+  dropped.
 - **Names** — the display name of a building, road or place is the OSM `name`
   tag by default; with `--lang <code>` the converter prefers `name:<code>` and
   falls back to `name` (both trimmed). London is fetched without `--lang`;

@@ -349,6 +349,27 @@ describe('committed public/data/kyiv.json', () => {
     expect(city.origin.lon).toBeCloseTo(30.5234, 5);
   });
 
+  it('includes the two cycleway bridges (Parkovyi + Klitschko) as pedestrian + bridge: true', () => {
+    // T-0047: both are `highway=cycleway` + `bridge=yes`, so they are dropped
+    // as roads but emitted as pedestrian bridges. Their OSM way ids:
+    // 163254636 (Parkovyi, ~430 m) and 660559170 (Klitschko "glass", ~210 m).
+    const roads = city.roads as Array<{
+      id: number;
+      cls: string;
+      bridge?: boolean;
+      pts: number[][];
+    }>;
+    const byId = new Map(roads.map((r) => [r.id, r] as const));
+    for (const id of [163254636, 660559170]) {
+      const r = byId.get(id);
+      expect(r, `bridge way ${id} present`).toBeDefined();
+      if (!r) continue; // narrows `unknown`/`undefined` after toBeDefined
+      expect(r.cls).toBe('pedestrian');
+      expect(r.bridge).toBe(true);
+      expect(r.pts.length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   it('carries a terrain grid with a Kyiv-plausible datum (150–165 m ASL)', () => {
     expect(city.terrain).toBeDefined();
     const t = city.terrain;

@@ -59,12 +59,13 @@ const ROAD_CLASS = {
   living_street: 'residential',
   service: 'service',
   pedestrian: 'pedestrian',
-  // footway is deliberately unmapped (dropped like `steps`): footways are
-  // invisible at cell resolution and were ~40 % of the old file. `footway`
-  // stays in the `RoadClass` type/validator for compatibility, just never
-  // emitted. Exception (wave 5): a footway with a `bridge` tag ≠ `no` is
-  // emitted as `pedestrian` + `bridge: true` (Kyiv Park / Klitschko pedestrian
-  // bridges); the per-element caller applies that rule.
+  // footway and cycleway are deliberately unmapped (dropped like `steps`):
+  // pedestrian/cycle paths are invisible at cell resolution and were ~40 % of
+  // the old file. `footway`/`cycleway` stay in the `RoadClass` type/validator
+  // for compatibility, just never emitted. Exception (wave 5): a footway or
+  // cycleway with a `bridge` tag ≠ `no` is emitted as `pedestrian` +
+  // `bridge: true` (Kyiv Park / Klitschko bridges are `highway=cycleway` +
+  // `bridge=yes`); the per-element caller applies that rule.
 };
 
 /**
@@ -437,11 +438,16 @@ export function convertOverpass(json, opts) {
         if (poly) buildings.push(buildEntry(el.id, tags, poly));
       } else if (tags.highway !== undefined) {
         let cls = roadClassOf(tags.highway);
-        // Wave-5 exception: a `footway` with a `bridge` tag ≠ `no` becomes a
-        // `pedestrian` bridge (Kyiv Park + Klitschko pedestrian bridges).
-        // Plain footways stay dropped.
+        // Wave-5 exception: a `footway` or `cycleway` with a `bridge` tag ≠
+        // `no` becomes a `pedestrian` bridge (Kyiv Parkovyi + Klitschko
+        // bridges are `highway=cycleway` + `bridge=yes`). Plain footways /
+        // cycleways stay dropped.
         const bridged = tags.bridge !== undefined && tags.bridge !== 'no';
-        if (cls === null && tags.highway === 'footway' && bridged) {
+        if (
+          cls === null &&
+          (tags.highway === 'footway' || tags.highway === 'cycleway') &&
+          bridged
+        ) {
           cls = 'pedestrian';
         }
         if (cls === null) continue;

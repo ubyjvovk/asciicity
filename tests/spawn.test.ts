@@ -10,8 +10,10 @@ import {
   resolveSpawn,
   SPAWN_PRESETS,
 } from '../src/data/spawn';
-import type { CityData } from '../src/data/types';
+import type { CityData, Vec2 } from '../src/data/types';
 import { project } from '../src/geo';
+import { CollisionGrid, distToSegment } from '../src/world/collision';
+import { ROAD_WIDTH } from '../src/world/roads';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -431,4 +433,70 @@ describe('resolveSpawn (per-city fallback + bbox check)', () => {
       resolveSpawn('-0.1,51.5', KYIV_ORIGIN, () => false, KYIV, 'stpauls'),
     ).toThrow(/fixed-coordinate/);
   });
+});
+
+// T-0047: the Parkovyi and Klitschko bridges are `highway=cycleway` +
+// `bridge=yes`, so resolveSpawn against the committed kyiv.json must land on
+// an unblocked bridge vertex and stay walkable 20 m along its bearing.
+describe('Kyiv bridge presets (T-0047)', () => {
+  const KYIV: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
+  );
+  // Build the SAME CollisionGrid main.ts builds (integration.md §5): water
+  // rings as fake footprints, bridge roads as corridors over them.
+  const collision = new CollisionGrid(
+    [
+      ...KYIV.buildings,
+      ...(KYIV.water ?? []).map((poly, i) => ({ id: -1 - i, h: 1, poly })),
+    ],
+    25,
+    KYIV.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+  );
+
+  // Every pedestrian bridge polyline in the regenerated dataset.
+  const bridgeRoads = KYIV.roads.filter(
+    (r) => r.bridge === true && r.cls === 'pedestrian',
+  );
+
+  for (const key of ['parkbridge', 'glassbridge'] as const) {
+    it(`${key} spawns on an unblocked bridge vertex and can walk 20 m along its bearing`, () => {
+      const preset = SPAWN_PRESETS[key] as {
+        lon: number;
+        lat: number;
+        bearingDeg: number;
+      };
+      const spawn = resolveSpawn(
+        key,
+        KYIV.origin,
+        (p) => collision.blocked(p),
+        KYIV,
+        'maidan',
+      );
+
+      // 1. The spawn point is not blocked.
+      expect(collision.blocked([spawn.x, spawn.z])).toBe(false);
+
+      // 2. It lies within 3 m of a bridge:true pedestrian polyline.
+      expect(bridgeRoads.length).toBeGreaterThan(0);
+      let best = Infinity;
+      for (const r of bridgeRoads) {
+        for (let i = 0; i < r.pts.length - 1; i++) {
+          const d = distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]);
+          if (d < best) best = d;
+        }
+      }
+      expect(best).toBeLessThan(3);
+
+      // 3. It stays unblocked 20 m further along its bearing: forward
+      //    (sin yaw, −cos yaw) from the preset's whole-degree bearing.
+      const yaw = (preset.bearingDeg * Math.PI) / 180;
+      const fx = Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const from: Vec2 = [spawn.x, spawn.z];
+      const to: Vec2 = [spawn.x + 20 * fx, spawn.z + 20 * fz];
+      expect(collision.resolve(from, to)).toEqual(to);
+    });
+  }
 });

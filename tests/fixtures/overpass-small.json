@@ -217,6 +217,24 @@
       ]
     },
     {
+      "type": "way",
+      "id": 40,
+      "tags": { "highway": "cycleway", "bridge": "yes", "name": "Trukhaniv Cycle Bridge" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
+      "type": "way",
+      "id": 41,
+      "tags": { "highway": "cycleway" },
+      "geometry": [
+        { "lat": 51.5133, "lon": -0.0887 },
+        { "lat": 51.5134, "lon": -0.0886 }
+      ]
+    },
+    {
       "type": "node",
       "id": 20,
       "lat": 51.5133,
