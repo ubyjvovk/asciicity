@@ -80,6 +80,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-26 23:05 — **Pushed main (367b761) → Pages deploy green; Kyiv live at https://ubyjvovk.github.io/asciicity/?city=kyiv** (user asked to try it). T-0046 attempt 1 (ds-1, $0.05): gate green, picker + pause menu verified visually on the GPU (probe: `node_modules/.pm-menu.mjs` in the worktree), but clicking the `#share` fallback input bubbles to the overlay's click-to-resume — **reworked** (stop propagation on `#menu`, hide the field until copied, add the check to the headless evidence). T-0047 waits on T-0046.
 
+- 2026-08-26 23:20 — T-0046 accepted on attempt 2 (ds-1, $0.06 total): `#menu` container guard verified by the PM probe (overlay stays up after clicking `#share`), gate green. **46/47 done — the user-facing wave-5 scope is complete**: city picker on `/`, `?city=`, Esc pause menu with COPY LINK TO HERE / SWITCH CITY. Pushed to Pages. Only T-0047 (cycleway bridges + the two bridge presets) remains.
+
 ## Next actions
 1. Wave 5 in flight — process digests (review/ then blocked/). After T-0045 lands: GPU screenshots of Kyiv (`?city=kyiv&at=maidan|hydropark|parkbridge|lavra`) before accepting; the slope shade (`0.6 + 0.5·n·L`) and fog (0.0018) are PM tuning knobs.
 2. After T-0046: push main; the GitHub Pages deploy picks up `kyiv.json` (~5 MB) automatically. Later ideas: touch pause button (no Esc on phones), remember last city, bus pitch on slopes, Kyiv landmark colours table, more cities (bbox+origin+`--lang` are all CLI args).
