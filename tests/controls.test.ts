@@ -1,5 +1,6 @@
 /**
- * Unit tests for `src/player/controls.ts` (T-0008, T-0013, T-0019): the pure
+ * Unit tests for `src/player/controls.ts` (T-0008, T-0013, T-0019, T-0048):
+ * the pure
  * `stepPlayer` integration, `yawToBearingDeg`, `axesFromHeld`, and
  * `isMouseSpike`. The DOM `Controls` class is browser-only and covered by
  * the e2e smoke + PM review.
@@ -29,6 +30,16 @@ const idle = {
   lookDx: 0,
   lookDy: 0,
 };
+
+describe('movement speeds', () => {
+  it('WALK_SPEED === 9', () => {
+    expect(WALK_SPEED).toBe(9);
+  });
+
+  it('SPRINT_SPEED === 27', () => {
+    expect(SPRINT_SPEED).toBe(27);
+  });
+});
 
 describe('stepPlayer', () => {
   it('forward at yaw 0 for 1 s moves z by -WALK_SPEED and leaves x', () => {

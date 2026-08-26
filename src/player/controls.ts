@@ -31,9 +31,9 @@ export interface InputState {
 }
 
 /** Walk speed in m/s. */
-export const WALK_SPEED = 3;
+export const WALK_SPEED = 9;
 /** Sprint speed in m/s. */
-export const SPRINT_SPEED = 9;
+export const SPRINT_SPEED = 27;
 /** Turn rate in rad/s. */
 export const TURN_SPEED = Math.PI / 2;
 /** Mouse look sensitivity in rad/px. */
