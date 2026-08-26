@@ -90,6 +90,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-26 23:59 — **Wave 6 boarded: 11 tickets.** T-0048 speeds accepted + pushed (6507b7a). In flight: T-0049 fly (ds-1). Queued: T-0050 render-styles core (C3, needs T-0049 for main.ts) → T-0051 braille · T-0052 blocks · T-0053 teletext · T-0054 dither/gameboy · T-0055 pico8 · T-0056 edges · T-0057 hatch · T-0058 matrix (all C2, one file each, parallel). Waiter armed.
 
+- 2026-08-27 00:30 — T-0049 attempt 1 (ds-1, $0.10): gate green; GPU flight verified (`node_modules/.pm-fly.mjs` probe in the worktree: +150 m / 5 s Space, 60 fps at 150 m AGL, aerial view with thinned fog reads well, `F` falls at 30 m/s and lands). **Reworked** for one PM-side ambiguity: ALT must be the eye altitude (`datum + y − EYE_HEIGHT`), not the ground's. User asked (no ticket yet) how hard trees would be — answered: ~3 C2 tickets (OSM `natural=tree` nodes + tree_row + wood/park polygon fill at fetch time → `trees` list → one InstancedMesh like the buses; minimap wood fill); do after the render styles if they say go.
+
 ## Next actions
 1. Review T-0049 (GPU check: `/?city=kyiv&at=maidan&fly=1`, hold Space then W; fog thinning; MODE/ALT rows), push. Then T-0050 (GPU: R cycle, toast, 12 stubs), then the styles — review each style's `e2e/__shots__/style-<id>.png` artifact **and** take a GPU frame from Maidan (`?city=kyiv&render=<id>`); fps ≥ 30 is a hard criterion (check `edges` — depth texture — and `braille` — 2×4 sub-samples — first).
 2. After the styles: push, then ask the user which looks to keep/tune; candidate polish: ANSI 16-colour variant of blocks, PETSCII atlas, touch fly controls, remember last style/city in localStorage.
