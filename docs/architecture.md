@@ -481,7 +481,8 @@ Pure: `hatchLevel(v): number`, `hatchSpacing(level): { fwd: number | null; back:
 `idx = floor(hash(cell.x, cell.y, floor(time·8)) · glyphCount)` with
 `hash(a, b, c) = fract(sin(a·12.9898 + b·78.233 + c·37.719)·43758.5453)`.
 Rain per column: `speed = 0.3 + 0.7·hash(cell.x, 1, 0)`, `phase = hash(cell.x, 2, 0)`,
-`trail = fract(phase + time·speed·0.25 − vUv.y)` → intensity `pow(trail, 3)`;
+`trail = fract(phase − time·speed·0.25 − vUv.y)` → intensity `pow(trail, 3)`
+(the minus on the time term makes the bright head travel **down** the screen — toward `vUv.y = 0` — as in the film; revised 2026-08-27);
 head (`trail > 0.97`) white. Colour = `(0.2, 1.0, 0.3) · mask · (0.35 + 0.65·shaped(bright(scene))) · (0.4 + 0.6·intensity)`,
 head → `(0.9, 1.0, 0.9)·mask`. Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count)`, `rainIntensity(colX, y01, timeS)`.
 
