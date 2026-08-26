@@ -217,8 +217,8 @@ and fall back to their listed coordinates if the name goes missing.
 | `andriyivskyy` | coordinate  | Top of Andriyivskyy Descent, facing St Andrew's Church.                     |
 | `goldengate`   | coordinate  | Facing the Golden Gate.                                                     |
 | `arsenalna`    | coordinate  | Arsenalna, the deepest metro station.                                       |
-| `parkbridge`   | coordinate  | Park Bridge, facing Trukhaniv Island.                                       |
-| `glassbridge`  | coordinate  | Klitschko glass bridge.                                                     |
+| `parkbridge`   | coordinate  | Parkovyi Bridge first vertex, facing Trukhaniv Island (bearing 33°).        |
+| `glassbridge`  | coordinate  | Klitschko glass bridge first vertex, facing the Arch (bearing 286°).        |
 | `mariinsky`    | coordinate  | Facing Mariinsky Palace.                                                    |
 | `bessarabka`   | coordinate  | Bessarabska Square, looking down Khreshchatyk.                              |
 | `funicular`    | coordinate  | Funicular lower station, looking up.                                        |

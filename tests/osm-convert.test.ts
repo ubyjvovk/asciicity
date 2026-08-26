@@ -143,6 +143,7 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     ['service', 'service'],
     ['pedestrian', 'pedestrian'],
     ['footway', null],
+    ['cycleway', null],
   ];
 
   it('maps every row of the data-format table', () => {
@@ -155,7 +156,7 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     expect(roadClassOf('steps')).toBeNull();
   });
 
-  it('keeps mapped highway ways and drops unmapped ones (footway & steps)', () => {
+  it('keeps mapped highway ways and drops unmapped ones (footway & steps & plain cycleway)', () => {
     const city = convert();
     const ids = city.roads.map((r) => r.id);
     expect(ids).toContain(10); // primary "Cheapside"
@@ -166,6 +167,7 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     expect(ids).toContain(18); // secondary (bridge=no)
     expect(ids).not.toContain(13); // footway dropped
     expect(ids).not.toContain(14); // steps dropped
+    expect(ids).not.toContain(41); // plain cycleway dropped
   });
 
   it('copies road name and class', () => {
@@ -191,7 +193,7 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
 
   it('omits the bridge key when the tag is absent', () => {
     const city = convert();
-    const bridgedIds = new Set([17, 19]); // 17 = Westminster Bridge, 19 = footway bridge
+    const bridgedIds = new Set([17, 19, 40]); // 17 Westminster, 19 footway-bridge, 40 cycleway-bridge
     for (const r of city.roads) {
       if (!bridgedIds.has(r.id)) expect(r.bridge).toBeUndefined();
     }
@@ -355,6 +357,26 @@ describe('osm-convert footway bridges (wave 5)', () => {
   });
 });
 
+describe('osm-convert cycleway bridges (T-0047)', () => {
+  const city = convert();
+
+  it("emits a cycleway+bridge=yes way as cls 'pedestrian' with bridge: true", () => {
+    const r = city.roads.find((rd) => rd.id === 40);
+    expect(r).toBeDefined();
+    expect(r?.cls).toBe('pedestrian');
+    expect(r?.bridge).toBe(true);
+    expect(r?.name).toBe('Trukhaniv Cycle Bridge');
+  });
+
+  it('still drops a plain cycleway (no bridge tag)', () => {
+    expect(city.roads.some((r) => r.id === 41)).toBe(false);
+  });
+
+  it("roadClassOf('cycleway') stays null", () => {
+    expect(roadClassOf('cycleway')).toBeNull();
+  });
+});
+
 describe('osm-convert --dem terrain', () => {
   // A stub Dem: elevation rises linearly with lat so the sampler produces
   // finite, formula-consistent heights without needing a real SRTM tile.
@@ -491,7 +513,7 @@ describe('osm-convert output invariants', () => {
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
     expect(city.buildings).toHaveLength(6);
-    expect(city.roads).toHaveLength(7); // footway (13) and steps (14) dropped; footway-bridge (19) kept
+    expect(city.roads).toHaveLength(8); // footway (13), steps (14), plain cycleway (41) dropped; footway-bridge (19) + cycleway-bridge (40) kept
   });
 
   it('round1 rounds to a single decimal', () => {
