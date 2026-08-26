@@ -15,6 +15,16 @@ below are set. See `docs/architecture.md` §8 for the strategy.
 Pure logic must never touch `document`/`window` so it runs in node; anything
 that needs a canvas or a real DOM is thin and covered by the smoke test.
 
+## Terrain fixture
+
+The terrain builder is exercised without real DEM data via an optional hill on
+the synthetic city: `syntheticCity(seed, blocks, true)` emits a `terrain` grid
+(step 20, covering the block extent plus one margin cell, `datum` 0 — a 30 m
+hill north-east of the origin on a gentle north-up tilt). In the browser this
+is selected by `?synthetic=1&hills=1` (wired in `src/main.ts`, T-0045); the
+unit tests cover the validator and the grid directly (see `tests/data.test.ts`,
+synthetic-city + terrain cases).
+
 ## Running the unit suite
 
 ```sh

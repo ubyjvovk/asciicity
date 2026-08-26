@@ -39,8 +39,10 @@ function r1(v: number): number {
 /**
  * Build a deterministic Manhattan grid of `blocks × blocks` blocks centred on
  * the origin, with alternating `primary`/`residential` streets and one place.
+ * With `hills` also emits a `terrain` grid (step 20, covering the block extent
+ * plus one margin cell, `datum` 0) so hills can be exercised without real data.
  */
-export function syntheticCity(seed = 1, blocks = 12): CityData {
+export function syntheticCity(seed = 1, blocks = 12, hills = false): CityData {
   const rand = mulberry32(seed);
   const origin = { lat: 51.5133, lon: -0.0887 };
   const bbox: [number, number, number, number] = [
@@ -106,5 +108,30 @@ export function syntheticCity(seed = 1, blocks = 12): CityData {
 
   const places: Place[] = [{ name: 'Centre', x: 0, z: 0 }];
 
-  return { v: 1, origin, bbox, buildings, roads, places };
+  const city: CityData = { v: 1, origin, bbox, buildings, roads, places };
+  if (hills) {
+    const step = 20;
+    const extent = (blocks * 74) / 2;
+    const minX = -extent;
+    const maxX = extent;
+    const minZ = -extent;
+    const maxZ = extent;
+    const x0 = Math.floor(minX / step) * step - step;
+    const z0 = Math.floor(minZ / step) * step - step;
+    const cols = Math.ceil((maxX - x0) / step) + 2;
+    const rows = Math.ceil((maxZ - z0) / step) + 2;
+    const h = (x: number, z: number) =>
+      30 * Math.exp(-((x - 200) ** 2 + (z + 150) ** 2) / (2 * 220 ** 2)) +
+      z / 200;
+    const heights: number[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = x0 + c * step;
+        const z = z0 + r * step;
+        heights.push(r1(h(x, z)));
+      }
+    }
+    city.terrain = { x0, z0, step, cols, rows, datum: 0, heights };
+  }
+  return city;
 }

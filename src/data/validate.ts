@@ -155,6 +155,56 @@ export function validateCity(raw: unknown): CityData {
     });
   }
 
+  // terrain (optional) — regular DEM height grid.
+  if (city.terrain !== undefined) {
+    const t = city.terrain as Record<string, unknown>;
+    if (!isFiniteNum(t.x0)) {
+      throw new Error('terrain.x0: must be a finite number');
+    }
+    if (!isFiniteNum(t.z0)) {
+      throw new Error('terrain.z0: must be a finite number');
+    }
+    if (!isFiniteNum(t.step) || (t.step as number) <= 0) {
+      throw new Error('terrain.step: must be a positive number');
+    }
+    if (!Number.isInteger(t.cols) || (t.cols as number) < 2) {
+      throw new Error('terrain.cols: must be an integer >= 2');
+    }
+    if (!Number.isInteger(t.rows) || (t.rows as number) < 2) {
+      throw new Error('terrain.rows: must be an integer >= 2');
+    }
+    if (!isFiniteNum(t.datum)) {
+      throw new Error('terrain.datum: must be a finite number');
+    }
+    if (!Array.isArray(t.heights)) {
+      throw new Error('terrain.heights: must be an array');
+    }
+    if (t.heights.length !== (t.cols as number) * (t.rows as number)) {
+      throw new Error('terrain.heights: must have cols*rows entries');
+    }
+    t.heights.forEach((hv, i) => {
+      if (!isFiniteNum(hv)) {
+        throw new Error(`terrain.heights[${i}]: must be a finite number`);
+      }
+    });
+  }
+
+  // waterLevels (optional) — one finite surface height per water ring.
+  if (city.waterLevels !== undefined) {
+    if (!Array.isArray(city.waterLevels)) {
+      throw new Error('waterLevels: expected an array');
+    }
+    const water = Array.isArray(city.water) ? city.water : [];
+    if (city.waterLevels.length !== water.length) {
+      throw new Error('waterLevels: must match the water array length');
+    }
+    city.waterLevels.forEach((wl, i) => {
+      if (!isFiniteNum(wl)) {
+        throw new Error(`waterLevels[${i}]: must be a finite number`);
+      }
+    });
+  }
+
   return raw as CityData;
 }
 
