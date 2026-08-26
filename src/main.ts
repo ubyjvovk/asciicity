@@ -31,6 +31,7 @@ import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { AsciiRenderer, type AsciiOptions } from './render/ascii';
 import { mountCrt } from './render/crt';
 import { Hud, type HudValues } from './hud/hud';
+import { buildShareUrl } from './hud/share';
 import { Minimap } from './hud/minimap';
 import { ZoneIndex } from './hud/zone';
 import { formatAlt, formatBearing, formatWorld, sectorOf } from './hud/format';
@@ -171,6 +172,65 @@ async function chooseCity(
   }
 }
 
+/**
+ * Render the start-overlay city picker (T-0046) and resolve with the chosen
+ * `CityInfo`. Shows the plain overlay (title + `CHOOSE A CITY`) with one
+ * `.city` button per `CITIES` entry (label + blurb); keys `1`…`9` select by
+ * index. On a choice the current query plus `city=<id>` is written to the URL
+ * via `history.replaceState`, and the returned promise resolves.
+ */
+function drawCityPicker(
+  overlay: HTMLElement,
+  menuRoot: Element | null,
+): Promise<CityInfo> {
+  return new Promise((resolve) => {
+    const heading = overlay.querySelector('h1');
+    const prompt = overlay.querySelector('p');
+    overlay.style.display = '';
+    overlay.classList.remove('resume');
+    if (heading instanceof HTMLElement) heading.style.display = '';
+    if (prompt instanceof HTMLElement) prompt.textContent = 'CHOOSE A CITY';
+    const menu = menuRoot instanceof HTMLElement ? menuRoot : null;
+    if (menu) {
+      menu.textContent = '';
+      CITIES.forEach((c, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'city';
+        const label = document.createElement('label');
+        label.textContent = `${i + 1}. ${c.label}`;
+        const blurb = document.createElement('blurb');
+        blurb.textContent = c.blurb;
+        btn.append(label, blurb);
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          choose(c);
+        });
+        menu.append(btn);
+      });
+    }
+    const onKey = (ev: KeyboardEvent): void => {
+      const n = Number(ev.key);
+      if (Number.isInteger(n) && n >= 1 && n <= CITIES.length) {
+        choose(CITIES[n - 1]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    function choose(c: CityInfo): void {
+      window.removeEventListener('keydown', onKey);
+      const params = new URLSearchParams(window.location.search);
+      params.set('city', c.id);
+      const qs = params.toString();
+      history.replaceState(
+        null,
+        '',
+        window.location.pathname + (qs ? `?${qs}` : ''),
+      );
+      resolve(c);
+    }
+  });
+}
+
 async function main(): Promise<void> {
   const canvas = document.getElementById(CANVAS_ID);
   if (!(canvas instanceof HTMLCanvasElement)) {
@@ -184,8 +244,20 @@ async function main(): Promise<void> {
   if (!(overlay instanceof HTMLElement)) {
     throw new Error(`Expected a <div id="${OVERLAY_ID}">`);
   }
+  const menuRoot = overlay.querySelector('#menu');
 
   const opts = parseUrlOptions(window.location.search);
+
+  // City picker (T-0046): with neither `?synthetic=1` nor a valid `?city=` the
+  // start overlay becomes a chooser — one button per `CITIES` entry, keys
+  // 1…9. On a choice the current query plus `city=<id>` is written to the URL
+  // via `history.replaceState` (every other parameter kept), then data loading
+  // and the rest of the boot continue below.
+  const needsPicker = !opts.synthetic && !cityById(opts.city);
+  if (needsPicker) {
+    opts.city = (await drawCityPicker(overlay, menuRoot)).id;
+  }
+
   const { city, id: cityId, info: cityInfo } = await chooseCity(opts);
 
   const renderer = makeRenderer(canvas);
@@ -330,7 +402,8 @@ async function main(): Promise<void> {
   window.addEventListener('resize', applySize);
 
   // Overlay: title + CLICK TO ENTER on load; on pointer-lock loss, a smaller
-  // CLICK TO RESUME reappears. Clicks hide it and request pointer lock.
+  // CLICK TO RESUME reappears with the pause menu (COPY LINK TO HERE /
+  // SWITCH CITY) in `#menu`. Clicks hide it and request pointer lock.
   const overlayEl: HTMLElement = overlay;
   const overlayHeading = overlayEl.querySelector('h1');
   const overlayPrompt = overlayEl.querySelector('p');
@@ -343,6 +416,46 @@ async function main(): Promise<void> {
     if (overlayPrompt instanceof HTMLElement) {
       overlayPrompt.textContent = resume ? 'CLICK TO RESUME' : 'CLICK TO ENTER';
     }
+    setMenu(resume ? 'pause' : 'none');
+  };
+  // Fill `#menu` (pause menu) or clear it (plain enter overlay). The picker's
+  // own menu is drawn by `drawCityPicker` and cleared here on boot.
+  const setMenu = (mode: 'none' | 'pause'): void => {
+    if (!(menuRoot instanceof HTMLElement)) return;
+    menuRoot.textContent = '';
+    if (mode === 'none') return;
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'menu-btn';
+    copyBtn.textContent = 'COPY LINK TO HERE';
+    const switchBtn = document.createElement('button');
+    switchBtn.type = 'button';
+    switchBtn.className = 'menu-btn';
+    switchBtn.textContent = 'SWITCH CITY';
+    const shareInput = document.createElement('input');
+    shareInput.id = 'share';
+    shareInput.type = 'text';
+    shareInput.readOnly = true;
+    copyBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const url = buildShareUrl(window.location.href, cityId, state, city.origin);
+      navigator.clipboard?.writeText(url).catch(() => undefined);
+      shareInput.value = url;
+      shareInput.select();
+      copyBtn.textContent = 'COPIED';
+      window.setTimeout(() => {
+        copyBtn.textContent = 'COPY LINK TO HERE';
+      }, 1500);
+    });
+    switchBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const params = new URLSearchParams(window.location.search);
+      params.delete('city');
+      params.delete('at');
+      const qs = params.toString();
+      window.location.href = window.location.pathname + (qs ? `?${qs}` : '');
+    });
+    menuRoot.append(copyBtn, switchBtn, shareInput);
   };
   setOverlay(false, true);
   overlayEl.addEventListener('click', () => {

@@ -96,3 +96,67 @@ body {
   font-size: 14px;
   letter-spacing: 0.1em;
 }
+
+/* Start / pause menu: column of buttons, HUD green on black with a 1 px green
+   border, monospace with the same letter-spacing as the overlay prompt. */
+#menu {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 2em;
+  width: min(420px, 80vw);
+}
+
+#menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: #000;
+  color: var(--hud-green);
+  font-family: monospace;
+  font-size: 15px;
+  letter-spacing: 0.15em;
+  border: 1px solid var(--hud-border);
+  cursor: pointer;
+}
+
+#menu button:hover {
+  background: #0a1a0d;
+}
+
+#menu button label {
+  letter-spacing: 0.15em;
+}
+
+#menu button blurb {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #3f8;
+}
+
+#menu .menu-btn {
+  padding: 10px 14px;
+}
+
+/* Read-only share-link input shown under the pause-menu buttons. */
+#share {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  background: #000;
+  color: var(--hud-green);
+  font-family: monospace;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--hud-border);
+}
+
+/* Compact layout on small screens: buttons and input stack full-width. */
+@media (max-width: 700px) {
+  #menu {
+    width: 88vw;
+  }
+}

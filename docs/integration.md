@@ -14,14 +14,19 @@ The app runs a single asynchronous `main()` when the module executes.
    (title/prompt). Any missing element is a hard error.
 2. **Parse URL** (`window.location.search`) into `UrlOptions` — see
    [URL parameters](#url-parameters).
-3. **Choose city.** With `?synthetic=1`, call
-   `syntheticCity(seed, 12, hills)` (`?hills=1` toggles the deterministic
-   heightfield). Otherwise pick `cityById(opts.city) ?? CITIES[0]` (London
-   is `CITIES[0]`, so no `?city=` boots London) and
-   `loadCity(BASE_URL + info.file)`; on any failure log a `console.warn`
-   and fall back to `syntheticCity(seed)`. The chosen `CityInfo` id is
-   surfaced on `window.__asciicity.city` (`'london'` / `'kyiv'` /
-   `'synthetic'`); the city picker overlay is T-0046.
+3. **Choose city.** `?synthetic=1` skips straight to `syntheticCity(seed, 12, hills)`
+   (`?hills=1` toggles the deterministic heightfield). With a **valid**
+   `?city=` (matched by `cityById`), `loadCity(BASE_URL + info.file)` for that
+   entry; on a load failure log a `console.warn` and fall back to
+   `syntheticCity(seed)`. With **no** `?synthetic=1` and **no** valid `?city=`
+   (absent, empty, or an unknown id) the start overlay becomes a **city
+   picker** (T-0046): one `.city` button per `CITIES` entry (label + blurb)
+   plus keys `1`…`9` to select by index, and the prompt reads `CHOOSE A
+   CITY`. Choosing writes `?city=<id>` into the URL with
+   `history.replaceState` (keeping every other parameter) and then the boot
+   continues — so data loading happens only after the choice. The chosen
+   `CityInfo` id is surfaced on `window.__asciicity.city` (`'london'` /
+   `'kyiv'` / `'synthetic'`); `?synthetic=1` never shows the picker.
 4. **Build the scene.** `makeRenderer(canvas)`, `makeScene()`,
    `makeCamera(aspect)`; set `camera.rotation.order = 'YXZ'` (architecture §5).
    Compute the walkable `HeightFn` (`groundAt`): with `city.terrain`
@@ -73,11 +78,13 @@ The app runs a single asynchronous `main()` when the module executes.
    `resize`. The handler forwards to `AsciiRenderer.setSize`, updates the
    camera aspect, and refreshes `cols`/`rows` on the API.
 9. **Overlay + pointer lock.** The overlay starts visible with the title +
-   `CLICK TO ENTER`; a click (or tap — the click handler also fires on touch)
-   hides it and requests pointer lock on the canvas inside try/catch, because
-   pointer lock rejects on touch devices. On `pointerlockchange` losing the
-   lock (Escape), the overlay reappears with class `resume` and text
-   `CLICK TO RESUME`.
+   `CLICK TO ENTER` (or, before a city is chosen, the picker showing
+   `CHOOSE A CITY`); a click (or tap) hides it and requests pointer lock on
+   the canvas inside try/catch, because pointer lock rejects on touch
+   devices. On `pointerlockchange` losing the lock (Escape), the overlay
+   reappears with class `resume`, text `CLICK TO RESUME`, and the **pause
+   menu** — `COPY LINK TO HERE` and `SWITCH CITY` populated into `#menu`
+   (see [City picker & pause menu](#city-picker--pause-menu)).
 10. **Frame loop.** See below.
 
 **Sky cadence.** The sky is built once during startup (`makeSky`, with the
@@ -133,7 +140,7 @@ per-frame allocations are made inside `main.ts`.
 
 | Name        | Example        | Effect                                                     |
 |-------------|----------------|------------------------------------------------------------|
-| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`). Trimmed + case-insensitive; unknown / absent → London (the picker overlay is T-0046). Ignored when `?synthetic=1`. |
+| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`). Trimmed + case-insensitive. Absent or invalid (`no picker for ?synthetic=1`) → the city picker (T-0046); a valid id boots that city directly. Ignored when `?synthetic=1`. |
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
 | `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
@@ -218,11 +225,64 @@ and fall back to their listed coordinates if the name goes missing.
 | `hydropark`    | coordinate  | Hydropark, facing the right-bank hills.                                     |
 | `metrobridge`  | coordinate  | Metro Bridge over the Dnipro.                                               |
 
+## City picker & pause menu
+
+Both the start picker and the pause menu render into the `#menu` div in the
+start overlay (`index.html`): a column of `button` elements, HUD green on
+black with a 1 px green border, monospace, letter-spaced like the overlay
+prompt. On the compact/mobile breakpoint (max-width 700 px, as the HUD panel)
+the buttons and the share input stack full-width.
+
+### City picker
+
+With no `?synthetic=1` and no *valid* `?city=` the start overlay becomes a
+picker: one `button.city` per `CITIES` entry, each with a `<label>` on the
+first line and a smaller `<blurb>` below. Keys `1`…`9` select by index.
+Choosing calls `history.replaceState` with the current query plus
+`city=<id>` (every other parameter kept, so `?theme=gloom` survives the
+choice) and boots that city. Data loading happens only after the choice.
+`?synthetic=1` or a valid `?city=` skips the picker entirely.
+
+### Pause menu
+
+Losing pointer lock (Esc) shows the resume overlay (`CLICK TO RESUME`) with
+two buttons in `#menu`, both of which `stopPropagation()` on click so the
+overlay's own click-to-resume does not fire (clicking anywhere else resumes
+as before):
+
+- **COPY LINK TO HERE** — calls `buildShareUrl(window.location.href,
+  city.id, state, city.origin)`, best-effort `navigator.clipboard.writeText`,
+  copies the URL into a read-only `<input id="share">` under the buttons and
+  selects it, and shows `COPIED` for 1.5 s.
+- **SWITCH CITY** — navigates to `location.pathname` plus the current query
+  minus `city` and `at` (i.e. back to the picker; empty search → just the
+  pathname).
+
+### Share URL format
+
+`buildShareUrl` (`src/hud/share.ts`, pure) turns the live `href` plus the
+player pose into a URL that reopens the same city at the exact spot and
+heading. It keeps only `theme`, `time`, `cell`, `crt`, `minimap`, `hud` from
+`href` (in that order, when present) and drops everything else, then adds
+`city=<id>` and `at=<lon 5dp>,<lat 5dp>,<bearing whole degrees>` — lon/lat
+from `unproject(x, z, origin)` (`src/geo.ts`), bearing from
+`Math.round(yawToBearingDeg(yaw))`. It returns `origin + pathname + '?' +
+params` (any hash dropped) with literal commas in `at` (so `parseAt` +
+`project` round-trip within 1 m).
+
+Example: looking east (`yaw = π/2`) at local `(100, −50)` in Kyiv
+(`origin 50.4501, 30.5234`):
+
+```
+/?theme=gloom&city=kyiv&at=30.52481,50.45055,90
+```
+
 ## Keyboard
 
 | Key | Effect                                   |
 |-----|------------------------------------------|
 | `G` | Cycle colour theme: cyber → gloom → solarized → cyber. |
+| `1`…`9` | On the start picker only: choose city by index. |
 
 ## `window.__asciicity`
 
