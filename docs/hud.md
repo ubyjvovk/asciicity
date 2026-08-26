@@ -15,15 +15,28 @@ frame loop is T-0010.
 | WORLD   | `formatWorld(x, z)`               | `1234.50 / -321.00`             |
 | BEARING | `formatBearing(deg)`              | `267 DEG / WEST`                |
 | ZONE    | `ZoneIndex.zoneLabel(x, z)`       | `CHEAPSIDE` / `NEAR BANK` / `CITY` |
-| ALT     | `formatAlt(m)` (only when defined)| `156 M ASL`                     |
+| ALT     | `formatAlt(m, unit = 'ASL')` (only when defined)| `156 M ASL` / `12 M AGL` |
 | LANDMARK| `ZoneIndex.nearestLandmark` name  | `ST PAUL'S CATHEDRAL` / `-`        |
+| MODE    | `HudValues.mode` (only when defined) | `FLY`                      |
 | FPS     | integer (`Math.round`)            | `60`                            |
 
-The `<pre class="hud-rows">` text is those six (or seven, with ALT) `hudRow`
-lines, each prefixed with `> `. ALT sits fourth in the seven-row form —
-between ZONE and LANDMARK — and is emitted only when `HudValues.alt` is
-defined; on flat cities (no `city.terrain`) it stays undefined and the
-panel keeps the classic six-row layout.
+The `<pre class="hud-rows">` text is those six to eight `hudRow` lines, each
+prefixed with `> `. Order: SECTOR, WORLD, BEARING, ZONE, then `ALT` (only
+when `HudValues.alt` is defined), `LANDMARK`, then `MODE` (only when
+`HudValues.mode` is defined), then `FPS`:
+
+- **ALT** sits fourth — between ZONE and LANDMARK — and is emitted only when
+  `HudValues.alt` is defined. It is always the **eye altitude** (where the
+  camera is, not the ground below). On flat cities (no `city.terrain`) it
+  stays undefined **unless** the player is flying, when it reads AGL
+  (`formatAlt(agl, 'AGL')`, metres of eye above the ground); on terrain cities
+  it is always ASL (`datum + state.y − EYE_HEIGHT`). Unset on flat London when
+  not flying so the panel keeps the classic six rows.
+- **MODE** sits sixth — between LANDMARK and FPS — and is emitted only while
+  flying (`HudValues.mode = 'FLY'`).
+
+So the panel is 6 rows (flat, grounded), 7 (either ALT or MODE), or 8 (both
+ALT and MODE on a terrain city while flying).
 
 ### `formatBearing`
 
@@ -61,11 +74,14 @@ South/north: `S` + `r` when `r >= 0`, else `N` + `−r`. Joined with `" / "`.
 
 ### `formatAlt`
 
-`formatAlt(m)` returns `` `${Math.round(m)} M ASL` ``. Fed with
-`city.terrain.datum + groundAt(state.x, state.z)` in the frame loop —
-metres above sea level of the ground under the player. `formatAlt(155.6)`
-→ `"156 M ASL"`. Never called on flat London; the row is only rendered
-when a dataset carries `terrain`.
+`formatAlt(m, unit = 'ASL')` returns `` `${Math.round(m)} M ${unit}` ``. Fed with
+`city.terrain.datum + state.y − EYE_HEIGHT` in the frame loop — the **eye
+altitude** in metres above sea level (`formatAlt(305.6)` → `"306 M ASL"`) —
+or with the eye height above ground while flying on a flat city
+(`formatAlt(agl, 'AGL')` → `"12 M AGL"`). On the ground the eye altitude
+equals the ground height (`y − EYE_HEIGHT === groundAt`), so the walking row
+is unchanged. The ALT row is only rendered when `HudValues.alt` is
+non-`undefined`.
 
 ## Zone rules
 
@@ -115,7 +131,7 @@ argument.
 
 1. `div.hud-title` — `::: NAVIGATION`
 2. `pre.hud-rows` — the five `> ` rows; `update` rewrites this node only
-3. `div.hud-help` — `WASD MOVE · MOUSE LOOK · SHIFT RUN`
+3. `div.hud-help` — `WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY`
 
 The second constructor argument `help` defaults to that desktop help text
 and is passed by `main.ts` as `'LEFT: MOVE · RIGHT: LOOK'` when the touch

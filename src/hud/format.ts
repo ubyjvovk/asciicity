@@ -44,7 +44,7 @@ export function hudRow(label: string, value: string): string {
   return `${label.padEnd(11, '.')} ${value}`;
 }
 
-/** Altitude row value: metres above sea level rounded to the nearest integer. */
-export function formatAlt(m: number): string {
-  return `${Math.round(m)} M ASL`;
+/** Altitude row value: `<round> M <unit>` (default unit `ASL`); `AGL` for height above ground while flying. */
+export function formatAlt(m: number, unit = 'ASL'): string {
+  return `${Math.round(m)} M ${unit}`;
 }

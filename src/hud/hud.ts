@@ -12,15 +12,17 @@ export interface HudValues {
   zone: string;
   /** Metres above sea level, already formatted (`formatAlt`). Absent → no ALT row. */
   alt?: string;
+  /** Mode label (e.g. `'FLY'`); absent → no MODE row. */
+  mode?: string;
   landmark?: string;
   fps: number;
 }
 
-/** Renders title, six (or seven with ALT) dotted rows, and the help line. */
+/** Renders title, the dotted rows, and the help line. */
 export class Hud {
   private readonly rows: HTMLElement;
 
-  constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN') {
+  constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY') {
     const doc = root.ownerDocument;
 
     const title = doc.createElement('div');
@@ -44,6 +46,7 @@ export class Hud {
     ];
     if (v.alt !== undefined) lines.push(`> ${hudRow('ALT', v.alt)}`);
     lines.push(`> ${hudRow('LANDMARK', v.landmark ?? '-')}`);
+    if (v.mode !== undefined) lines.push(`> ${hudRow('MODE', v.mode)}`);
     lines.push(`> ${hudRow('FPS', String(Math.round(v.fps)))}`);
     this.rows.textContent = lines.join('\n');
   }

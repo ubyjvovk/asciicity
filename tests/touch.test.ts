@@ -15,6 +15,8 @@ const idle: InputState = {
   sprint: false,
   lookDx: 0,
   lookDy: 0,
+  up: 0,
+  flyToggles: 0,
 };
 
 describe('joystickToAxes', () => {
@@ -53,6 +55,8 @@ describe('mergeInput', () => {
       sprint: false,
       lookDx: 4,
       lookDy: -3,
+      up: 0.5,
+      flyToggles: 1,
     };
     const b: InputState = {
       ...idle,
@@ -62,6 +66,8 @@ describe('mergeInput', () => {
       sprint: true,
       lookDx: 2.5,
       lookDy: 1,
+      up: 0.5,
+      flyToggles: 2,
     };
     const aSnap = { ...a };
     const bSnap = { ...b };
@@ -74,6 +80,8 @@ describe('mergeInput', () => {
     expect(m.sprint).toBe(true);
     expect(m.lookDx).toBe(6.5);
     expect(m.lookDy).toBe(-2);
+    expect(m.up).toBe(1);
+    expect(m.flyToggles).toBe(3);
     expect(a).toEqual(aSnap);
     expect(b).toEqual(bSnap);
     expect(m).not.toBe(a);
