@@ -1,9 +1,9 @@
 /**
  * Matrix (digital rain) render style (docs/architecture.md §4.11).
- * Pure helpers (`hash3`, `matrixGlyph`, `rainIntensity`) are safe to import
- * from node — no top-level side effects touch DOM or WebGL. GPU work lives
- * in `makeUniforms` / `dispose`. The rain phase reads the common `time`
- * uniform, so there is no `update` hook.
+ * Pure helpers (`hash3`, `matrixGlyph`, `rainIntensity`, `matrixBrightness`)
+ * are safe to import from node — no top-level side effects touch DOM or WebGL.
+ * GPU work lives in `makeUniforms` / `dispose`. The rain phase reads the common
+ * `time` uniform, so there is no `update` hook.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -26,8 +26,9 @@ export function hash3(a: number, b: number, c: number): number {
 }
 
 /**
- * Glyph index for a cell at `timeS`, in `[0, count)`. Constant on each
- * 1/8-second window (`floor(timeS · 8)`), then `floor(hash · count)`.
+ * Glyph index for a cell at `timeS`, in `[0, count)`. Window is
+ * `floor(timeS · 2 + 7 · hash(cellX, cellY, 0))` — about twice a second,
+ * with a per-cell phase — then `floor(hash · count)`.
  */
 export function matrixGlyph(
   cellX: number,
@@ -35,20 +36,39 @@ export function matrixGlyph(
   timeS: number,
   count: number,
 ): number {
-  return Math.floor(hash3(cellX, cellY, Math.floor(timeS * 8)) * count);
+  const window = Math.floor(timeS * 2 + 7 * hash3(cellX, cellY, 0));
+  return Math.floor(hash3(cellX, cellY, window) * count);
 }
 
 /**
- * Rain-trail intensity in [0, 1] at column `colX`, screen `y01` (`vUv.y`,
- * 0 = bottom) and time `timeS`. `pow(trail, 3)` of
- * `fract(phase + time·speed·0.25 − y01)`; the head is where this is max
- * (`trail > 0.97` in the shader).
+ * Rain-trail intensity `I = pow(trail, 4)` in [0, 1] at column `colX`,
+ * screen `y01` (`vUv.y`, 0 = bottom) and time `timeS`.
+ * `trail = fract(phase − time · speed · 0.25 − y01)`; the minus on the
+ * time term sends the head toward `y01 = 0`. Head when `trail > 0.96`.
  */
 export function rainIntensity(colX: number, y01: number, timeS: number): number {
   const speed = 0.3 + 0.7 * hash3(colX, 1, 0);
   const phase = hash3(colX, 2, 0);
-  const trail = fract(phase + timeS * speed * 0.25 - y01);
-  return Math.pow(trail, 3);
+  const trail = fract(phase - timeS * speed * 0.25 - y01);
+  return Math.pow(trail, 4);
+}
+
+/**
+ * Body / head RGB (no glyph mask) for scene density `S` and rain `I`.
+ * Body: `(0.2, 1.0, 0.3) · (S · (0.3 + 0.7 · I) + 0.12 · I)`.
+ * Head: `(0.9, 1.0, 0.9) · (0.4 + 0.6 · S)`.
+ */
+export function matrixBrightness(
+  S: number,
+  I: number,
+  head: boolean,
+): [number, number, number] {
+  if (head) {
+    const k = 0.4 + 0.6 * S;
+    return [0.9 * k, 1.0 * k, 0.9 * k];
+  }
+  const k = S * (0.3 + 0.7 * I) + 0.12 * I;
+  return [0.2 * k, 1.0 * k, 0.3 * k];
 }
 
 /**
@@ -62,20 +82,23 @@ uniform float glyphCount;
 float hash3(float a, float b, float c) {
   return fract(sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453);
 }
+vec3 matrixBrightness(float S, float I, bool head) {
+  if (head) return vec3(0.9, 1.0, 0.9) * (0.4 + 0.6 * S);
+  return vec3(0.2, 1.0, 0.3) * (S * (0.3 + 0.7 * I) + 0.12 * I);
+}
 void main() {
   vec2 cell = floor(vUv * grid);
-  float idx = floor(hash3(cell.x, cell.y, floor(time * 8.0)) * glyphCount);
+  float window = floor(time * 2.0 + 7.0 * hash3(cell.x, cell.y, 0.0));
+  float idx = floor(hash3(cell.x, cell.y, window) * glyphCount);
   vec2 inCell = fract(vUv * grid);
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   vec3 scene = cellMean(cell);
-  float dens = 0.35 + 0.65 * shaped(bright(scene));
+  float S = shaped(bright(scene));
   float speed = 0.3 + 0.7 * hash3(cell.x, 1.0, 0.0);
   float phase = hash3(cell.x, 2.0, 0.0);
-  float trail = fract(phase + time * speed * 0.25 - vUv.y);
-  float intensity = pow(trail, 3.0);
-  vec3 rain = vec3(0.2, 1.0, 0.3) * mask * dens * (0.4 + 0.6 * intensity);
-  vec3 head = vec3(0.9, 1.0, 0.9) * mask;
-  vec3 outCol = trail > 0.97 ? head : rain;
+  float trail = fract(phase - time * speed * 0.25 - vUv.y);
+  float I = pow(trail, 4.0);
+  vec3 outCol = matrixBrightness(S, I, trail > 0.96) * mask;
   gl_FragColor = vec4(outCol, 1.0);
 }
 `;

@@ -1,12 +1,14 @@
 /**
  * Unit tests for the pure matrix-style helpers (docs/architecture.md §4.11):
- * `hash3`, `matrixGlyph`, `rainIntensity`. Runs in node; no WebGL is touched.
+ * `hash3`, `matrixGlyph`, `rainIntensity`, `matrixBrightness`. Runs in node;
+ * no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
   hash3,
   matrixGlyph,
   rainIntensity,
+  matrixBrightness,
   STYLES,
 } from '../../src/render/styles/matrix';
 
@@ -51,28 +53,36 @@ describe('hash3', () => {
 });
 
 describe('matrixGlyph', () => {
-  it('is in [0, count) and constant within one 1/8-s window but changes across windows for at least one of 50 cells', () => {
+  it('is in [0, count) and changes for a cell across a 0.5-s boundary and is constant within 0.1 s', () => {
     const count = 68;
-    const withinA = 0.0;
-    const withinB = 0.12; // still floor(t·8) = 0
-    const nextWindow = 0.125; // floor(t·8) = 1
+    for (let i = 0; i < 50; i++) {
+      const g = matrixGlyph(i, (i * 3) % 17, 0.37, count);
+      expect(g).toBeGreaterThanOrEqual(0);
+      expect(g).toBeLessThan(count);
+      expect(Number.isInteger(g)).toBe(true);
+    }
 
-    let changed = 0;
+    // Window = floor(time·2 + 7·hash). 0.1 s moves the argument by 0.2, so
+    // stay inside a window whose fractional part is in (0.15, 0.35). 0.5 s
+    // always increments the window index by 1.
+    let foundConst = false;
+    let foundChange = false;
     for (let i = 0; i < 50; i++) {
       const x = i;
       const y = (i * 3) % 17;
-      const a = matrixGlyph(x, y, withinA, count);
-      const b = matrixGlyph(x, y, withinB, count);
-      const c = matrixGlyph(x, y, nextWindow, count);
-      expect(a).toBeGreaterThanOrEqual(0);
-      expect(a).toBeLessThan(count);
-      expect(Number.isInteger(a)).toBe(true);
-      expect(b).toBe(a);
-      expect(c).toBeGreaterThanOrEqual(0);
-      expect(c).toBeLessThan(count);
-      if (c !== a) changed += 1;
+      const phase = 7 * hash3(x, y, 0);
+      const frac = phase - Math.floor(phase);
+      const t = (0.25 - frac) / 2;
+      const tMid = t < 0 ? t + 0.5 : t;
+      const a = matrixGlyph(x, y, tMid, count);
+      const within = matrixGlyph(x, y, tMid + 0.1, count);
+      const across = matrixGlyph(x, y, tMid + 0.5, count);
+      expect(within).toBe(a);
+      foundConst = true;
+      if (across !== a) foundChange = true;
     }
-    expect(changed).toBeGreaterThanOrEqual(1);
+    expect(foundConst).toBe(true);
+    expect(foundChange).toBe(true);
   });
 });
 
@@ -93,7 +103,7 @@ function headY(colX: number, t: number): number {
 }
 
 describe('rainIntensity', () => {
-  it('is in [0, 1], and for a fixed column the head position (argmax over y) moves downward as time increases (y01 = vUv.y; §4.11 +time term → larger y01 between wraps, then toward 0 at the seam)', () => {
+  it('is in [0, 1], and for a fixed column the head position (argmax over y) moves downward (smaller y01; y01 = vUv.y, head moves toward 0) as time increases', () => {
     const colX = 7;
     for (let t = 0; t <= 4; t += 0.5) {
       for (let i = 0; i <= 20; i++) {
@@ -104,18 +114,52 @@ describe('rainIntensity', () => {
       }
     }
 
-    // §4.11: trail = fract(phase + time·speed·0.25 − y01). The argmax sits
-    // just above fract(K), so between fract-seams it travels toward larger
-    // y01 (vUv.y → 1, the top of the frame) and then wraps to 0.
+    // §4.11: trail = fract(phase − time·speed·0.25 − y01). The argmax sits
+    // just above fract(K) and, between fract-seams, travels toward smaller
+    // y01 (vUv.y → 0, the bottom of the frame) as time increases.
     let found = false;
     for (let t0 = 0; t0 < 12 && !found; t0 += 0.2) {
       const t1 = t0 + 0.15;
       const y0 = headY(colX, t0);
       const y1 = headY(colX, t1);
-      if (Math.abs(y1 - y0) > 0.4) continue; // wrapped
-      expect(y1).toBeGreaterThan(y0);
+      if (y1 > y0) continue; // wrapped past 0
+      if (Math.abs(y1 - y0) < 1e-6) continue;
+      expect(y1).toBeLessThan(y0);
       found = true;
     }
     expect(found).toBe(true);
+  });
+});
+
+describe('matrixBrightness', () => {
+  it('matrixBrightness(0, 0, false) is black', () => {
+    const rgb = matrixBrightness(0, 0, false);
+    expect(rgb[0]).toBeCloseTo(0);
+    expect(rgb[1]).toBeCloseTo(0);
+    expect(rgb[2]).toBeCloseTo(0);
+  });
+
+  it('matrixBrightness(0, 1, false) is dim green (g ≈ 0.12)', () => {
+    const rgb = matrixBrightness(0, 1, false);
+    expect(rgb[0]).toBeCloseTo(0.024);
+    expect(rgb[1]).toBeCloseTo(0.12);
+    expect(rgb[2]).toBeCloseTo(0.036);
+  });
+
+  it('matrixBrightness(1, 1, false) is full green', () => {
+    const rgb = matrixBrightness(1, 1, false);
+    // (0.2, 1.0, 0.3) · (1·1 + 0.12) = (0.224, 1.12, 0.336)
+    expect(rgb[0]).toBeCloseTo(0.224);
+    expect(rgb[1]).toBeCloseTo(1.12);
+    expect(rgb[2]).toBeCloseTo(0.336);
+    expect(rgb[1]).toBeGreaterThan(rgb[0]);
+    expect(rgb[1]).toBeGreaterThan(rgb[2]);
+  });
+
+  it('head with S = 1 is near-white', () => {
+    const rgb = matrixBrightness(1, 0, true);
+    expect(rgb[0]).toBeCloseTo(0.9);
+    expect(rgb[1]).toBeCloseTo(1.0);
+    expect(rgb[2]).toBeCloseTo(0.9);
   });
 });
