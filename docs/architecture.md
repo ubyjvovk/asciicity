@@ -494,6 +494,92 @@ Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count, S = 0)`,
 `rainIntensity(colX, y01, timeS)` (returns `I`), `matrixBrightness(S, I, head): [r, g, b]`.
 (Revised 2026-08-27 after the first GPU review: rising rain, 35 % glyph floor in the sky.)
 
+### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
+
+Layout (all `position: fixed`, all above the canvas, none intercepting
+pointer-lock clicks except their own controls):
+
+- `#hud` — the NAVIGATION panel, **top-right** (as today, minus the minimap).
+- `#mini` — a new standalone **top-left** panel holding the minimap canvas
+  (`#minimap`, 180 px; 120 px under the 700 px breakpoint). `Minimap` itself
+  is unchanged; only its mount moves.
+- `#gear` — a 40×40 px "⚙" button, **bottom-right**, on every platform. It
+  opens the pause/settings menu (below) — on desktop that means exiting
+  pointer lock (`document.exitPointerLock()`) so the existing resume overlay
+  shows; on touch it just shows the overlay. It stops `pointerdown`/`click`
+  propagation so `TouchControls` never sees it.
+- `#credits` — a one-line footer, **bottom-centre**, 11 px monospace, 55 %
+  opacity: `built by @ubyjvovk · github.com/ubyjvovk/asciicity`, the whole
+  line a link to the repo (opens in a new tab; stops propagation). Text and
+  URL come from **`src/credits.ts`**: `export const CREDITS = { author: '@ubyjvovk', url: 'https://github.com/ubyjvovk/asciicity' }`
+  — the only file to edit to rebrand; `README.md` says so.
+- `#toast` stays bottom-left.
+
+Pause/settings menu (`#menu`, extends T-0046): rows in this order —
+`HUD: ON/OFF` · `MINIMAP: ON/OFF` · `CRT: ON/OFF` (toggles, click flips and
+re-labels) · `STYLE: <LABEL> ▸` (cycles `next(1)`) · `FLY: ON/OFF` (flips
+`state.fly` exactly like `F`) · `LANDMARKS ▸` (§4.13 fast travel) ·
+`COPY LINK TO HERE` · `SWITCH CITY`; `CLICK TO RESUME` above as today.
+Keyboard: `H` toggles the HUD, `M` the minimap (no repeat). Toggling HUD or
+minimap hides the whole panel (`display: none`) and skips its per-frame
+update; CRT toggles the overlay element.
+
+Persistence: `localStorage['asciicity.settings']` = JSON
+`{ hud, minimap, crt, render, city }`, written on every change, read at
+boot **after** URL parameters (URL wins, storage fills the gaps, defaults
+last). Toggles also rewrite the current URL's `hud`/`minimap`/`crt`/`render`
+params via `history.replaceState` so `COPY LINK TO HERE` carries them.
+`window.__asciicity.settings` exposes the live object.
+
+### 4.13 Landmarks (wave 7): height/colour overrides, extra buildings, per-city presets, fast travel
+
+OSM heights for Kyiv's landmarks are unusable (Saint Sophia Cathedral 3 m,
+Great Lavra Belltower 8 m, Arch 3 m; no Motherland Monument at all), so a
+PM-curated table is applied to the loaded `CityData` before anything is built:
+
+```ts
+// src/world/landmarks.ts
+export interface LandmarkFix { h?: number; color?: number }
+export interface ExtraBuilding { name: string; lon: number; lat: number; h: number; size: number /* square side, m */; color: number }
+export const LANDMARK_FIXES: Readonly<Record<string /* city id */, Readonly<Record<string /* exact OSM name */, LandmarkFix>>>>
+export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
+export function applyLandmarks(city: CityData, cityId: string): CityData   // pure: returns a new CityData; heights replaced by exact name; extras appended with ids −1000, −1001, … and a 4-point square footprint (projected via src/geo.ts); colours go through LANDMARK_COLORS (palette.ts) — this function also registers them via `registerLandmarkColors(map)` (new export in palette.ts; `colorFor` consults the registered map before the static table)
+```
+
+Kyiv table (heights in metres, real-world): Saint Sophia Cathedral 29 ·
+Bell tower (30.5153, 50.4529 — Sophia's) 76 · St. Michael Golden-Domed
+Cathedral 40 · Saint Andrew's Church 50 · Great Lavra Belltower 96 · Near
+Cave's Belltower 27 · Bell Tower of Far Caves 41 · Arch of Freedom of the
+Ukrainian people 35 · Verkhovna Rada of Ukraine 30 · St. Volodymyr's
+Cathedral 49 · Golden Gate 16. Colours: gold `0xf7dc6f` for the churches and
+bell towers (Sophia + Bell tower, St Michael's, Andrew's, the three Lavra
+towers), ivory `0xe8e0c8` for Golden Gate, Arch, Rada, Volodymyr's, St.
+Nicholas Cathedral. Extra: `Motherland Monument` at (30.5632, 50.4266),
+h 102, size 20, colour silver `0xc0c0c0`. London: empty tables (no change).
+
+Presets (`src/data/spawn.ts`): every `SpawnPreset` gains `city: 'london' | 'kyiv'`;
+`presetsFor(cityId): [key, SpawnPreset][]` in table order. `landmarkSpawn`
+prefers an **exact** (case-insensitive) name match before `includes`, and
+its default distance scales with the target's height:
+`targetDist = clamp(70 + 1.2·h, 70, 220)`. Kyiv presets become
+building-based wherever the dataset has the building: `sophia` (Saint
+Sophia Cathedral), `michael`, `andriyivskyy` (Saint Andrew's Church),
+`lavra` (Great Lavra Belltower), `motherland` (Motherland Monument — the
+extra), `goldengate`, `bessarabka` (Bessarabskyi market), new `rada`
+(Verkhovna Rada of Ukraine), `volodymyr` (St. Volodymyr's Cathedral),
+`arch` (Arch of Freedom of the Ukrainian people), `olimpiyskiy` (Olympic
+National Sports Complex Stadium), `nicholas` (St. Nicholas Cathedral);
+`mariinsky` is removed (not in the data); `maidan`, `podil` (Kontraktova
+30.5151, 50.4658, bearing 180), `arsenalna`, `funicular`, `hydropark`,
+`parkbridge`, `glassbridge`, `metrobridge` stay fixed-coordinate.
+
+Fast travel (menu `LANDMARKS ▸`): a scrollable list of `presetsFor(city)`
+labels; choosing one resolves it exactly like `?at=` (`resolveSpawn` with
+the city's collision) and teleports: `state.x/z/yaw` set, `state.y =
+groundAt + EYE_HEIGHT`, `fly = false`, toast `→ <LABEL>`, overlay hidden
+and pointer lock re-requested on desktop. `history.replaceState` sets
+`at=<key>` so the URL stays shareable.
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
 1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
