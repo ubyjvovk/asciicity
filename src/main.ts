@@ -76,6 +76,7 @@ declare global {
 const CANVAS_ID = 'view';
 const HUD_ID = 'hud';
 const OVERLAY_ID = 'overlay';
+const HIT_ID = 'hit';
 
 /** Refresh the HUD once every N rendered frames. */
 const HUD_INTERVAL = 4;
@@ -273,6 +274,10 @@ async function main(): Promise<void> {
   if (!(overlay instanceof HTMLElement)) {
     throw new Error(`Expected a <div id="${OVERLAY_ID}">`);
   }
+  const hit = document.createElement('div');
+  hit.id = HIT_ID;
+  hit.setAttribute('aria-hidden', 'true');
+  canvas.after(hit);
   const menuRoot = overlay.querySelector('#menu');
   // Anything inside `#menu` (the pause buttons and the `#share` input) must not
   // resume the game: a click on the read-only field has to focus/select it, not
@@ -415,7 +420,7 @@ async function main(): Promise<void> {
   const controls = new Controls(canvas);
   const touch =
     'ontouchstart' in window || navigator.maxTouchPoints > 0
-      ? new TouchControls(canvas)
+      ? new TouchControls(hit)
       : undefined;
   const hud = new Hud(
     hudRoot,
@@ -667,10 +672,13 @@ async function main(): Promise<void> {
   setOverlay(false, true);
   overlayEl.addEventListener('click', () => {
     setOverlay(false, false);
+    // Pointer lock is unavailable on touch and a rejected request can fire
+    // `pointerlockchange` (which would re-show the overlay). Skip it.
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) return;
     try {
       void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
     } catch {
-      // Pointer lock is unavailable on touch; the overlay is already hidden.
+      // Pointer lock is unavailable.
     }
   });
   document.addEventListener('pointerlockchange', () => {
@@ -696,27 +704,6 @@ async function main(): Promise<void> {
       e.stopPropagation();
       openSettings();
     });
-    // WebGL canvases (esp. SwiftShader) can steal hit-testing from HTML UI
-    // stacked on top of them. If a pointer lands in the gear's box but the
-    // canvas is the event target, swallow it before TouchControls sees it.
-    const stealGearHits = (e: Event): void => {
-      if (!(e instanceof PointerEvent) && !(e instanceof MouseEvent)) return;
-      const r = gear.getBoundingClientRect();
-      if (
-        e.clientX < r.left ||
-        e.clientX > r.right ||
-        e.clientY < r.top ||
-        e.clientY > r.bottom
-      ) {
-        return;
-      }
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      if (e.type === 'pointerdown') openSettings();
-    };
-    for (const evt of ['pointerdown', 'mousedown', 'click'] as const) {
-      canvas.addEventListener(evt, stealGearHits, true);
-    }
   }
 
   // `R` cycles the render style (Shift+R backwards); `H`/`M` toggle HUD /

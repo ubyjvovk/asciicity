@@ -387,6 +387,34 @@ test('smoke: panels', async ({ page }) => {
   await page.keyboard.press('KeyH');
   await expect(hud).toBeHidden();
 
+  // Enter the game: a canvas-centre click dismisses the start overlay and
+  // requests pointer lock. The ⚙ button is the hit target only once the
+  // overlay is gone (chrome is z-index 5, overlay is 10).
+  const viewBox = await page.locator('#view').boundingBox();
+  if (!viewBox) throw new Error('canvas has no bounding box');
+  await page.mouse.click(
+    viewBox.x + viewBox.width / 2,
+    viewBox.y + viewBox.height / 2,
+  );
+  await expect(page.locator('#overlay')).toBeHidden();
+
+  // Pointer lock delivers subsequent mouse events to the canvas, so a
+  // locator click on #gear would never land. Release it; pointerlockchange
+  // re-shows the overlay, which we then hide without clicking (a click
+  // would re-request lock).
+  const wasLocked = await page.evaluate(() => {
+    if (document.pointerLockElement === null) return false;
+    document.exitPointerLock();
+    return true;
+  });
+  if (wasLocked) {
+    await page.waitForFunction(() => document.pointerLockElement === null);
+    await expect(page.locator('#overlay')).toBeVisible();
+    await page.locator('#overlay').evaluate((el) => {
+      (el as HTMLElement).style.display = 'none';
+    });
+  }
+
   await page.locator('#gear').click();
   await expect(page.locator('#overlay')).toBeVisible();
   await expect(page.locator('#menu')).toContainText('HUD: OFF');
@@ -474,12 +502,7 @@ test.describe('smoke: panels (touch 390×844)', () => {
     });
     expect(before).not.toBeNull();
 
-    // Coordinate tap: Playwright's locator.tap() treats the WebGL canvas as
-    // intercepting the ⚙ button (SwiftShader compositor). A real touch at the
-    // gear's centre must not move the player and must open the menu.
-    const gbox = await gear.boundingBox();
-    if (!gbox) throw new Error('gear has no bounding box');
-    await page.touchscreen.tap(gbox.x + gbox.width / 2, gbox.y + gbox.height / 2);
+    await gear.tap();
     await expect(page.locator('#overlay')).toBeVisible();
     await expect(page.locator('#menu')).toContainText('HUD:');
 

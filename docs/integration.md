@@ -12,7 +12,8 @@ The app runs a single asynchronous `main()` when the module executes.
 
 1. **Locate DOM.** Find `#view` (canvas), `#hud` (panel root), `#overlay`
    (title/prompt). Any missing element is a hard error. `#gear` is in
-   `index.html`; `#credits` and `#mini` are created here.
+   `index.html`; `#credits`, `#mini`, and the `#hit` input catcher are
+   created here.
 2. **Parse URL** (`window.location.search`) into `UrlOptions` — see
    [URL parameters](#url-parameters). Then `loadSettings(localStorage,
    searchParams)` (T-0060): URL wins, `localStorage['asciicity.settings']`
@@ -99,7 +100,11 @@ The app runs a single asynchronous `main()` when the module executes.
    button (bottom-right, every platform) also opens this overlay: it calls
    `document.exitPointerLock()` on desktop so the existing resume path
    fires, and just shows the overlay on touch. Gear `pointerdown`/`click`
-   stop propagation so `TouchControls` never sees the tap.
+   stop propagation so `TouchControls` never sees the tap. All chrome
+   (`#mini`, `#hud`, `#gear`, `#credits`, `#toast`) sits at z-index 5 above
+   the canvas (`#view` at 0). `#view` is `pointer-events: none`; look and
+   the joystick attach to `#hit` (z-index 1). The CRT overlay is below the
+   chrome (`pointer-events: none`); `#overlay` is above those (z-index 10).
 10. **Frame loop.** See below.
 
 **Sky cadence.** The sky is built once during startup (`makeSky`, with the

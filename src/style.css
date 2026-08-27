@@ -11,17 +11,29 @@ body {
   background: #000;
   color: var(--hud-green);
   overflow: hidden;
+  /* Children opt in. Stops <html> from intercepting Playwright taps on ⚙. */
+  pointer-events: none;
 }
 
-/* Canvas fills the viewport. `position` + `z-index: 0` puts it in the same
-   stacking context as the HUD / gear so WebGL compositing cannot steal taps
-   from the ⚙ button. */
+/* Canvas fills the viewport at z-index 0. `pointer-events: none` so the
+   WebGL compositor cannot steal taps from chrome; look/move land on
+   `#hit`. Pointer lock is requested on overlay click (desktop). */
 #view {
   display: block;
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 0;
   width: 100vw;
   height: 100vh;
+  pointer-events: none;
+}
+
+/* Look / joystick catcher under the chrome. */
+#hit {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: auto;
 }
 
 /* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black
@@ -41,7 +53,7 @@ body {
   border: 1px solid var(--hud-border);
   box-sizing: border-box;
   pointer-events: none;
-  z-index: 4;
+  z-index: 5;
 }
 
 /* Standalone minimap panel, top-left. The canvas keeps a 180 px backing
@@ -54,7 +66,7 @@ body {
   height: 180px;
   box-sizing: border-box;
   pointer-events: none;
-  z-index: 4;
+  z-index: 5;
 }
 
 #mini .minimap {
@@ -64,8 +76,8 @@ body {
   height: 180px;
 }
 
-/* ⚙ settings button: bottom-right, every platform (above the overlay so it
-   stays clickable while the pause menu is up). */
+/* ⚙ settings button: bottom-right, every platform. z-index 5 with the rest
+   of the chrome, above the canvas and below #overlay. */
 #gear {
   position: fixed;
   right: 16px;
@@ -82,12 +94,11 @@ body {
   border: 1px solid var(--hud-border);
   box-sizing: border-box;
   cursor: pointer;
-  z-index: 30;
+  z-index: 5;
   pointer-events: auto;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
-  transform: translateZ(0);
 }
 
 #gear:hover {
@@ -112,7 +123,7 @@ body {
   font-size: 11px;
   opacity: 0.55;
   text-decoration: none;
-  z-index: 8;
+  z-index: 5;
   pointer-events: auto;
 }
 
@@ -139,7 +150,8 @@ body {
   }
 }
 
-/* Centred full-screen overlay: green on black, monospace, click to dismiss. */
+/* Centred full-screen overlay: green on black, monospace, click to dismiss.
+   Above the chrome (z-index 5) so the pause menu is the hit target. */
 #overlay {
   position: fixed;
   inset: 0;
@@ -153,6 +165,7 @@ body {
   text-align: center;
   cursor: pointer;
   z-index: 10;
+  pointer-events: auto;
 }
 
 #overlay h1 {
@@ -255,9 +268,16 @@ body {
   letter-spacing: 0.12em;
   border: 1px solid var(--hud-border);
   pointer-events: none;
-  z-index: 20;
+  z-index: 5;
   opacity: 0;
   transition: opacity 0.25s linear;
+}
+
+/* CRT overlay: above the canvas, below chrome, never a hit target.
+   Higher specificity than `.crt` in crt.css (imported later). */
+div.crt {
+  z-index: 1;
+  pointer-events: none;
 }
 
 #toast.show {
