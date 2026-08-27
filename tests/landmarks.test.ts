@@ -88,6 +88,16 @@ describe('applyLandmarks (Kyiv)', () => {
     const sophia = city.buildings.find((b) => b.name === 'Saint Sophia Cathedral')!;
     expect(colorFor(sophia)).toBe(0xf7dc6f);
   });
+
+  it('colorFor of the Motherland Monument extra is silver (0xc0c0c0), not the id palette', () => {
+    // The extra has a negative id; its colour must come from the registered
+    // extras map (registered by applyLandmarks) and not bypass it via
+    // `LANDMARK_PALETTE[id % 4]`.
+    const city = applyLandmarks(KYIV, 'kyiv');
+    const mom = city.buildings.find((b) => b.name === 'Motherland Monument')!;
+    expect(mom.id).toBeLessThanOrEqual(-1000);
+    expect(colorFor(mom)).toBe(0xc0c0c0);
+  });
 });
 
 describe('applyLandmarks (London / synthetic)', () => {

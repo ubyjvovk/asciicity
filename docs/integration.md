@@ -216,10 +216,13 @@ Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
 Available with `?city=kyiv&at=<name>`. Coordinate presets are fixed WGS84
 points; building presets resolve against `applyLandmarks(kyiv.json)` via
 `landmarkSpawn` (the fixes in `src/world/landmarks.ts` make the named
-buildings resolvable, incl. the synthetic `Motherland Monument`) and fall
-back to their listed coordinates if a name goes missing upstream. New in
-wave 7: `rada`, `volodymyr`, `arch`, `olimpiyskiy`, `nicholas`;
-`mariinsky` was removed (no matching building in the data).
+buildings resolvable, incl. the synthetic `Motherland Monument`).
+`landmarkSpawn` skips every road vertex that is blocked with 6 m of clearance
+so a building spawn never lands inside or flush against a footprint, and
+falls back to a preset's listed coordinates if the name goes missing upstream
+or no unblocked vertex survives. New in wave 7: `rada`, `volodymyr`, `arch`,
+`olimpiyskiy`, `nicholas`; `mariinsky` was removed (no matching building in
+the data).
 
 | Key            | Kind        | Description                                                                 |
 |----------------|-------------|-----------------------------------------------------------------------------|

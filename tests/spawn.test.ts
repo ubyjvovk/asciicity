@@ -229,6 +229,42 @@ describe('resolveSpawn', () => {
     expect(spawn.yaw).toBeCloseTo(normalizeAngle((268 * Math.PI) / 180), 6);
   });
 
+  it('passes its blocked function through to landmarkSpawn (skips blocked vertices)', () => {
+    // h=10 → target 82 m, range [42,142]. 100 m is nearest but blocked; the
+    // resolver must hand `blocked` to `landmarkSpawn` so it picks the 60 m one.
+    const gherkinCity: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 7,
+        h: 10,
+        name: '30 St Mary Axe',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'secondary', pts: [[100, 0], [60, 0]] }],
+    };
+    const spawn = resolveSpawn('gherkin', ORIGIN, (p) => p[0] === 100, gherkinCity);
+    expect(spawn.x).toBeCloseTo(60, 6);
+    expect(spawn.z).toBeCloseTo(0, 6);
+  });
+
+  it('falls through to the preset fixed coordinate when every vertex is blocked', () => {
+    // Nothing free on the roads → landmarkSpawn returns null → resolveSpawn
+    // uses the hybrid preset's own WGS84 fallback (which walks +x).
+    const cityBuild: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 1,
+        h: 10,
+        name: 'Saint Sophia Cathedral',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'residential', pts: [[60, 0]] }],
+    };
+    const sop = SPAWN_PRESETS.sophia as { lon: number; lat: number };
+    const [ex, ez] = project(sop.lon, sop.lat, ORIGIN);
+    const spawn = resolveSpawn('sophia', ORIGIN, () => true, cityBuild);
+    expect(Math.hypot(spawn.x - ex, spawn.z - ez)).toBeLessThan(5);
+  });
+
+
   it('resolves explicit coordinates with a bearing', () => {
     const spawn = resolveSpawn('-0.0984,51.5138,90', ORIGIN, () => false);
     const [ex, ez] = project(-0.0984, 51.5138, ORIGIN);
@@ -447,6 +483,37 @@ describe('landmarkSpawn', () => {
     expect(landmarkSpawn('base', noName)).toBeNull();
   });
 
+  it('skips a blocked nearest-destination vertex and picks the next free one', () => {
+    // Centroid at (0,0), h=10 → target 82 m, range [42,142]. 100 m is the
+    // closest in-range vertex but is blocked; the free 60 m vertex must win.
+    const cityBuild: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 1,
+        h: 10,
+        name: 'Test Tower',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'residential', pts: [[100, 0], [60, 0]] }],
+    };
+    const spawn = landmarkSpawn('test tower', cityBuild, undefined, (p) => p[0] === 100);
+    expect(spawn).not.toBeNull();
+    expect(spawn!.x).toBeCloseTo(60, 6);
+    expect(spawn!.z).toBeCloseTo(0, 6);
+  });
+
+  it('returns null when every road vertex is blocked', () => {
+    const cityBuild: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 1,
+        h: 10,
+        name: 'Test Tower',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'residential', pts: [[60, 0], [100, 0]] }],
+    };
+    expect(landmarkSpawn('test tower', cityBuild, undefined, () => true)).toBeNull();
+  });
+
   it('falls back to a road vertex within 200 m when none is in range', () => {
     // Road vertex at 170 m (within 200, outside [30, 130] m ring).
     const farCity: Pick<CityData, 'buildings' | 'roads'> = {
@@ -606,4 +673,68 @@ describe('Kyiv bridge presets (T-0047)', () => {
       expect(collision.resolve(from, to)).toEqual(to);
     });
   }
+});
+
+// T-0059 rework: building presets must not spawn inside/against a building.
+// `landmarkSpawn` skips road vertices that are blocked with 6 m of clearance,
+// and `resolveSpawn` threads its `blocked` through. Against the real
+// `CollisionGrid` (built as `main.ts` does) every Kyiv building preset must
+// resolve to a point with `blocked(p, 6) === false`.
+describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
+  const KYIV: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
+  );
+  // Build the SAME CollisionGrid main.ts builds, but from the APPLIED city so
+  // the Motherland Monument footprint (and the fixed heights) are included.
+  const city = applyLandmarks(KYIV, 'kyiv');
+  const collision = new CollisionGrid(
+    city.water?.length
+      ? [...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
+      : city.buildings,
+    25,
+    city.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+  );
+
+  const buildingKeys = presetsFor('kyiv')
+    .filter(([, p]) => 'building' in p)
+    .map(([k]) => k);
+
+  it('every Kyiv building preset resolves to an unblocked point (blocked(p, 6) === false)', () => {
+    expect(buildingKeys.length).toBeGreaterThan(5);
+    const rows: string[] = [];
+    for (const key of buildingKeys) {
+      const preset = SPAWN_PRESETS[key] as { building: string };
+      const spawn = resolveSpawn(
+        key,
+        city.origin,
+        (p, r?: number) => collision.blocked(p, r),
+        city,
+        'maidan',
+      );
+      // The spawn must keep 6 m of clearance from every footprint.
+      expect(collision.blocked([spawn.x, spawn.z], 6), `preset ${key}`).toBe(false);
+
+      // Prove the building preset (not the fallback) was picked: distance to
+      // the resolved building's centroid is within the spawn envelope.
+      const needle = preset.building.toLowerCase();
+      const b = city.buildings.find(
+        (x) => x.name !== undefined && x.name.toLowerCase() === needle,
+      );
+      expect(b, `building for ${key} must resolve`).toBeDefined();
+      let cx = 0;
+      let cz = 0;
+      for (const [px, pz] of b!.poly) {
+        cx += px;
+        cz += pz;
+      }
+      cx /= b!.poly.length;
+      cz /= b!.poly.length;
+      const dist = Math.hypot(spawn.x - cx, spawn.z - cz);
+      expect(dist).toBeLessThanOrEqual(250);
+      rows.push(`${key}: (${spawn.x.toFixed(1)}, ${spawn.z.toFixed(1)}) -> ${dist.toFixed(1)} m`);
+    }
+    console.log(`[kyiv-presets] ${rows.join(' | ')}`);
+  });
 });

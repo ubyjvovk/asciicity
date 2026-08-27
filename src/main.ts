@@ -403,7 +403,7 @@ async function main(): Promise<void> {
     : resolveSpawn(
         opts.at,
         city.origin,
-        (p: Vec2) => collision.blocked(p),
+        (p: Vec2, r?: number) => collision.blocked(p, r),
         city,
         cityInfo?.defaultSpawn,
       );

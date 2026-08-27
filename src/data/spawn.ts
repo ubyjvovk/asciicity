@@ -248,6 +248,9 @@ function clamp(x: number, lo: number, hi: number): number {
 /** Maximum +x offset (metres) the spawn search scans when the point is blocked. */
 const SPAWN_MAX = 200;
 
+/** Min clearance (metres) a `landmarkSpawn` road vertex must keep from buildings. */
+const CLEARANCE = 6;
+
 /** Parameter type for `resolveSpawn`'s `city` argument (bbox is optional for tests). */
 type SpawnCity = Pick<CityData, 'buildings' | 'roads'> &
   Partial<Pick<CityData, 'bbox'>>;
@@ -297,15 +300,19 @@ function normalizeAngle(a: number): number {
  * target distance scales with the target's height: `clamp(70 + 1.2·h, 70, 220)`.
  * Returns the candidate road vertex from every road polyline (all classes)
  * whose distance from the centroid lies in `[targetDist − 40, targetDist + 60]`
- * with the smallest `|dist − targetDist|`; if none, any road vertex within
- * 200 m; else `null` when the building is unnamed/absent. Yaw faces the
- * centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward
- * `(sin yaw, −cos yaw)`).
+ * with the smallest `|dist − targetDist|`; if none, any unblocked vertex within
+ * 200 m. Every candidate for which `blocked(pt, 6)` is true (6 m of clearance)
+ * is skipped, so the spawn never sits inside or flush against a building;
+ * when no candidate survives, `null` is returned (the caller falls back to a
+ * fixed coordinate). Returns `null` when the building is unnamed/absent. Yaw
+ * faces the centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with
+ * forward `(sin yaw, −cos yaw)`).
  */
 export function landmarkSpawn(
   name: string,
   city: Pick<CityData, 'buildings' | 'roads'>,
   targetDist?: number,
+  blocked?: (p: Vec2, r?: number) => boolean,
 ): SpawnPoint | null {
   const needle = name.toLowerCase();
   // Exact (case-insensitive) match first, then substring match.
@@ -331,30 +338,36 @@ export function landmarkSpawn(
   cx /= n;
   cz /= n;
 
-  const candidates: Vec2[] = [];
+  // In-range road vertices, skipping every one that is blocked with 6 m of
+  // clearance so the player does not spawn inside or flush against a building.
+  const inRange: { p: Vec2; dist: number }[] = [];
   for (const road of city.roads) {
     for (const pt of road.pts) {
       const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
-      if (dist >= distance - 40 && dist <= distance + 60) {
-        candidates.push(pt);
+      if (
+        dist >= distance - 40 &&
+        dist <= distance + 60 &&
+        !(blocked?.(pt, CLEARANCE) ?? false)
+      ) {
+        inRange.push({ p: pt, dist });
       }
     }
   }
 
-  // Fallbacks: none in range → any road vertex within 200 m; still none → null.
-  const pool =
-    candidates.length > 0
-      ? candidates.map((p) => ({ p, dist: Math.hypot(p[0] - cx, p[1] - cz) }))
-      : (() => {
-          const all: { p: Vec2; dist: number }[] = [];
-          for (const road of city.roads) {
-            for (const pt of road.pts) {
-              const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
-              if (dist <= 200) all.push({ p: pt, dist });
-            }
-          }
-          return all;
-        })();
+  // Fallbacks: no (unblocked) in-range vertex → any unblocked vertex within
+  // 200 m; still none → null.
+  let pool = inRange;
+  if (pool.length === 0) {
+    pool = [];
+    for (const road of city.roads) {
+      for (const pt of road.pts) {
+        const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
+        if (dist <= 200 && !(blocked?.(pt, CLEARANCE) ?? false)) {
+          pool.push({ p: pt, dist });
+        }
+      }
+    }
+  }
 
   if (pool.length === 0) return null;
 
@@ -422,11 +435,14 @@ export function resolveSpawn(
   const preset = parsed?.preset ? SPAWN_PRESETS[parsed.preset] : undefined;
 
   // Named-building preset: resolve against the dataset when a city is given.
+  // `blocked` (with 6 m of clearance) is threaded through to `landmarkSpawn`
+  // so the chosen vertex is never inside/against a building.
   if (preset && 'building' in preset && city) {
-    const landmark = landmarkSpawn(preset.building, city);
+    const landmark = landmarkSpawn(preset.building, city, undefined, blocked);
     if (landmark) return landmark;
-    // Building absent → fall through to this preset's own fallback coordinate
-    // (if any), then to the city's fallback preset.
+    // Building absent, or no unblocked vertex → fall through to this preset's
+    // own fallback coordinate (if any), then to the city's fallback preset
+    // (which does walk `+x` when blocked).
   }
 
   // Coordinates from an explicit `lon,lat[,bearing]`, a fixed-coordinate
