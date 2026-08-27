@@ -509,9 +509,14 @@ pointer-lock clicks except their own controls):
   desktop the pointer lock and the Esc overlay make it unreachable, and Esc
   is the path). It opens the pause/settings menu (below). It stops `pointerdown`/`click`
   propagation so `TouchControls` never sees it.
-- `#credits` — a one-line footer, **bottom-centre**, 11 px monospace, 55 %
-  opacity: `built by @ubyjvovk · github.com/ubyjvovk/asciicity`, the whole
-  line a link to the repo (opens in a new tab; stops propagation). Text and
+- `#credits` — a **real footer bar**, not an overlay (revised 2026-08-27,
+  user): a 20 px black strip across the very bottom of the page, 11 px
+  monospace, HUD green at 55 % opacity, text centred:
+  `built by @ubyjvovk · github.com/ubyjvovk/asciicity`, the whole line a link
+  to the repo (new tab; stops propagation). The canvas and every other
+  fixed panel live in the remaining `100vh − 20px` (`#view` height and the
+  `applySize()` height both subtract `CREDITS_BAR_PX = 20`, so the ASCII
+  grid, the gear and the toast never overlap the bar). Text and
   URL come from **`src/credits.ts`**: `export const CREDITS = { author: '@ubyjvovk', url: 'https://github.com/ubyjvovk/asciicity' }`
   — the only file to edit to rebrand; `README.md` says so.
 - `#toast` stays bottom-left.
