@@ -14,7 +14,7 @@ repo = "ubyjvovk/asciicity"
 token_env = "GITHUB_TOKEN"                # value in <root>/.env
 sync = true                               # one-way board -> issues mirror (tt:* labels)
 sync_interval_s = 120
-watch = true                              # supervisor spools new issues for PM intake
+watch = false                             # GH intake off (user, 2026-08-27: public repo, no guardrails) — sync stays on
 comment_label = "tt:agent"
 
 [pm]
