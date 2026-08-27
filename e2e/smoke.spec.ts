@@ -11,7 +11,6 @@ import { fileURLToPath } from 'node:url';
 import { syntheticCity } from '../src/data/synthetic';
 import type { CityData } from '../src/data/types';
 import { terrainHeightAt } from '../src/world/terrain';
-import { SPAWN_PRESETS } from '../src/data/spawn';
 
 /** Shape of the T-0010 debug contract exposed on `window.__asciicity`. */
 interface AsciiApi {
@@ -328,10 +327,10 @@ function noOverlap(a: Box, b: Box): boolean {
   return a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
 }
 
-/** Read `#mini` / `#hud` / `#gear` / `#credits` bounding boxes. */
+/** Read the chrome + view bounding boxes. */
 async function panelBoxes(page: Page): Promise<Record<string, Box>> {
   return page.evaluate(() => {
-    const ids = ['mini', 'hud', 'gear', 'credits'] as const;
+    const ids = ['mini', 'hud', 'gear', 'credits', 'view', 'toast'] as const;
     const out: Record<string, Box> = {};
     for (const id of ids) {
       const el = document.getElementById(id);
@@ -359,8 +358,18 @@ test('smoke: panels', async ({ page }) => {
   console.log('desktop boxes', JSON.stringify(boxes));
   expect(boxes.mini.w).toBeGreaterThan(0);
   expect(boxes.hud.w).toBeGreaterThan(0);
-  expect(boxes.gear.w).toBeGreaterThan(0);
+  // Desktop: the gear is touch-only, so it must be hidden (display:none).
+  expect(boxes.gear.w).toBe(0);
   expect(boxes.credits.w).toBeGreaterThan(0);
+  // The credits footer is a 20 px bar and nothing overlaps it.
+  expect(boxes.credits.h).toBe(20);
+  expect(noOverlap(boxes.view, boxes.credits), `view vs credits ${JSON.stringify(boxes)}`).toBe(
+    true,
+  );
+  expect(noOverlap(boxes.toast, boxes.credits), `toast vs credits ${JSON.stringify(boxes)}`).toBe(
+    true,
+  );
+  await expect(page.locator('#hud')).toContainText('ESC MENU');
   expect(noOverlap(boxes.mini, boxes.hud), `mini vs hud ${JSON.stringify(boxes)}`).toBe(
     true,
   );
@@ -391,48 +400,21 @@ test('smoke: panels', async ({ page }) => {
   await page.keyboard.press('KeyH');
   await expect(hud).toBeHidden();
 
-  // Enter the game: a canvas-centre click dismisses the start overlay and
-  // requests pointer lock. The ⚙ button is the hit target only once the
-  // overlay is gone (chrome is z-index 5, overlay is 10).
-  const viewBox = await page.locator('#view').boundingBox();
-  if (!viewBox) throw new Error('canvas has no bounding box');
-  await page.mouse.click(
-    viewBox.x + viewBox.width / 2,
-    viewBox.y + viewBox.height / 2,
-  );
-  await expect(page.locator('#overlay')).toBeHidden();
-
-  // Pointer lock delivers subsequent mouse events to the canvas, so a
-  // locator click on #gear would never land. Release it; pointerlockchange
-  // re-shows the overlay, which we then hide without clicking (a click
-  // would re-request lock).
-  const wasLocked = await page.evaluate(() => {
-    if (document.pointerLockElement === null) return false;
-    document.exitPointerLock();
-    return true;
-  });
-  if (wasLocked) {
-    await page.waitForFunction(() => document.pointerLockElement === null);
-    await expect(page.locator('#overlay')).toBeVisible();
-    await page.locator('#overlay').evaluate((el) => {
-      (el as HTMLElement).style.display = 'none';
-    });
-  }
-
-  await page.locator('#gear').click();
-  await expect(page.locator('#overlay')).toBeVisible();
-  await expect(page.locator('#menu')).toContainText('HUD: OFF');
-  await expect(page.locator('#menu')).toContainText('MINIMAP: OFF');
-
-  await page.getByRole('button', { name: 'MINIMAP: OFF' }).click();
-  await expect(mini).toBeVisible();
-
+  // The desktop menu is opened via Escape (pointer-lock loss), which headless
+  // Chromium cannot exercise, so it is covered on the touch path (which keeps
+  // the gear tap) instead — see `smoke: panels (touch 390×844)`. Here we only
+  // check the credits link bar.
   const credits = page.locator('#credits');
   await expect(credits).toContainText('@ubyjvovk');
   await expect(credits).toHaveAttribute(
     'href',
     'https://github.com/ubyjvovk/asciicity',
   );
+  // The footer bar is a link; the whole bar is 20 px tall and never overlaps
+  // the canvas (asserted via box checks above).
+  const creditsBox = await credits.boundingBox();
+  if (!creditsBox) throw new Error('credits has no bounding box');
+  expect(creditsBox.height).toBe(20);
 });
 
 /** Return the centroid of the first Kyiv building whose exact name matches. */
@@ -510,55 +492,13 @@ test('smoke: fast travel — travel() jumps to Lavra, LANDMARKS menu teleports t
     { timeout: 5_000 },
   );
 
-  // Open the pause menu via the ⚙ button. `travel` hid the overlay and — on
-  // desktop — tried to lock the pointer; release the lock so #gear is
-  // clickable (see the panels test for the same dance).
-  const wasLocked = await page.evaluate(() => {
-    if (document.pointerLockElement === null) return false;
-    document.exitPointerLock();
-    return true;
-  });
-  if (wasLocked) {
-    await page.waitForFunction(() => document.pointerLockElement === null);
-    await expect(page.locator('#overlay')).toBeVisible();
-    await page.locator('#overlay').evaluate((el) => {
-      (el as HTMLElement).style.display = 'none';
-    });
-  }
-  await page.locator('#gear').click();
-  await expect(page.locator('#overlay')).toBeVisible();
-  await expect(page.locator('#menu')).toContainText('LANDMARKS');
-
-  await page.getByRole('button', { name: 'LANDMARKS ▸' }).click();
-  const landmarks = page.locator('button.landmark');
-  const count = await landmarks.count();
-  expect(count).toBeGreaterThanOrEqual(15);
-
-  // Find the row that mentions the Golden Gate and click it.
-  const golden = page.locator('button.landmark', { hasText: 'Golden Gate' });
-  await expect(golden).toHaveCount(1);
-  const label = (await golden.textContent())?.trim() ?? '';
-  expect(SPAWN_PRESETS.goldengate.label).toBe(label);
-  await golden.click();
-
-  await expect(page.locator('#overlay')).toBeHidden();
-
-  const centroid = kyivBuildingCentroid('Golden Gate');
-  await page.waitForFunction(
-    (c) => {
-      const s = (
-        window as unknown as { __asciicity?: { state?: { x: number; z: number } } }
-      ).__asciicity?.state;
-      if (!s) return false;
-      return Math.hypot(s.x - c.x, s.z - c.z) < 250;
-    },
-    centroid,
-    { timeout: 5_000 },
-  );
-  const after = await readPos(page);
-  expect(Math.hypot(after.x - centroid.x, after.z - centroid.z)).toBeLessThan(250);
-
-  expect(page.url()).toContain('at=goldengate');
+  // The gear-tap menu navigation (opening LANDMARKS and teleporting via a
+  // row) is covered on the touch path, which keeps the gear tap — see the
+  // `smoke: fast travel (touch 390×844)` describe. On desktop the gear is
+  // hidden and the menu needs pointer lock (Escape), which headless Chromium
+  // cannot exercise, so the API travel path verified here is the desktop
+  // equivalent.
+  expect(page.url()).toContain('at=lavra');
 });
 
 test('smoke: travel() returns false for an unknown key', async ({ page }) => {
@@ -667,6 +607,14 @@ test.describe('smoke: panels (touch 390×844)', () => {
     ).toBe(true);
     expect(boxes.mini.w).toBeGreaterThan(0);
     expect(boxes.hud.w).toBeGreaterThan(0);
+    // The credits footer is a 20 px bar; the view and the toast sit above it.
+    expect(boxes.credits.h).toBe(20);
+    expect(noOverlap(boxes.view, boxes.credits), `view vs credits ${JSON.stringify(boxes)}`).toBe(
+      true,
+    );
+    expect(noOverlap(boxes.toast, boxes.credits), `toast vs credits ${JSON.stringify(boxes)}`).toBe(
+      true,
+    );
 
     // Dismiss the start overlay so a tap on the gear could otherwise reach
     // the joystick / look handler. Tap the overlay *heading* (centre of the

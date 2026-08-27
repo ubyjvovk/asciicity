@@ -21,10 +21,11 @@ body {
 #view {
   display: block;
   position: absolute;
-  inset: 0;
-  z-index: 0;
+  top: 0;
+  left: 0;
   width: 100vw;
-  height: 100vh;
+  height: calc(100vh - 20px);
+  z-index: 0;
   pointer-events: none;
 }
 
@@ -76,12 +77,14 @@ body {
   height: 180px;
 }
 
-/* ⚙ settings button: bottom-right, every platform. z-index 5 with the rest
-   of the chrome, above the canvas and below #overlay. */
+/* ⚙ settings button: bottom-right, touch devices only (T-0068; the `hidden`
+   attribute is set from main.ts on desktop). z-index 5 with the rest of the
+   chrome, above the canvas and below #overlay. `bottom` lifts it above the
+   20 px `#credits` bar. */
 #gear {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(20px + 16px);
   width: 40px;
   height: 40px;
   padding: 0;
@@ -105,24 +108,31 @@ body {
   background: #0a1a0d;
 }
 
-/* Credits footer: bottom-centre, one line, 55 % opacity. max-width keeps it
-   off the gear (right) and the toast (left). */
+/* Credits footer: a 20 px black bar across the very bottom of the page,
+   11 px monospace HUD green at 55 % opacity, text centred. The whole line
+   is a link (the whole bar is the anchor). `bottom: calc(20px + …)` on
+   #gear / #toast keeps them above this bar. */
 #credits {
   position: fixed;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100vw - 120px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin: 0;
-  padding: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #000;
   color: var(--hud-green);
   font-family: monospace;
   font-size: 11px;
   opacity: 0.55;
   text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+  padding: 0 8px;
   z-index: 5;
   pointer-events: auto;
 }
@@ -266,10 +276,11 @@ body {
   }
 }
 
-/* Render-style toast: bottom-left, HUD green on black, fades after 1.5 s. */
+/* Render-style toast: bottom-left, HUD green on black, fades after 1.5 s.
+   `bottom` lifts it above the 20 px `#credits` bar. */
 #toast {
   position: fixed;
-  bottom: 16px;
+  bottom: calc(20px + 16px);
   left: 16px;
   margin: 0;
   padding: 8px 12px;

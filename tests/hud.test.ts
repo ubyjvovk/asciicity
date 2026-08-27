@@ -160,8 +160,12 @@ interface FakeDocument {
   createElement(tag: string): FakeElement;
 }
 
-function makeFakeDoc(): { root: FakeElement; rows: () => FakeElement } {
+function makeFakeDoc(): { root: FakeElement; rows: () => FakeElement; items: () => unknown[] } {
   const created: FakeElement[] = [];
+  const appended: unknown[] = [];
+  const pushed = (...args: (FakeElement | string)[]): void => {
+    for (const a of args) appended.push(a);
+  };
   const doc: FakeDocument = {
     createElement(_tag: string) {
       const el: FakeElement = {
@@ -182,13 +186,16 @@ function makeFakeDoc(): { root: FakeElement; rows: () => FakeElement } {
     className: '',
     textContent: '',
     style: { display: '' },
-    append() {
-      /* the constructor calls this but we only need to check `rows.textContent` */
+    append(...items: (FakeElement | string)[]) {
+      // Capture every argument so the help-line tests can assert the
+      // constructor's bare-string third argument.
+      pushed(...items);
     },
   };
   // The `pre.hud-rows` element is always the second createElement call.
   const rows = () => created[1];
-  return { root, rows };
+  const items = () => appended;
+  return { root, rows, items };
 }
 
 describe('Hud.update row count', () => {
@@ -294,6 +301,27 @@ describe('Hud.update row count', () => {
     const lines = rows().textContent.split('\n');
     expect(lines).toHaveLength(6);
     expect(lines.some((l) => l.startsWith('> MODE'))).toBe(false);
+  });
+});
+
+describe('Hud help line', () => {
+  it('appends the desktop help line passed by main.ts (ends in ESC MENU)', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, items } = makeFakeDoc();
+    new Hud(
+      root as unknown as HTMLElement,
+      'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · ESC MENU',
+    );
+    expect(items()).toContain(
+      'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · ESC MENU',
+    );
+  });
+
+  it('appends the touch help line verbatim (unchanged)', async () => {
+    const { Hud } = await import('../src/hud/hud');
+    const { root, items } = makeFakeDoc();
+    new Hud(root as unknown as HTMLElement, 'LEFT: MOVE · RIGHT: LOOK · R STYLE');
+    expect(items()).toContain('LEFT: MOVE · RIGHT: LOOK · R STYLE');
   });
 });
 

@@ -161,11 +161,12 @@ monospace, HUD green on black at 70 %.
 
 1. `div.hud-title` — `::: NAVIGATION`
 2. `pre.hud-rows` — the five `> ` rows; `update` rewrites this node only
-3. `div.hud-help` — `WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY`
+3. `div.hud-help` — the help line supplied by `main.ts` (see below)
 
-The second constructor argument `help` defaults to that desktop help text
-and is passed by `main.ts` as `'LEFT: MOVE · RIGHT: LOOK'` when the touch
-path is active (T-0031).
+On desktop `main.ts` passes `'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY ·
+R STYLE · ESC MENU'`; the line ends with `ESC MENU` because on desktop the
+pause/settings menu opens via Escape (T-0068). On touch it passes
+`'LEFT: MOVE · RIGHT: LOOK · R STYLE'` unchanged (T-0031).
 
 Styles (`hud.css`): `#48e06a` monospace 13 px on black; title brighter
 (`#8aff9e`); help dim (`#2a8040`).
@@ -191,6 +192,13 @@ breakpoint) holding `<canvas id="minimap">` — it is no longer a child of
 and the matching per-frame update is skipped). Both panels are created at
 boot even when `?hud=0` / `?minimap=0` (those flags start them hidden).
 
-A ⚙ `#gear` button sits **bottom-right** (40×40 px, every platform) and
-opens the pause/settings menu. The `#credits` footer is **bottom-centre**.
+A ⚙ `#gear` button sits **bottom-right** (40×40 px, **touch devices only**
+— under pointer lock nothing is clickable on desktop and the Esc overlay
+covers it, so main.ts sets `gear.hidden = !touch` with the same
+`'ontouchstart'`/`maxTouchPoints` test TouchControls uses). It opens the
+pause/settings menu. The `#credits` footer is a **20 px black bar across
+the very bottom of the page** (T-0068): `#view` is `calc(100vh − 20px)`
+tall, `applySize()` passes `innerHeight − 20` to the canvas and camera
+aspect, and `#gear`/`#toast` sit at `bottom: calc(20px + 16px)` so nothing
+overlaps the bar.
 See `docs/integration.md` for the menu rows, persistence, and keys.
