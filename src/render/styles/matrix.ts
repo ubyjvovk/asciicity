@@ -35,9 +35,12 @@ export function matrixGlyph(
   cellY: number,
   timeS: number,
   count: number,
+  S = 0,
 ): number {
   const window = Math.floor(timeS * 2 + 7 * hash3(cellX, cellY, 0));
-  return Math.floor(hash3(cellX, cellY, window) * count);
+  const base = S * (count - 1);
+  const jitter = (hash3(cellX, cellY, window) - 0.5) * 8;
+  return Math.min(count - 1, Math.max(0, Math.round(base + jitter)));
 }
 
 /**
@@ -55,8 +58,8 @@ export function rainIntensity(colX: number, y01: number, timeS: number): number 
 
 /**
  * Body / head RGB (no glyph mask) for scene density `S` and rain `I`.
- * Body: `(0.2, 1.0, 0.3) · (S · (0.3 + 0.7 · I) + 0.12 · I)`.
- * Head: `(0.9, 1.0, 0.9) · (0.4 + 0.6 · S)`.
+ * Body: `(0.2, 1.0, 0.3) · (S · (0.7 + 0.3 · I) + 0.25 · I)`.
+ * Head: `(0.9, 1.0, 0.9) · (0.6 + 0.4 · S)`.
  */
 export function matrixBrightness(
   S: number,
@@ -64,10 +67,10 @@ export function matrixBrightness(
   head: boolean,
 ): [number, number, number] {
   if (head) {
-    const k = 0.4 + 0.6 * S;
+    const k = 0.6 + 0.4 * S;
     return [0.9 * k, 1.0 * k, 0.9 * k];
   }
-  const k = S * (0.3 + 0.7 * I) + 0.12 * I;
+  const k = S * (0.7 + 0.3 * I) + 0.25 * I;
   return [0.2 * k, 1.0 * k, 0.3 * k];
 }
 
@@ -83,17 +86,18 @@ float hash3(float a, float b, float c) {
   return fract(sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453);
 }
 vec3 matrixBrightness(float S, float I, bool head) {
-  if (head) return vec3(0.9, 1.0, 0.9) * (0.4 + 0.6 * S);
-  return vec3(0.2, 1.0, 0.3) * (S * (0.3 + 0.7 * I) + 0.12 * I);
+  if (head) return vec3(0.9, 1.0, 0.9) * (0.6 + 0.4 * S);
+  return vec3(0.2, 1.0, 0.3) * (S * (0.7 + 0.3 * I) + 0.25 * I);
 }
 void main() {
   vec2 cell = floor(vUv * grid);
-  float window = floor(time * 2.0 + 7.0 * hash3(cell.x, cell.y, 0.0));
-  float idx = floor(hash3(cell.x, cell.y, window) * glyphCount);
-  vec2 inCell = fract(vUv * grid);
-  float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   vec3 scene = cellMean(cell);
   float S = shaped(bright(scene));
+  float window = floor(time * 2.0 + 7.0 * hash3(cell.x, cell.y, 0.0));
+  float jitter = (hash3(cell.x, cell.y, window) - 0.5) * 8.0;
+  float idx = clamp(floor(S * (glyphCount - 1.0) + jitter + 0.5), 0.0, glyphCount - 1.0);
+  vec2 inCell = fract(vUv * grid);
+  float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   float speed = 0.3 + 0.7 * hash3(cell.x, 1.0, 0.0);
   float phase = hash3(cell.x, 2.0, 0.0);
   float trail = fract(phase - time * speed * 0.25 - vUv.y);

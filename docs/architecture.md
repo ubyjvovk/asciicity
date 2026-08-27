@@ -478,16 +478,19 @@ Pure: `hatchLevel(v): number`, `hatchSpacing(level): { fwd: number | null; back:
 
 **matrix** — digital rain. Cell 6×12, sub 1×1, uses the `ascii` atlas
 (`buildGlyphAtlas` import). `hash(a, b, c) = fract(sin(a·12.9898 + b·78.233 + c·37.719)·43758.5453)`.
-Glyph churn is per cell and slow: `idx = floor(hash(cell.x, cell.y, floor(time·2 + 7·hash(cell.x, cell.y, 0))) · glyphCount)`
-(each cell changes about twice a second, at its own phase). Rain per column:
+The glyph carries the image like ASCII does: `idx = clamp(round(S·(glyphCount − 1) + (hash(cell.x, cell.y, window) − 0.5)·8), 0, glyphCount − 1)`
+with `window = floor(time·2 + 7·hash(cell.x, cell.y, 0))` — the density ramp
+position from `S` (below) plus a ±4-glyph jitter that re-rolls about twice a
+second per cell (PM tune 2026-08-27: fully random glyphs made the city unreadable). Rain per column:
 `speed = 0.3 + 0.7·hash(cell.x, 1, 0)`, `phase = hash(cell.x, 2, 0)`,
 `trail = fract(phase − time·speed·0.25 − vUv.y)` (the minus on the time term
 makes the head travel **down** the screen, toward `vUv.y = 0`), intensity
 `I = pow(trail, 4)`, head when `trail > 0.96`. With `S = shaped(bright(scene))`
-(0 in the sky): colour `= (0.2, 1.0, 0.3) · mask · (S·(0.3 + 0.7·I) + 0.12·I)`
+(0 in the sky): colour `= (0.2, 1.0, 0.3) · mask · (S·(0.7 + 0.3·I) + 0.25·I)`
 — the city carries the brightness, the rain modulates it, and in the sky
-only the trails themselves show faintly; head → `(0.9, 1.0, 0.9)·mask·(0.4 + 0.6·S)`.
-Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count)`,
+only the trails themselves show faintly; head → `(0.9, 1.0, 0.9)·mask·(0.6 + 0.4·S)`
+(contrast raised in the PM tune 2026-08-27 after the user found it too dim).
+Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count, S = 0)`,
 `rainIntensity(colX, y01, timeS)` (returns `I`), `matrixBrightness(S, I, head): [r, g, b]`.
 (Revised 2026-08-27 after the first GPU review: rising rain, 35 % glyph floor in the sky.)
 

@@ -139,19 +139,19 @@ describe('matrixBrightness', () => {
     expect(rgb[2]).toBeCloseTo(0);
   });
 
-  it('matrixBrightness(0, 1, false) is dim green (g ≈ 0.12)', () => {
+  it('matrixBrightness(0, 1, false) is dim green (g ≈ 0.25)', () => {
     const rgb = matrixBrightness(0, 1, false);
-    expect(rgb[0]).toBeCloseTo(0.024);
-    expect(rgb[1]).toBeCloseTo(0.12);
-    expect(rgb[2]).toBeCloseTo(0.036);
+    expect(rgb[0]).toBeCloseTo(0.05);
+    expect(rgb[1]).toBeCloseTo(0.25);
+    expect(rgb[2]).toBeCloseTo(0.075);
   });
 
   it('matrixBrightness(1, 1, false) is full green', () => {
     const rgb = matrixBrightness(1, 1, false);
     // (0.2, 1.0, 0.3) · (1·1 + 0.12) = (0.224, 1.12, 0.336)
-    expect(rgb[0]).toBeCloseTo(0.224);
-    expect(rgb[1]).toBeCloseTo(1.12);
-    expect(rgb[2]).toBeCloseTo(0.336);
+    expect(rgb[0]).toBeCloseTo(0.25);
+    expect(rgb[1]).toBeCloseTo(1.25);
+    expect(rgb[2]).toBeCloseTo(0.375);
     expect(rgb[1]).toBeGreaterThan(rgb[0]);
     expect(rgb[1]).toBeGreaterThan(rgb[2]);
   });

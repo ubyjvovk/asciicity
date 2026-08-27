@@ -39,7 +39,7 @@ cell (a 0.1 s step stays inside the window) and jumps when the window ticks.
 **Rain.** Each column has its own speed and phase:
 
 ```
-speed = 0.3 + 0.7 · hash(cell.x, 1, 0)
+speed = 0.7 + 0.3 · hash(cell.x, 1, 0)
 phase = hash(cell.x, 2, 0)
 trail = fract(phase − time · speed · 0.25 − y01)
 I     = pow(trail, 4)
@@ -53,12 +53,12 @@ I     = pow(trail, 4)
 **Brightness.** With `S = shaped(bright(scene))` (0 in the sky):
 
 ```
-body = (0.2, 1.0, 0.3) · (S · (0.3 + 0.7 · I) + 0.12 · I)
-head = (0.9, 1.0, 0.9) · (0.4 + 0.6 · S)
+body = (0.2, 1.0, 0.3) · (S · (0.7 + 0.3 · I) + 0.25 · I)
+head = (0.9, 1.0, 0.9) · (0.6 + 0.4 · S)
 ```
 
 `matrixBrightness(S, I, head)` returns that RGB. There is no floor on `S`:
-empty sky stays black except for the faint `0.12 · I` trail, and a lit city
+empty sky stays black except for the faint `0.25 · I` trail, and a lit city
 cell carries the brightness while the rain modulates it.
 
 ## Shader (per pixel)
@@ -80,3 +80,11 @@ For the pixel at `vUv`:
 Empty atlas texels (`mask = 0`) stay black, so the rain reads as green
 glyphs over a black ground, with a near-white leading character on the
 city and a dimmer head in the sky.
+
+## PM tune (2026-08-27)
+
+The first cut chose a fully random glyph per cell, which erased the image:
+`matrixGlyph` now takes the cell's shaped brightness `S` and picks the ASCII
+density-ramp glyph for it plus a ±4 jitter that re-rolls about twice a second,
+and the body/head brightness constants were raised (`S·(0.7 + 0.3·I) + 0.25·I`,
+head `0.6 + 0.4·S`) after the user found the look too low-contrast.
