@@ -128,6 +128,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 - 2026-08-27 14:05 — T-0067 minimap woods accepted (ds-1, first pass; Mariinsky park reads as a dark-green fill). T-0066 TreeField (ds-2) in flight; T-0068 queued.
 
+- 2026-08-27 14:40 — T-0066 TreeField accepted (ds-2, first pass; 23 214 instances at 60 fps). Trees are there but too dark for the glyph density curve (canopy L 0.22–0.38) — forests across the river read as a dim band. PM tune next: brighter canopies.
+
 ## Next actions
 1. Wave 7 in flight (6 tickets). Review order: T-0059 → T-0060 → T-0061 → T-0062/T-0063. GPU-check `?at=lavra` / `?at=sophia` after T-0059 and the shapes after T-0062 (from Hydropark looking west — the domes/spires must read across the river). Old candidates (await user): trees (assessed 2026-08-27: 3 C2 tickets — OSM `natural=tree`/`tree_row`/wood+park fill → `trees` list → InstancedMesh + minimap fill), touch fly/pause controls, remember last city+style (localStorage), Kyiv landmark height/colour table, ANSI-16 variant of `blocks`, PETSCII, more cities. (GPU check: `/?city=kyiv&at=maidan&fly=1`, hold Space then W; fog thinning; MODE/ALT rows), push. Then T-0050 (GPU: R cycle, toast, 12 stubs), then the styles — review each style's `e2e/__shots__/style-<id>.png` artifact **and** take a GPU frame from Maidan (`?city=kyiv&render=<id>`); fps ≥ 30 is a hard criterion (check `edges` — depth texture — and `braille` — 2×4 sub-samples — first).
 2. After the styles: push, then ask the user which looks to keep/tune; candidate polish: ANSI 16-colour variant of blocks, PETSCII atlas, touch fly controls, remember last style/city in localStorage.
