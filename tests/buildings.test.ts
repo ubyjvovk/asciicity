@@ -11,6 +11,7 @@ import {
   LANDMARK_PALETTE,
   landmarkColor,
   PALETTE,
+  registerLandmarkColors,
 } from '../src/world/palette';
 
 const SQUARE: Vec2[] = [
@@ -238,6 +239,12 @@ describe('colorFor', () => {
     expect(colorFor(squareBuilding({ id: 7, name: 'Some Named Building' }))).toBe(
       LANDMARK_PALETTE[7 % 4],
     );
+  });
+
+  it('colorFor returns a registered landmark colour before the static table', () => {
+    registerLandmarkColors({ X: 0x123456 });
+    expect(colorFor(squareBuilding({ id: 0, name: 'X' }))).toBe(0x123456);
+    expect(landmarkColor('X')).toBe(0x123456);
   });
 });
 

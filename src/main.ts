@@ -12,6 +12,7 @@ import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
 import { resolveSpawn } from './data/spawn';
+import { applyLandmarks } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
@@ -287,7 +288,11 @@ async function main(): Promise<void> {
     opts.city = (await drawCityPicker(overlay, menuRoot)).id;
   }
 
-  const { city, id: cityId, info: cityInfo } = await chooseCity(opts);
+  let { city, id: cityId, info: cityInfo } = await chooseCity(opts);
+
+  // Landmark fixes (architecture.md §4.13): apply the curated height/colour
+  // table and any extra synthetic buildings. Synthetic/unknown ids are no-ops.
+  city = applyLandmarks(city, cityId ?? 'synthetic');
 
   const renderer = makeRenderer(canvas);
   const scene = makeScene();

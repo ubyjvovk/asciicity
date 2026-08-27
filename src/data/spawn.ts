@@ -16,157 +16,234 @@ export interface SpawnPoint {
 }
 
 /**
- * A named spawn preset. Either a fixed WGS84 position facing `bearingDeg`,
- * or a named building matched against the dataset (`{ building }`) — the
- * building form may carry its own fallback coordinate used when the building
- * is absent from the current dataset.
+ * A named spawn preset scoped to a single city. Either a fixed WGS84 position
+ * facing `bearingDeg`, or a named building matched against the dataset
+ * (`{ building }`) — the building form may carry its own fallback coordinate
+ * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string };
+  | { building: string; label: string; city: 'london' | 'kyiv'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
-  bank: { lon: -0.0887, lat: 51.5133, bearingDeg: 270, label: 'Bank junction' },
+  bank: { lon: -0.0887, lat: 51.5133, bearingDeg: 270, label: 'Bank junction', city: 'london' },
   // Named-building presets: `landmarkSpawn` finds the building and picks a
-  // road vertex ~70 m away, facing it.
-  stpauls: { building: "St Paul's Cathedral", label: "Facing St Paul's Cathedral" },
-  gherkin: { building: '30 St Mary Axe', label: 'Facing the Gherkin' },
-  monument: { building: 'Monument', label: 'Facing the Monument' },
-  tower: { building: 'Tower of London', label: 'Facing the Tower of London' },
-  barbican: { building: 'Barbican', label: 'Facing the Barbican' },
-  liverpoolst: { building: 'Liverpool Street', label: 'Facing Liverpool Street' },
-  leadenhall: { building: 'Leadenhall Market', label: 'Facing Leadenhall Market' },
+  // road vertex scaled by the building's height, facing it.
+  stpauls: { building: "St Paul's Cathedral", label: "Facing St Paul's Cathedral", city: 'london' },
+  gherkin: { building: '30 St Mary Axe', label: 'Facing the Gherkin', city: 'london' },
+  monument: { building: 'Monument', label: 'Facing the Monument', city: 'london' },
+  tower: { building: 'Tower of London', label: 'Facing the Tower of London', city: 'london' },
+  barbican: { building: 'Barbican', label: 'Facing the Barbican', city: 'london' },
+  liverpoolst: { building: 'Liverpool Street', label: 'Facing Liverpool Street', city: 'london' },
+  leadenhall: { building: 'Leadenhall Market', label: 'Facing Leadenhall Market', city: 'london' },
   walkietalkie: {
     building: '20 Fenchurch Street',
     label: 'Facing the Walkie Talkie',
+    city: 'london',
   },
-  lloyds: { building: "Lloyd's", label: "Facing Lloyd's" },
+  lloyds: { building: "Lloyd's", label: "Facing Lloyd's", city: 'london' },
   // Fixed coordinate presets (places, not resolvable single buildings).
   bigben: {
     lon: -0.12235,
     lat: 51.50085,
     bearingDeg: 268,
     label: 'Westminster Bridge, facing Big Ben',
+    city: 'london',
   },
   parliament: {
     lon: -0.12655,
     lat: 51.5006,
     bearingDeg: 90,
     label: 'Parliament Square, facing the Palace of Westminster',
+    city: 'london',
   },
   trafalgar: {
     lon: -0.128,
     lat: 51.5079,
     bearingDeg: 180,
     label: 'Trafalgar Square, facing Whitehall',
+    city: 'london',
   },
   embankment: {
     lon: -0.122,
     lat: 51.5074,
     bearingDeg: 120,
     label: 'Victoria Embankment, facing the London Eye',
+    city: 'london',
   },
-  // Kyiv presets (wave 5, docs/integration.md §Kyiv presets).
+  // Kyiv presets (wave 7, docs/integration.md §Kyiv presets). Building
+  // presets resolve against `applyLandmarks(kyiv.json)` and keep their
+  // previous coordinates as fallback when the name goes missing upstream.
   maidan: {
     lon: 30.524,
     lat: 50.45,
     bearingDeg: 250,
     label: 'Maidan Nezalezhnosti, facing Hotel Ukraina',
+    city: 'kyiv',
   },
   sophia: {
-    building: 'Sophia',
+    building: 'Saint Sophia Cathedral',
     label: 'Facing Saint Sophia Cathedral',
+    city: 'kyiv',
     lon: 30.5165,
     lat: 50.453,
     bearingDeg: 270,
   },
   michael: {
-    building: 'Michael',
-    label: "Facing St Michael's Golden-Domed Monastery",
+    building: 'St. Michael Golden-Domed Cathedral',
+    label: "Facing St. Michael's Golden-Domed Cathedral",
+    city: 'kyiv',
     lon: 30.521,
     lat: 50.4553,
     bearingDeg: 60,
   },
+  andriyivskyy: {
+    building: "Saint Andrew's Church",
+    label: "Top of Andriyivskyy Descent, facing St Andrew's Church",
+    city: 'kyiv',
+    lon: 30.5165,
+    lat: 50.4586,
+    bearingDeg: 40,
+  },
   lavra: {
+    building: 'Great Lavra Belltower',
+    label: 'Pechersk Lavra, facing the Great Bell Tower',
+    city: 'kyiv',
     lon: 30.556,
     lat: 50.435,
     bearingDeg: 100,
-    label: 'Pechersk Lavra, facing the Great Bell Tower',
   },
   motherland: {
+    building: 'Motherland Monument',
+    label: 'Facing the Motherland Monument',
+    city: 'kyiv',
     lon: 30.561,
     lat: 50.4275,
     bearingDeg: 135,
-    label: 'Facing the Motherland Monument',
+  },
+  goldengate: {
+    building: 'Golden Gate',
+    label: 'Facing the Golden Gate',
+    city: 'kyiv',
+    lon: 30.5133,
+    lat: 50.4485,
+    bearingDeg: 20,
+  },
+  rada: {
+    building: 'Verkhovna Rada of Ukraine',
+    label: 'Facing the Verkhovna Rada of Ukraine',
+    city: 'kyiv',
+    lon: 30.5373,
+    lat: 50.4471,
+    bearingDeg: 260,
+  },
+  volodymyr: {
+    building: "St. Volodymyr's Cathedral",
+    label: "Facing St. Volodymyr's Cathedral",
+    city: 'kyiv',
+    lon: 30.5085,
+    lat: 50.4449,
+    bearingDeg: 180,
+  },
+  arch: {
+    building: 'Arch of Freedom of the Ukrainian people',
+    label: 'Facing the Arch of Freedom',
+    city: 'kyiv',
+    lon: 30.5304,
+    lat: 50.4549,
+    bearingDeg: 250,
+  },
+  olimpiyskiy: {
+    building: 'Olympic National Sports Complex Stadium',
+    label: 'Facing the Olympic Stadium',
+    city: 'kyiv',
+    lon: 30.5168,
+    lat: 50.4333,
+    bearingDeg: 100,
+  },
+  nicholas: {
+    building: 'St. Nicholas Cathedral',
+    label: 'Facing St. Nicholas Cathedral',
+    city: 'kyiv',
+    lon: 30.5176,
+    lat: 50.4257,
+    bearingDeg: 180,
+  },
+  bessarabka: {
+    building: 'Bessarabskyi market',
+    label: 'Bessarabska Square, looking down Khreshchatyk',
+    city: 'kyiv',
+    lon: 30.5209,
+    lat: 50.442,
+    bearingDeg: 0,
   },
   podil: {
     lon: 30.517,
     lat: 50.465,
     bearingDeg: 180,
     label: 'Kontraktova Square, Podil',
-  },
-  andriyivskyy: {
-    lon: 30.5165,
-    lat: 50.4586,
-    bearingDeg: 40,
-    label: "Top of Andriyivskyy Descent, facing St Andrew's Church",
-  },
-  goldengate: {
-    lon: 30.5133,
-    lat: 50.4485,
-    bearingDeg: 20,
-    label: 'Facing the Golden Gate',
+    city: 'kyiv',
   },
   arsenalna: {
     lon: 30.5455,
     lat: 50.4443,
     bearingDeg: 90,
     label: 'Arsenalna, the deepest metro station',
+    city: 'kyiv',
   },
   parkbridge: {
     lon: 30.5324,
     lat: 50.45498,
     bearingDeg: 33,
     label: 'Parkovyi Bridge, facing Trukhaniv Island',
+    city: 'kyiv',
   },
   glassbridge: {
     lon: 30.52974,
     lat: 50.45489,
     bearingDeg: 286,
     label: 'Klitschko glass bridge, facing the Arch',
-  },
-  mariinsky: {
-    lon: 30.538,
-    lat: 50.4482,
-    bearingDeg: 90,
-    label: 'Facing Mariinsky Palace',
-  },
-  bessarabka: {
-    lon: 30.5209,
-    lat: 50.442,
-    bearingDeg: 0,
-    label: 'Bessarabska Square, looking down Khreshchatyk',
+    city: 'kyiv',
   },
   funicular: {
     lon: 30.5231,
     lat: 50.4592,
     bearingDeg: 210,
     label: 'Funicular lower station, looking up',
+    city: 'kyiv',
   },
   hydropark: {
     lon: 30.577,
     lat: 50.4459,
     bearingDeg: 270,
     label: 'Hydropark, facing the right-bank hills',
+    city: 'kyiv',
   },
   metrobridge: {
     lon: 30.56,
     lat: 50.4423,
     bearingDeg: 90,
     label: 'Metro Bridge over the Dnipro',
+    city: 'kyiv',
   },
 };
+
+/**
+ * All presets belonging to a city, as `[key, preset]` pairs in `SPAWN_PRESETS`
+ * insertion (table) order. Used by the fast-travel menu (architecture.md
+ * §4.13) and by tests to prove the per-city fence.
+ */
+export function presetsFor(cityId: 'london' | 'kyiv'): [string, SpawnPreset][] {
+  return Object.entries(SPAWN_PRESETS)
+    .filter(([, p]) => p.city === cityId)
+    .map(([k, v]) => [k, v]);
+}
+
+/** Clamp `x` into `[lo, hi]`. */
+function clamp(x: number, lo: number, hi: number): number {
+  return x < lo ? lo : x > hi ? hi : x;
+}
 
 /** Maximum +x offset (metres) the spawn search scans when the point is blocked. */
 const SPAWN_MAX = 200;
@@ -215,23 +292,33 @@ function normalizeAngle(a: number): number {
 
 /**
  * Resolve a named building to a spawn point ~`targetDist` metres away on a
- * road vertex, facing the building centroid. Returns the candidate road
- * vertex from every road polyline (all classes) whose distance from the
- * centroid lies in `[targetDist − 40, targetDist + 60]` with the smallest
- * `|dist − targetDist|`; if none, any road vertex within 200 m; else `null`
- * when the building is unnamed/absent. Yaw faces the centroid via
- * `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward `(sin yaw, −cos yaw)`).
+ * road vertex, facing the building centroid. An **exact** (case-insensitive)
+ * name match is preferred before a substring (`includes`) match. The default
+ * target distance scales with the target's height: `clamp(70 + 1.2·h, 70, 220)`.
+ * Returns the candidate road vertex from every road polyline (all classes)
+ * whose distance from the centroid lies in `[targetDist − 40, targetDist + 60]`
+ * with the smallest `|dist − targetDist|`; if none, any road vertex within
+ * 200 m; else `null` when the building is unnamed/absent. Yaw faces the
+ * centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward
+ * `(sin yaw, −cos yaw)`).
  */
 export function landmarkSpawn(
   name: string,
   city: Pick<CityData, 'buildings' | 'roads'>,
-  targetDist = 70,
+  targetDist?: number,
 ): SpawnPoint | null {
   const needle = name.toLowerCase();
-  const building = city.buildings.find(
-    (b) => b.name !== undefined && b.name.toLowerCase().includes(needle),
+  // Exact (case-insensitive) match first, then substring match.
+  const exact = city.buildings.find(
+    (b) => b.name !== undefined && b.name.toLowerCase() === needle,
   );
+  const building =
+    exact ??
+    city.buildings.find(
+      (b) => b.name !== undefined && b.name.toLowerCase().includes(needle),
+    );
   if (!building) return null;
+  const distance = targetDist ?? clamp(70 + 1.2 * building.h, 70, 220);
 
   // Centroid of the footprint ring.
   let cx = 0;
@@ -248,7 +335,7 @@ export function landmarkSpawn(
   for (const road of city.roads) {
     for (const pt of road.pts) {
       const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
-      if (dist >= targetDist - 40 && dist <= targetDist + 60) {
+      if (dist >= distance - 40 && dist <= distance + 60) {
         candidates.push(pt);
       }
     }
@@ -273,7 +360,7 @@ export function landmarkSpawn(
 
   let best = pool[0];
   for (const cand of pool) {
-    if (Math.abs(cand.dist - targetDist) < Math.abs(best.dist - targetDist)) {
+    if (Math.abs(cand.dist - distance) < Math.abs(best.dist - distance)) {
       best = cand;
     }
   }
