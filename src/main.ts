@@ -89,6 +89,14 @@ const HUD_ID = 'hud';
 const OVERLAY_ID = 'overlay';
 const HIT_ID = 'hit';
 
+/**
+ * Height in px of the black `#credits` footer bar at the bottom of the page
+ * (architecture.md §4.12). `applySize` subtracts it from the canvas height
+ * and camera aspect; style.css mirrors it via hard-coded `20px` calc offsets,
+ * so the ASCII grid, `#gear` and `#toast` never overlap the bar.
+ */
+const CREDITS_BAR_PX = 20;
+
 /** Refresh the HUD once every N rendered frames. */
 const HUD_INTERVAL = 4;
 
@@ -447,7 +455,7 @@ async function main(): Promise<void> {
     hudRoot,
     touch
       ? 'LEFT: MOVE · RIGHT: LOOK · R STYLE'
-      : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE',
+      : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · ESC MENU',
   );
 
   // Panels are always created; `?hud=0` / `?minimap=0` (and the matching
@@ -548,10 +556,13 @@ async function main(): Promise<void> {
   function applySize(): void {
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight);
+    // Canvas sits in the space above the 20 px `#credits` bar; tags overlay
+    // the full window, so viewW/viewH stay the real inner dimensions.
     viewW = w;
     viewH = h;
-    post.setSize(w, h);
-    camera.aspect = w / h;
+    const canvasH = Math.max(1, h - CREDITS_BAR_PX);
+    post.setSize(w, canvasH);
+    camera.aspect = w / canvasH;
     camera.updateProjectionMatrix();
     api.cols = post.cols;
     api.rows = post.rows;
@@ -827,6 +838,11 @@ async function main(): Promise<void> {
 
   const gear = document.getElementById('gear');
   if (gear instanceof HTMLElement) {
+    // The gear is touch-only: under pointer lock nothing is clickable on
+    // desktop and the Esc overlay covers it, so it is redundant there
+    // (architecture.md §4.12). `hidden` is the same `display:none` the CSS
+    // comment promises; the element stays in the DOM for tests.
+    gear.hidden = !touch;
     for (const evt of ['pointerdown', 'mousedown'] as const) {
       gear.addEventListener(evt, (e) => e.stopPropagation());
     }

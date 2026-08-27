@@ -97,7 +97,9 @@ The app runs a single asynchronous `main()` when the module executes.
    settings menu** populated into `#menu` (HUD / MINIMAP / CRT / STYLE / FLY
    / LANDMARKS stub / COPY LINK TO HERE / SWITCH CITY — see
    [City picker & pause menu](#city-picker--pause-menu)). The ⚙ `#gear`
-   button (bottom-right, every platform) also opens this overlay: it calls
+   button (**touch devices only** — T-0068: under pointer lock nothing is
+   clickable on desktop and the Esc overlay covers it, so `main.ts` sets
+   `gear.hidden = !touch`) also opens this overlay: it calls
    `document.exitPointerLock()` on desktop so the existing resume path
    fires, and just shows the overlay on touch. Gear `pointerdown`/`click`
    stop propagation so `TouchControls` never sees the tap. All chrome
@@ -105,6 +107,11 @@ The app runs a single asynchronous `main()` when the module executes.
    the canvas (`#view` at 0). `#view` is `pointer-events: none`; look and
    the joystick attach to `#hit` (z-index 1). The CRT overlay is below the
    chrome (`pointer-events: none`); `#overlay` is above those (z-index 10).
+   `#credits` is a **20 px black footer bar** across the very bottom (T-0068):
+   `#view` is `calc(100vh − 20px)` tall (with `top: 0`), `applySize()` passes
+   `innerHeight − CREDITS_BAR_PX` to `ascii.setSize` and the camera aspect,
+   and `#gear`/`#toast` use `bottom: calc(20px + 16px)` so none of them
+   overlap the bar.
 10. **Frame loop.** See below.
 
 **Sky cadence.** The sky is built once during startup (`makeSky`, with the
@@ -334,7 +341,11 @@ on the next boot; storage fills whatever the URL left unset.
 `src/credits.ts` exports `CREDITS = { author, url }` — the only file to
 edit to rebrand. `main.ts` mounts `<a id="credits" href target="_blank"
 rel="noopener">built by @ubyjvovk · github.com/ubyjvovk/asciicity</a>` as a
-bottom-centre footer. Clicks stop propagation.
+20 px black bar across the very bottom of the page (`src/style.css`); the
+whole line is the link. Clicks stop propagation. `main.ts` keeps
+`CREDITS_BAR_PX = 20` and `applySize()` subtracts it from the canvas height
+and camera aspect, so the ASCII grid, `#gear` and `#toast` never overlap the
+bar (T-0068).
 
 ### Share URL format
 
