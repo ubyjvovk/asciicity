@@ -56,8 +56,9 @@ position is always the canvas centre.
 ## Cell grid
 
 The constructor buckets every building footprint, every road segment, every
-`city.water` ring, and every `city.rivers` segment into a **100 m** cell grid
-once (same spatial-hash pattern as `ZoneIndex` in `src/hud/zone.ts`). Keys are
+`city.water` ring, every `city.woods` ring, and every `city.rivers` segment
+into a **100 m** cell grid once (same spatial-hash pattern as `ZoneIndex` in
+`src/hud/zone.ts`). Keys are
 `"c,r"` with `c = floor(x / 100)`, `r = floor(z / 100)`. A footprint, ring, or
 segment that straddles several cells is stored (by object identity) in each
 one; during `update` a `Set` per layer de-duplicates so the Dnipro polygon —
@@ -78,6 +79,7 @@ does not re-bucket or allocate typed arrays.
 |--------------|--------------------------------------------|
 | Background   | filled black `#000`                        |
 | Water rings  | filled polygons `#0e3a46` (dim teal)       |
+| Wood rings   | filled polygons `#0b2f18` (dim forest)     |
 | Rivers       | 1 px strokes `#155b6b`                     |
 | Buildings    | filled polygons `#143019`; named `#245c2f` |
 | Roads        | 1 px strokes `#3fb85a`                     |
@@ -85,13 +87,15 @@ does not re-bucket or allocate typed arrays.
 | North marker | letter `N`, `#8aff9e`, 10 px monospace     |
 
 Water is drawn immediately after the black background so buildings and roads
-land on top of the Thames / Dnipro / dock polygons; rivers stroke in the same
-hue as fills. Buildings then draw and roads stroke on top, so the street
-pattern reads clearly against the darker footprints — in the real City of
-London roughly a third of buildings are named, so the previous bright fills
-swamped the road network. Water and river ops are skipped entirely when the
-city has none in view, so cities without `water` / `rivers` produce the same
-draw-call sequence as before.
+land on top of the Thames / Dnipro / dock polygons; **woods** rings then fill
+in the layer **between water and buildings** (`#0b2f18`), so parks and
+woodland read over water but stay under footprints and streets; rivers stroke
+in the same hue as water. Buildings then draw and roads stroke on top, so the
+street pattern reads clearly against the darker footprints — in the real City
+of London roughly a third of buildings are named, so the previous bright fills
+swamped the road network. Water, wood, and river ops are skipped entirely when
+the city has none in view, so cities without `water` / `woods` / `rivers`
+produce the same draw-call sequence as before.
 
 The player triangle points up when `headingUp`; otherwise it is rotated by
 `yaw` (canvas `rotate`, which is clockwise, matching yaw 0 = north / yaw

@@ -315,3 +315,48 @@ describe('Minimap water and rivers', () => {
     expect(ops.some((o) => o.kind === 'stroke' && o.style === '#155b6b')).toBe(false);
   });
 });
+
+describe('Minimap woods', () => {
+  it('a city with one wood ring around the origin paints #0b2f18 at a sample pixel', async () => {
+    const { Minimap } = await import('../src/hud/minimap');
+    const { canvas, ops } = makeFakeCanvas();
+    const map = new Minimap(canvas, city({ woods: [SQUARE_100] }), {
+      size: 200,
+      radius: 100,
+      headingUp: true,
+    });
+    map.update(origin);
+    const fills = ops.filter((o): o is FillOp => o.kind === 'fill');
+    const woodFills = fills.filter((f) => f.style === '#0b2f18');
+    expect(woodFills.length).toBe(1);
+    expect(pathContains(woodFills[0].path, 100 - 20, 100)).toBe(true);
+  });
+
+  it('a wood ring inside a water ring paints after (wins the pixel over) water', async () => {
+    const { Minimap } = await import('../src/hud/minimap');
+    const { canvas, ops } = makeFakeCanvas();
+    const map = new Minimap(canvas, city({ water: [SQUARE_100], woods: [SQUARE_100] }), {
+      size: 200,
+      radius: 100,
+      headingUp: true,
+    });
+    map.update(origin);
+    const fills = ops.filter((o): o is FillOp => o.kind === 'fill');
+    const waterIdx = fills.findIndex((f) => f.style === '#0e3a46');
+    const woodIdx = fills.findIndex((f) => f.style === '#0b2f18');
+    expect(waterIdx).toBeGreaterThanOrEqual(0);
+    expect(woodIdx).toBeGreaterThan(waterIdx);
+  });
+
+  it('cities without woods are unchanged (no #0b2f18 fill)', async () => {
+    const { Minimap } = await import('../src/hud/minimap');
+    const { canvas, ops } = makeFakeCanvas();
+    const map = new Minimap(canvas, city(), {
+      size: 200,
+      radius: 100,
+      headingUp: true,
+    });
+    map.update(origin);
+    expect(ops.some((o) => o.kind === 'fill' && o.style === '#0b2f18')).toBe(false);
+  });
+});
