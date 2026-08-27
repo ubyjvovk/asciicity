@@ -627,9 +627,11 @@ export class TreeField { constructor(trees, heightAt: HeightFn); readonly object
   `CylinderGeometry(0.18, 0.28, 1, 5)` scaled to height `h − 0.8·r` with its
   base at `y0`. Two `InstancedMesh`es (canopies, trunks) with
   `MeshLambertMaterial({ vertexColors: false })`; canopy `instanceColor`
-  from a seeded olive/green range — HSL hue `95 + 35·rand`°, saturation
-  `0.45 + 0.25·rand`, lightness `0.22 + 0.16·rand` (`THREE.Color.setHSL`,
-  then `.convertSRGBToLinear()`); trunk colour fixed `0x4a3524`. No collision,
+  from a seeded green range — HSL hue `95 + 35·rand`°, saturation
+  `0.60 + 0.25·rand`, lightness `0.48 + 0.17·rand` (`THREE.Color.setHSL`,
+  then `.convertSRGBToLinear()`); trunk colour fixed `0x6b4a2e`. (PM tune
+  2026-08-27: the first olive range, L 0.22–0.38, was too dark for the glyph
+  density curve — trees vanished into the floor.) No collision,
   no per-frame work (`update` is not needed; the field is static).
   `main.ts` adds `new TreeField(city.trees, groundAt).object` when
   `city.trees?.length`, before the buildings. Budget: ≤ 40 000 instances =

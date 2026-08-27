@@ -12,7 +12,7 @@ import { FLAT_HEIGHT } from '../data/types';
 import type { HeightFn } from '../data/types';
 
 /** Fixed trunk colour (linear RGB is written by the material colour). */
-const TRUNK_COLOR = 0x4a3524;
+const TRUNK_COLOR = 0x6b4a2e;
 
 /** Canopy radius scaling: an icosahedron of unit radius is squashed to 0.8·r tall. */
 const SCALE_Y = 0.8;
@@ -79,7 +79,7 @@ export function buildTreeInstances(
     // Seeded olive/green canopy colour → linear rgb. The hue is in degrees
     // (95–130°) but `setHSL` takes it in the 0–1 range, so scale by 1/360.
     const color = new THREE.Color()
-      .setHSL((95 + 35 * rand()) / 360, 0.45 + 0.25 * rand(), 0.22 + 0.16 * rand())
+      .setHSL((95 + 35 * rand()) / 360, 0.60 + 0.25 * rand(), 0.48 + 0.17 * rand())
       .convertSRGBToLinear();
     colors[3 * i] = color.r;
     colors[3 * i + 1] = color.g;

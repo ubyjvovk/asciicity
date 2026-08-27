@@ -353,8 +353,8 @@ Per tree `[x, z, h, r]` with ground `y0 = heightAt(x, z)`:
 `colors` is `3·count` floats: the canopy **instance colours**, one linear-rgb
 triple per tree, from a seeded olive/green range (mulberry32 seed 5): HSL hue
 `95 + 35·rand`° (passed to `THREE.Color.setHSL` as `/360`), saturation
-`0.45 + 0.25·rand`, lightness `0.22 + 0.16·rand`, then `convertSRGBToLinear()`.
-Trunks always use the fixed `MeshLambertMaterial({ color: 0x4a3524 })`.
+`0.60 + 0.25·rand`, lightness `0.48 + 0.17·rand`, then `convertSRGBToLinear()`.
+Trunks always use the fixed `MeshLambertMaterial({ color: 0x6b4a2e })`.
 
 **`TreeField(trees, heightAt = FLAT_HEIGHT)`** turns that into two
 `THREE.InstancedMesh`es (`MeshLambertMaterial({ vertexColors: false })`, canopy

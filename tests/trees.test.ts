@@ -55,10 +55,10 @@ describe('buildTreeInstances', () => {
       const hueDeg = hsl.h * 360;
       expect(hueDeg).toBeGreaterThanOrEqual(95);
       expect(hueDeg).toBeLessThan(130);
-      expect(hsl.s).toBeGreaterThanOrEqual(0.45);
-      expect(hsl.s).toBeLessThan(0.7);
-      expect(hsl.l).toBeGreaterThanOrEqual(0.22);
-      expect(hsl.l).toBeLessThan(0.38);
+      expect(hsl.s).toBeGreaterThanOrEqual(0.60);
+      expect(hsl.s).toBeLessThan(0.85);
+      expect(hsl.l).toBeGreaterThanOrEqual(0.48);
+      expect(hsl.l).toBeLessThan(0.65);
     }
   });
 
