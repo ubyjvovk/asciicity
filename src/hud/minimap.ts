@@ -30,6 +30,10 @@ interface StoredBuilding {
   named: boolean;
 }
 
+interface StoredWater {
+  poly: Vec2[];
+}
+
 interface StoredSeg {
   ax: number;
   az: number;
@@ -40,7 +44,14 @@ interface StoredSeg {
 interface CellBucket {
   buildings: StoredBuilding[];
   segs: StoredSeg[];
+  waters: StoredWater[];
+  rivers: StoredSeg[];
 }
+
+/** Fill colour for water rings (`city.water`); dim teal on the green HUD. */
+const WATER_FILL = '#0e3a46';
+/** Stroke colour for river centre-lines (`city.rivers`), same hue as water. */
+const RIVER_STROKE = '#155b6b';
 
 function cellKey(c: number, r: number): string {
   return `${c},${r}`;
@@ -121,6 +132,56 @@ export class Minimap {
     const keys = nearbyCells(player.x, player.z, opts.radius, CELL);
     const seenSegs = new Set<StoredSeg>();
     const seenBuildings = new Set<StoredBuilding>();
+    const seenWaters = new Set<StoredWater>();
+    const seenRivers = new Set<StoredSeg>();
+
+    let waterStyled = false;
+    for (const key of keys) {
+      const bucket = this.buckets.get(key);
+      if (!bucket) continue;
+      for (const w of bucket.waters) {
+        if (seenWaters.has(w)) continue;
+        seenWaters.add(w);
+        const poly = w.poly;
+        if (poly.length < 3) continue;
+        if (!waterStyled) {
+          ctx.fillStyle = WATER_FILL;
+          waterStyled = true;
+        }
+        ctx.beginPath();
+        const first = poly[0];
+        const [x0, y0] = worldToMinimap(first[0], first[1], player, opts);
+        ctx.moveTo(x0, y0);
+        for (let i = 1; i < poly.length; i++) {
+          const p = poly[i];
+          const [x, y] = worldToMinimap(p[0], p[1], player, opts);
+          ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    let riverStarted = false;
+    for (const key of keys) {
+      const bucket = this.buckets.get(key);
+      if (!bucket) continue;
+      for (const seg of bucket.rivers) {
+        if (seenRivers.has(seg)) continue;
+        seenRivers.add(seg);
+        if (!riverStarted) {
+          ctx.strokeStyle = RIVER_STROKE;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          riverStarted = true;
+        }
+        const [x0, y0] = worldToMinimap(seg.ax, seg.az, player, opts);
+        const [x1, y1] = worldToMinimap(seg.bx, seg.bz, player, opts);
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+      }
+    }
+    if (riverStarted) ctx.stroke();
 
     for (const key of keys) {
       const bucket = this.buckets.get(key);
@@ -182,7 +243,7 @@ export class Minimap {
     ctx.fillText('N', nx, ny);
   }
 
-  /** Bucket every footprint and road segment into the 100 m cell grid once. */
+  /** Bucket every footprint, road segment, water ring, and river segment into the 100 m cell grid once. */
   private bucket(city: CityData): void {
     for (const b of city.buildings) {
       insertBuilding(this.buckets, b);
@@ -193,6 +254,20 @@ export class Minimap {
         const a = pts[i - 1];
         const b = pts[i];
         insertSeg(this.buckets, { ax: a[0], az: a[1], bx: b[0], bz: b[1] });
+      }
+    }
+    if (city.water) {
+      for (const ring of city.water) {
+        insertWater(this.buckets, ring);
+      }
+    }
+    if (city.rivers) {
+      for (const river of city.rivers) {
+        for (let i = 1; i < river.length; i++) {
+          const a = river[i - 1];
+          const b = river[i];
+          insertRiver(this.buckets, { ax: a[0], az: a[1], bx: b[0], bz: b[1] });
+        }
       }
     }
   }
@@ -227,6 +302,34 @@ function insertSeg(buckets: Map<string, CellBucket>, seg: StoredSeg): void {
   }, buckets);
 }
 
+function insertWater(buckets: Map<string, CellBucket>, ring: Vec2[]): void {
+  if (ring.length < 3) return;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const [x, z] of ring) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  const stored: StoredWater = { poly: ring };
+  forEachCell(minX, maxX, minZ, maxZ, (bucket) => {
+    bucket.waters.push(stored);
+  }, buckets);
+}
+
+function insertRiver(buckets: Map<string, CellBucket>, seg: StoredSeg): void {
+  const minX = Math.min(seg.ax, seg.bx);
+  const maxX = Math.max(seg.ax, seg.bx);
+  const minZ = Math.min(seg.az, seg.bz);
+  const maxZ = Math.max(seg.az, seg.bz);
+  forEachCell(minX, maxX, minZ, maxZ, (bucket) => {
+    bucket.rivers.push(seg);
+  }, buckets);
+}
+
 function forEachCell(
   minX: number,
   maxX: number,
@@ -244,7 +347,7 @@ function forEachCell(
       const key = cellKey(c, r);
       let bucket = buckets.get(key);
       if (!bucket) {
-        bucket = { buildings: [], segs: [] };
+        bucket = { buildings: [], segs: [], waters: [], rivers: [] };
         buckets.set(key, bucket);
       }
       fn(bucket);

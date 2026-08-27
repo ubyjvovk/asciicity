@@ -55,11 +55,14 @@ position is always the canvas centre.
 
 ## Cell grid
 
-The constructor buckets every building footprint and every road segment into a
-**100 m** cell grid once (same spatial-hash pattern as `ZoneIndex` in
-`src/hud/zone.ts`). Keys are `"c,r"` with `c = floor(x / 100)`,
-`r = floor(z / 100)`. A footprint or segment that straddles several cells is
-stored (by object identity) in each one.
+The constructor buckets every building footprint, every road segment, every
+`city.water` ring, and every `city.rivers` segment into a **100 m** cell grid
+once (same spatial-hash pattern as `ZoneIndex` in `src/hud/zone.ts`). Keys are
+`"c,r"` with `c = floor(x / 100)`, `r = floor(z / 100)`. A footprint, ring, or
+segment that straddles several cells is stored (by object identity) in each
+one; during `update` a `Set` per layer de-duplicates so the Dnipro polygon —
+one 5 km² ring — is drawn at most once per frame regardless of how many of
+its cells are in range.
 
 `nearbyCells(x, z, radius, cell)` returns the keys of cells whose square
 intersects the **circle's bounding box** `[x±radius] × [z±radius]`. At the
@@ -74,15 +77,21 @@ does not re-bucket or allocate typed arrays.
 | Layer        | Style                                      |
 |--------------|--------------------------------------------|
 | Background   | filled black `#000`                        |
+| Water rings  | filled polygons `#0e3a46` (dim teal)       |
+| Rivers       | 1 px strokes `#155b6b`                     |
 | Buildings    | filled polygons `#143019`; named `#245c2f` |
 | Roads        | 1 px strokes `#3fb85a`                     |
 | Player       | filled 6 px triangle `#8aff9e` at centre   |
 | North marker | letter `N`, `#8aff9e`, 10 px monospace     |
 
-Buildings draw first and roads stroke on top, so the street pattern reads
-clearly against the darker footprints — in the real City of London roughly a
-third of buildings are named, so the previous bright fills swamped the road
-network.
+Water is drawn immediately after the black background so buildings and roads
+land on top of the Thames / Dnipro / dock polygons; rivers stroke in the same
+hue as fills. Buildings then draw and roads stroke on top, so the street
+pattern reads clearly against the darker footprints — in the real City of
+London roughly a third of buildings are named, so the previous bright fills
+swamped the road network. Water and river ops are skipped entirely when the
+city has none in view, so cities without `water` / `rivers` produce the same
+draw-call sequence as before.
 
 The player triangle points up when `headingUp`; otherwise it is rotated by
 `yaw` (canvas `rotate`, which is clockwise, matching yaw 0 = north / yaw
