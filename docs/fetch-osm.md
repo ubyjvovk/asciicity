@@ -68,11 +68,16 @@ Dnipro reads as a flat sheet ~60 m below Maidan.
 ## The summary line
 
 ```
-<out>: N buildings, M roads, K places, W water, R rivers[, terrain CxR @ S m (V voids)], S KB (skipped R relations, dropped D open water chains)
+<out>: N buildings, M roads, K places, W water, R rivers, T trees (F filled, D dropped)[, terrain CxR @ S m (V voids)], S KB (skipped R relations, dropped D open water chains)
 ```
 
 - **N / M / K / W / R** — building, road, place, water-ring, and river
   centre-line counts written to the file.
+- **T trees (F filled, D dropped)** — `T` is the number of `[x, z, h, r]`
+  trees written (`natural=tree` nodes + `tree_row` samples + wood/park
+  fills after the 40 000 cap). `F` is how many of those are seeded fills
+  that survived the cap; `D` is how many fill trees the cap dropped
+  (mapped nodes/rows are never dropped).
 - **terrain CxR @ S m (V voids)** — present only with `--dem 1`: grid columns
   × rows at step `S` metres, and the number of void HGT corners substituted
   by their non-void neighbours during sampling (data-format.md §Terrain).
@@ -117,6 +122,8 @@ exactly per `docs/data-format.md`:
   projected to local metres, rounded to 0.1 m, and passed through the same
   consecutive-duplicate cleanup as road polylines; polylines left with < 2
   distinct points are dropped. `rivers` is omitted from the file when empty.
+- **Trees** — see [Trees](#trees) below. `trees` / `woods` are omitted when
+  empty.
 - Coordinates are projected to local metres and rounded to 0.1 m; the output
   is minified JSON.
 
@@ -138,6 +145,46 @@ relation extends far beyond the bbox, so rings are clipped down to it:
 4. Rings with < 3 points or |area| < 25 m² after clipping are dropped.
 
 Inner rings (islands) are ignored — the outer ring is emitted whole.
+
+## Trees
+
+Wave 7: OSM trees, tree rows, and wood/forest/park polygons become
+`trees: [x, z, h, r][]` and `woods: Vec2[][]` (data-format.md §Trees). The
+Overpass union adds:
+
+```
+node["natural"="tree"]
+way["natural"="tree_row"]
+way["natural"="wood"]
+way["landuse"="forest"]
+way["leisure"="park"]
+relation["natural"="wood"]
+relation["landuse"="forest"]
+relation["leisure"="park"]
+```
+
+Conversion (`scripts/osm-convert.mjs`):
+
+- **woods** — wood/forest and park ways plus the `outer` members of their
+  relations are assembled and bbox-clipped exactly like water (25 m² area
+  floor). Parks and woods share the `woods` array (minimap fill).
+- **mapped trees** — one entry per `natural=tree` node; one every 8 m along
+  each `tree_row` polyline (starting at 0).
+- **fills** — a seeded jittered-grid of every wood/forest ring (one tree per
+  150 m², step `√150 ≈ 12.2 m`) and every park ring (one per 400 m², step
+  20 m). Each grid point is jittered ±0.45·step. Points inside a building
+  footprint, within 6 m of a road centre-line, or inside a water ring are
+  dropped (buildings/roads are bucketed into a 50 m grid first).
+- **PRNG** — `mulberry32(42)` (copied into the script; same function as
+  `src/data/synthetic.ts`), consumed in ring order then grid order so the
+  output is byte-stable.
+- **h / r** — `h` from the node's `height` tag when present, else
+  `6 + rand·8` (6–14 m); `r = 0.35·h`. Both clamped to the validator
+  ranges and rounded to 0.1 m.
+- **cap** — 40 000 trees per file. Above it, keep every k-th fill tree
+  (`k = ceil(n / 40000)`), never drop mapped nodes. The summary line
+  reports `T trees (F filled, D dropped)`. Tests can pass a tiny
+  `treeCap` into `convertOverpass`.
 
 ## Ring cleaning
 
@@ -211,8 +258,9 @@ bbox, rounding/row ordering, water flattening) and `fetchDemTiles` caching.
   not cut a hole in the footprint; the polygon is emitted as the outer ring
   only. City of London has few such buildings, so the visual impact is
   minimal.
-- The Overpass query matches no `note`/`leisure` selectors; only the eleven
-  selectors in `docs/data-format.md` are fetched (buildings, highways, the
-  three place selectors, the four water selectors, and river centre-lines).
+- The Overpass query matches the selectors in `docs/data-format.md` (buildings,
+  highways, the three place selectors, the four water selectors, river
+  centre-lines, plus the eight tree/wood/park selectors in §Trees). Other
+  `leisure`/`note` values are not fetched.
 - Data is a one-time snapshot; it refreshes only when someone re-runs
   `npm run fetch-data` and commits the result.

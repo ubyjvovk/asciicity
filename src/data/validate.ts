@@ -155,6 +155,39 @@ export function validateCity(raw: unknown): CityData {
     });
   }
 
+  // trees (optional) — `[x, z, h, r]` quads (data-format.md §Trees).
+  if (city.trees !== undefined) {
+    if (!Array.isArray(city.trees)) {
+      throw new Error('trees: expected an array');
+    }
+    city.trees.forEach((t, i) => {
+      if (
+        !Array.isArray(t) ||
+        t.length !== 4 ||
+        !isFiniteNum(t[0]) ||
+        !isFiniteNum(t[1]) ||
+        !isFiniteNum(t[2]) ||
+        !isFiniteNum(t[3]) ||
+        t[2] < 3 ||
+        t[2] > 40 ||
+        t[3] < 1 ||
+        t[3] > 15
+      ) {
+        throw new Error(`trees[${i}]: expected finite [x, z, h, r] with 3 ≤ h ≤ 40, 1 ≤ r ≤ 15`);
+      }
+    });
+  }
+
+  // woods (optional) — woodland/park rings, same rules as water.
+  if (city.woods !== undefined) {
+    if (!Array.isArray(city.woods)) {
+      throw new Error('woods: expected an array');
+    }
+    city.woods.forEach((ring, i) => {
+      validatePoly(ring, `woods[${i}]`);
+    });
+  }
+
   // terrain (optional) — regular DEM height grid.
   if (city.terrain !== undefined) {
     const t = city.terrain as Record<string, unknown>;

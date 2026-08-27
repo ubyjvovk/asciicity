@@ -15,9 +15,11 @@ import {
   project,
   roadClassOf,
   round1,
+  TREE_CAP,
 } from '../scripts/osm-convert';
 import type { Vec2 } from '../src/data/types';
 import { validateCity } from '../src/data/validate';
+import { distToSegment, pointInPolygon } from '../src/world/collision';
 
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
 
@@ -449,6 +451,91 @@ describe('osm-convert rivers', () => {
   });
 });
 
+describe('osm-convert trees', () => {
+  const city = convert();
+  const tagged = city.trees?.find((t) => Math.abs(t[0] - 100) < 0.2 && Math.abs(t[1] + 100) < 0.2);
+  const seeded = city.trees?.find((t) => Math.abs(t[0] - 108) < 0.2 && Math.abs(t[1] + 100) < 0.2);
+  const wood = city.woods?.[0];
+  const woodBuilding = city.buildings.find((b) => b.id === 50);
+  const woodRoad = city.roads.find((r) => r.id === 51);
+
+  it('node trees emitted with their heights (12 vs seeded 6–14)', () => {
+    expect(tagged).toBeDefined();
+    expect(tagged![2]).toBeCloseTo(12, 5);
+    expect(tagged![3]).toBeCloseTo(0.35 * 12, 5);
+    expect(seeded).toBeDefined();
+    expect(seeded![2]).toBeGreaterThanOrEqual(6);
+    expect(seeded![2]).toBeLessThan(14);
+    expect(seeded![3]).toBeCloseTo(round1(0.35 * seeded![2]), 5);
+  });
+
+  it('the row yields 3–4 trees ≈ 8 m apart', () => {
+    const row = (city.trees ?? []).filter(
+      (t) => Math.abs(t[1] + 200) < 0.5 && t[0] >= 199 && t[0] <= 231,
+    );
+    expect(row.length).toBeGreaterThanOrEqual(3);
+    expect(row.length).toBeLessThanOrEqual(4);
+    const sorted = [...row].sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i][0] - sorted[i - 1][0]).toBeCloseTo(8, 1);
+    }
+  });
+
+  it('the wood fill has ~24 ± 8 trees and none inside the building or within 6 m of the road', () => {
+    expect(wood).toBeDefined();
+    expect(woodBuilding).toBeDefined();
+    expect(woodRoad).toBeDefined();
+    const fills = (city.trees ?? []).filter((t) => pointInPolygon([t[0], t[1]], wood!));
+    expect(fills.length).toBeGreaterThanOrEqual(16);
+    expect(fills.length).toBeLessThanOrEqual(32);
+    for (const t of fills) {
+      expect(pointInPolygon([t[0], t[1]], woodBuilding!.poly)).toBe(false);
+      const pts = woodRoad!.pts;
+      for (let i = 0; i < pts.length - 1; i++) {
+        expect(distToSegment([t[0], t[1]], pts[i], pts[i + 1])).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+
+  it('output is byte-identical across two runs', () => {
+    const a = convert();
+    const b = convert();
+    expect(JSON.stringify(a.trees)).toBe(JSON.stringify(b.trees));
+    expect(JSON.stringify(a.woods)).toBe(JSON.stringify(b.woods));
+  });
+
+  it('the cap thins fills only (tiny cap parameter)', () => {
+    expect(TREE_CAP).toBe(40000);
+    const full = convert();
+    const mapped = (full.trees ?? []).filter((t) => !pointInPolygon([t[0], t[1]], wood!));
+    const fills = (full.trees ?? []).filter((t) => pointInPolygon([t[0], t[1]], wood!));
+    expect(fills.length).toBeGreaterThan(0);
+    const cap = mapped.length + 2;
+    const capped = convertOverpass(loadFixture(), { origin: ORIGIN, treeCap: cap });
+    const cappedMapped = (capped.trees ?? []).filter((t) => !pointInPolygon([t[0], t[1]], wood!));
+    const cappedFills = (capped.trees ?? []).filter((t) => pointInPolygon([t[0], t[1]], wood!));
+    expect(cappedMapped).toEqual(mapped);
+    expect(cappedFills.length).toBeLessThan(fills.length);
+    const n = mapped.length + fills.length;
+    const k = Math.ceil(n / cap);
+    expect(cappedFills).toEqual(fills.filter((_, i) => i % k === 0));
+    expect(capped.treesDropped).toBe(fills.length - cappedFills.length);
+  });
+
+  it('emits the wood ring and every tree validates', () => {
+    expect(city.woods).toHaveLength(1);
+    expect(wood!.length).toBeGreaterThanOrEqual(3);
+    expect(() => validateCity(city)).not.toThrow();
+    for (const t of city.trees ?? []) {
+      expect(t).toHaveLength(4);
+      expect(t[2]).toBeGreaterThanOrEqual(3);
+      expect(t[2]).toBeLessThanOrEqual(40);
+      expect(t[3]).toBeGreaterThanOrEqual(1);
+      expect(t[3]).toBeLessThanOrEqual(15);
+    }
+  });
+});
+
 describe('osm-convert clipRingToBox', () => {
   it('clips a square straddling the box edge down to the box', () => {
     const ring: Vec2[] = [
@@ -499,7 +586,9 @@ describe('osm-convert output invariants', () => {
       ...city.buildings.flatMap((b) => b.poly),
       ...city.roads.flatMap((r) => r.pts),
       ...(city.rivers ?? []).flatMap((r) => r),
-      ...city.places.map((p) => [p.x, p.z]),
+      ...city.places.map((p) => [p.x, p.z] as [number, number]),
+      ...(city.trees ?? []).map((t) => [t[0], t[1]] as [number, number]),
+      ...(city.woods ?? []).flatMap((r) => r),
     ];
     for (const [x, z] of all) {
       expect(x * 10).toBeCloseTo(Math.round(x * 10), 6);
@@ -512,8 +601,8 @@ describe('osm-convert output invariants', () => {
       new Set(arr.map((x) => x.id)).size === arr.length;
     expect(uniq(city.buildings)).toBe(true);
     expect(uniq(city.roads)).toBe(true);
-    expect(city.buildings).toHaveLength(6);
-    expect(city.roads).toHaveLength(8); // footway (13), steps (14), plain cycleway (41) dropped; footway-bridge (19) + cycleway-bridge (40) kept
+    expect(city.buildings).toHaveLength(7); // + wood-interior building 50
+    expect(city.roads).toHaveLength(9); // footway (13), steps (14), plain cycleway (41) dropped; footway-bridge (19) + cycleway-bridge (40) kept; + wood-crossing 51
   });
 
   it('round1 rounds to a single decimal', () => {

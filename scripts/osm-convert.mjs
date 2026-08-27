@@ -344,23 +344,369 @@ export function pickName(tags, lang) {
 }
 
 /**
+ * Seeded 32-bit PRNG (mulberry32) returning floats in [0, 1). Byte-identical
+ * copy of `src/data/synthetic.ts` — this script cannot import TypeScript.
+ * @param {number} seed integer seed
+ * @returns {() => number} generator
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Hard cap on emitted trees (data-format.md §Trees). Exposed for tests. */
+export const TREE_CAP = 40000;
+
+const TREE_PRNG_SEED = 42;
+const TREE_ROW_SPACING = 8;
+const WOOD_FILL_STEP = Math.sqrt(150); // one tree per 150 m²
+const PARK_FILL_STEP = 20; // one tree per 400 m²
+const FILL_JITTER = 0.45;
+const EXCLUDE_CELL = 50;
+const ROAD_CLEAR_M = 6;
+const TREE_H_MIN = 3;
+const TREE_H_MAX = 40;
+const TREE_R_MIN = 1;
+const TREE_R_MAX = 15;
+const WOOD_MIN_AREA = 25;
+
+/**
+ * Ray-casting point-in-polygon test (copied from `src/world/collision.ts` —
+ * scripts cannot import TS); correct for either winding.
+ * @param {[number, number]} p point `[x, z]`
+ * @param {Array<[number, number]>} poly closed ring of `[x, z]` pairs
+ * @returns {boolean} true when `p` is strictly inside `poly`
+ */
+function pointInPolygon(p, poly) {
+  const px = p[0];
+  const py = p[1];
+  let inside = false;
+  const n = poly.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i][0];
+    const yi = poly[i][1];
+    const xj = poly[j][0];
+    const yj = poly[j][1];
+    const straddles = yi > py !== yj > py;
+    if (straddles && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/**
+ * Shortest Euclidean distance from `p` to the segment `a→b` (copied from
+ * `src/world/collision.ts`).
+ * @param {[number, number]} p
+ * @param {[number, number]} a
+ * @param {[number, number]} b
+ * @returns {number} metres
+ */
+function distToSegment(p, a, b) {
+  const ax = a[0];
+  const ay = a[1];
+  const dx = b[0] - ax;
+  const dy = b[1] - ay;
+  const lenSq = dx * dx + dy * dy;
+  let t = 0;
+  if (lenSq > 0) {
+    t = ((p[0] - ax) * dx + (p[1] - ay) * dy) / lenSq;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+  }
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const ex = p[0] - cx;
+  const ey = p[1] - cy;
+  return Math.sqrt(ex * ex + ey * ey);
+}
+
+/** Axis-aligned bbox of a ring of `[x, z]` points. */
+function ringBBox(ring) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of ring) {
+    if (p[0] < minX) minX = p[0];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minZ) minZ = p[1];
+    if (p[1] > maxZ) maxZ = p[1];
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
+/** `'wood'` | `'park'` | null from OSM tags (data-format.md §Trees). */
+function woodKind(tags) {
+  if (tags.natural === 'wood' || tags.landuse === 'forest') return 'wood';
+  if (tags.leisure === 'park') return 'park';
+  return null;
+}
+
+/**
+ * Parse a tree `height` tag to metres (leading number; `ft` honored), or
+ * `undefined` when absent/unparseable.
+ * @param {Record<string, string>} tags
+ * @returns {number|undefined}
+ */
+function parseTreeHeight(tags) {
+  const height = tags && tags.height;
+  if (height === undefined || height === null || height === '') return undefined;
+  const m = /^\s*([0-9]+(?:\.[0-9]+)?)/.exec(String(height));
+  if (!m) return undefined;
+  let h = parseFloat(m[1]);
+  if (/ft\s*$/.test(String(height).trim())) h *= 0.3048;
+  return Number.isFinite(h) ? h : undefined;
+}
+
+/**
+ * Build one `[x, z, h, r]` tree quad: metres rounded to 0.1, `h` clamped to
+ * `[3, 40]`, `r = 0.35·h` clamped to `[1, 15]`.
+ * @param {number} x
+ * @param {number} z
+ * @param {number} h
+ * @returns {[number, number, number, number]}
+ */
+function emitTree(x, z, h) {
+  const hh = round1(Math.min(TREE_H_MAX, Math.max(TREE_H_MIN, h)));
+  const r = round1(Math.min(TREE_R_MAX, Math.max(TREE_R_MIN, 0.35 * hh)));
+  return [round1(x), round1(z), hh, r];
+}
+
+/**
+ * Sample a local-metre polyline every `spacing` metres, starting at 0.
+ * @param {Array<[number, number]>} pts
+ * @param {number} spacing
+ * @returns {Array<[number, number]>}
+ */
+function samplePolyline(pts, spacing) {
+  const out = [];
+  if (pts.length < 2) return out;
+  const segs = [];
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    segs.push({ a, b, len, start: total });
+    total += len;
+  }
+  if (total < 1e-9) return out;
+  for (let d = 0; d < total; d += spacing) {
+    let seg = segs[segs.length - 1];
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      if (d <= s.start + s.len) {
+        seg = s;
+        break;
+      }
+    }
+    const t = seg.len > 0 ? (d - seg.start) / seg.len : 0;
+    const tt = t < 0 ? 0 : t > 1 ? 1 : t;
+    out.push([
+      seg.a[0] + (seg.b[0] - seg.a[0]) * tt,
+      seg.a[1] + (seg.b[1] - seg.a[1]) * tt,
+    ]);
+  }
+  return out;
+}
+
+/**
+ * Project, clean, bbox-clip and area-filter assembled lat/lon rings the same
+ * way water rings are processed (data-format.md §Trees: "clipped like water").
+ * @param {Array<Array<{lon:number,lat:number}>>} latlonRings
+ * @param {LatLon} origin
+ * @param {{minX:number,minZ:number,maxX:number,maxZ:number}} clipBox
+ * @param {number} minArea
+ * @returns {Array<Array<[number, number]>>}
+ */
+function projectClipRings(latlonRings, origin, clipBox, minArea) {
+  const out = [];
+  for (const ring of latlonRings) {
+    if (ring.length < 4) continue;
+    const poly = ring.slice(0, -1).map((p) => {
+      const [x, z] = project(p.lon, p.lat, origin);
+      return [round1(x), round1(z)];
+    });
+    const cleaned = cleanRing(poly);
+    if (cleaned.length < 3) continue;
+    const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+    if (clipped.length < 3) continue;
+    if (ringArea(clipped) < minArea) continue;
+    out.push(clipped);
+  }
+  return out;
+}
+
+/**
+ * 50 m spatial hash of building footprints and road segments, plus water
+ * rings, used to drop fill trees (data-format.md §Trees).
+ * @param {Array<{poly: Array<[number, number]>}>} buildings
+ * @param {Array<{pts: Array<[number, number]>}>} roads
+ * @param {Array<Array<[number, number]>>} water
+ * @returns {(x: number, z: number) => boolean}
+ */
+function makeFillBlocked(buildings, roads, water) {
+  const bCells = new Map();
+  const rCells = new Map();
+  const push = (map, key, item) => {
+    let bucket = map.get(key);
+    if (!bucket) {
+      bucket = [];
+      map.set(key, bucket);
+    }
+    bucket.push(item);
+  };
+  for (const b of buildings) {
+    const poly = b.poly;
+    if (!poly || poly.length < 3) continue;
+    const bb = ringBBox(poly);
+    const fp = { poly, ...bb };
+    const cxMin = Math.floor(bb.minX / EXCLUDE_CELL);
+    const cxMax = Math.floor(bb.maxX / EXCLUDE_CELL);
+    const czMin = Math.floor(bb.minZ / EXCLUDE_CELL);
+    const czMax = Math.floor(bb.maxZ / EXCLUDE_CELL);
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+      for (let cz = czMin; cz <= czMax; cz++) {
+        push(bCells, `${cx},${cz}`, fp);
+      }
+    }
+  }
+  for (const r of roads) {
+    const pts = r.pts;
+    if (!pts || pts.length < 2) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const minX = Math.min(a[0], b[0]) - ROAD_CLEAR_M;
+      const maxX = Math.max(a[0], b[0]) + ROAD_CLEAR_M;
+      const minZ = Math.min(a[1], b[1]) - ROAD_CLEAR_M;
+      const maxZ = Math.max(a[1], b[1]) + ROAD_CLEAR_M;
+      const seg = { a, b };
+      const cxMin = Math.floor(minX / EXCLUDE_CELL);
+      const cxMax = Math.floor(maxX / EXCLUDE_CELL);
+      const czMin = Math.floor(minZ / EXCLUDE_CELL);
+      const czMax = Math.floor(maxZ / EXCLUDE_CELL);
+      for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cz = czMin; cz <= czMax; cz++) {
+          push(rCells, `${cx},${cz}`, seg);
+        }
+      }
+    }
+  }
+  const waterIndexed = water.map((ring) => ({ ring, bbox: ringBBox(ring) }));
+  return (x, z) => {
+    for (const w of waterIndexed) {
+      const bb = w.bbox;
+      if (x < bb.minX || x > bb.maxX || z < bb.minZ || z > bb.maxZ) continue;
+      if (pointInPolygon([x, z], w.ring)) return true;
+    }
+    const key = `${Math.floor(x / EXCLUDE_CELL)},${Math.floor(z / EXCLUDE_CELL)}`;
+    const fps = bCells.get(key);
+    if (fps) {
+      for (const fp of fps) {
+        if (
+          x >= fp.minX &&
+          x <= fp.maxX &&
+          z >= fp.minZ &&
+          z <= fp.maxZ &&
+          pointInPolygon([x, z], fp.poly)
+        ) {
+          return true;
+        }
+      }
+    }
+    const segs = rCells.get(key);
+    if (segs) {
+      for (const s of segs) {
+        if (distToSegment([x, z], s.a, s.b) < ROAD_CLEAR_M) return true;
+      }
+    }
+    return false;
+  };
+}
+
+/**
+ * Jittered-grid fill of one wood/park ring (data-format.md §Trees).
+ * PRNG is consumed in grid order (z then x) for every cell: two jitter
+ * samples always, plus one height sample when the point is kept.
+ * @param {Array<[number, number]>} ring
+ * @param {number} step
+ * @param {() => number} rand
+ * @param {(x: number, z: number) => boolean} blocked
+ * @returns {Array<[number, number, number, number]>}
+ */
+function fillRing(ring, step, rand, blocked) {
+  const trees = [];
+  if (ring.length < 3) return trees;
+  const bb = ringBBox(ring);
+  const amp = FILL_JITTER * step;
+  for (let gz = bb.minZ; gz <= bb.maxZ + 1e-9; gz += step) {
+    for (let gx = bb.minX; gx <= bb.maxX + 1e-9; gx += step) {
+      const x = round1(gx + (rand() * 2 - 1) * amp);
+      const z = round1(gz + (rand() * 2 - 1) * amp);
+      if (!pointInPolygon([x, z], ring)) continue;
+      if (blocked(x, z)) continue;
+      trees.push(emitTree(x, z, 6 + rand() * 8));
+    }
+  }
+  return trees;
+}
+
+/**
+ * Thin fill trees so the file stays at `cap`: keep every k-th fill tree
+ * (`k = ceil(n / cap)`), never drop mapped nodes/rows.
+ * @param {Array<[number, number, number, number]>} mapped
+ * @param {Array<[number, number, number, number]>} fills
+ * @param {number} cap
+ * @returns {{trees: Array<[number, number, number, number]>, filled: number, dropped: number}}
+ */
+function thinFills(mapped, fills, cap) {
+  const n = mapped.length + fills.length;
+  if (!(cap > 0) || n <= cap) {
+    return { trees: mapped.concat(fills), filled: fills.length, dropped: 0 };
+  }
+  const k = Math.ceil(n / cap);
+  const kept = [];
+  let dropped = 0;
+  for (let i = 0; i < fills.length; i++) {
+    if (i % k === 0) kept.push(fills[i]);
+    else dropped++;
+  }
+  return { trees: mapped.concat(kept), filled: kept.length, dropped };
+}
+
+/**
  * Convert an Overpass `[out:json]` response into a `CityData` object.
  * @param {{elements: unknown[]}} json Overpass response (`out geom;`)
  * @param {{origin: LatLon, bbox?: [number,number,number,number],
  *   lang?: string,
  *   dem?: {elevationAt(lat:number, lon:number): number},
- *   step?: number}} opts
+ *   step?: number,
+ *   treeCap?: number}} opts
  * @returns {CityData} city model (see `src/data/types.ts`)
  */
 export function convertOverpass(json, opts) {
   const { origin } = opts;
   const bbox = opts.bbox ?? DEFAULT_BBOX;
   const { lang, dem, step } = opts;
+  const treeCap = opts.treeCap !== undefined ? opts.treeCap : TREE_CAP;
   const buildings = [];
   const roads = [];
   const places = [];
   const rivers = [];
   const seenPlace = new Set();
+  const treeNodes = [];
+  const treeRows = [];
+  const woodWays = [];
+  const parkWays = [];
   const elements = Array.isArray(json?.elements) ? json.elements : [];
 
   let skippedRelations = 0;
@@ -416,6 +762,39 @@ export function convertOverpass(json, opts) {
     if (ringArea(clipped) < 25) continue; // degenerate / sliver
     water.push(clipped);
   }
+
+  // Woods / forests / parks: standalone ways plus relation outer members,
+  // assembled and clipped like water (data-format.md §Trees).
+  for (const el of elements) {
+    if (!el || typeof el !== 'object') continue;
+    const tags = el.tags || {};
+    const kind = woodKind(tags);
+    if (!kind) continue;
+    const dest = kind === 'park' ? parkWays : woodWays;
+    if (el.type === 'way') {
+      dest.push({ id: el.id, geometry: el.geometry });
+    } else if (el.type === 'relation') {
+      const members = Array.isArray(el.members) ? el.members : [];
+      members.forEach((m, k) => {
+        if (m && typeof m === 'object' && m.role === 'outer') {
+          dest.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        }
+      });
+    }
+  }
+  const woodRings = projectClipRings(
+    assembleRingsInternal(woodWays).rings,
+    origin,
+    clipBox,
+    WOOD_MIN_AREA,
+  );
+  const parkRings = projectClipRings(
+    assembleRingsInternal(parkWays).rings,
+    origin,
+    clipBox,
+    WOOD_MIN_AREA,
+  );
+  const woods = woodRings.concat(parkRings);
 
   const buildEntry = (id, tags, poly) => {
     const name = pickName(tags, lang);
@@ -479,6 +858,8 @@ export function convertOverpass(json, opts) {
           if (!last || last[0] !== xy[0] || last[1] !== xy[1]) pts.push(xy);
         }
         if (pts.length >= 2) rivers.push(pts);
+      } else if (tags.natural === 'tree_row') {
+        treeRows.push(el);
       }
     } else if (el.type === 'relation') {
       if (tags.building !== undefined && tags['type'] === 'multipolygon') {
@@ -499,6 +880,9 @@ export function convertOverpass(json, opts) {
         if (emitted === 0) skippedRelations++; // ring assembly across ways not done
       }
     } else if (el.type === 'node') {
+      if (tags.natural === 'tree') {
+        treeNodes.push(el);
+      }
       const isPlace =
         tags.place !== undefined ||
         tags.railway === 'station' ||
@@ -513,6 +897,43 @@ export function convertOverpass(json, opts) {
       }
     }
   }
+
+  // Trees (data-format.md §Trees): mapped nodes, tree_row samples, then a
+  // seeded jittered-grid fill of every wood/forest ring and every park ring.
+  const rand = mulberry32(TREE_PRNG_SEED);
+  const mappedTrees = [];
+  for (const el of treeNodes) {
+    const [x, z] = toXY(el, origin);
+    const tagged = parseTreeHeight(el.tags || {});
+    const h = tagged !== undefined ? tagged : 6 + rand() * 8;
+    mappedTrees.push(emitTree(x, z, h));
+  }
+  for (const el of treeRows) {
+    const pts = [];
+    for (const p of el.geometry || []) {
+      const xy = toXY(p, origin);
+      const last = pts[pts.length - 1];
+      if (!last || last[0] !== xy[0] || last[1] !== xy[1]) pts.push(xy);
+    }
+    if (pts.length >= 2 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
+      pts.pop();
+    }
+    const tagged = parseTreeHeight(el.tags || {});
+    for (const [x, z] of samplePolyline(pts, TREE_ROW_SPACING)) {
+      const h = tagged !== undefined ? tagged : 6 + rand() * 8;
+      mappedTrees.push(emitTree(x, z, h));
+    }
+  }
+  const blocked = makeFillBlocked(buildings, roads, water);
+  const fillTrees = [];
+  for (const ring of woodRings) {
+    fillTrees.push(...fillRing(ring, WOOD_FILL_STEP, rand, blocked));
+  }
+  for (const ring of parkRings) {
+    fillTrees.push(...fillRing(ring, PARK_FILL_STEP, rand, blocked));
+  }
+  const thinned = thinFills(mappedTrees, fillTrees, treeCap);
+  const trees = thinned.trees;
 
   let terrain;
   let waterLevels;
@@ -538,6 +959,8 @@ export function convertOverpass(json, opts) {
     places,
     ...(water.length > 0 ? { water } : {}),
     ...(rivers.length > 0 ? { rivers } : {}),
+    ...(trees.length > 0 ? { trees } : {}),
+    ...(woods.length > 0 ? { woods } : {}),
     ...(terrain ? { terrain } : {}),
     ...(waterLevels ? { waterLevels } : {}),
   };
@@ -549,6 +972,16 @@ export function convertOverpass(json, opts) {
   });
   Object.defineProperty(result, 'skippedOpenWaterChains', {
     value: droppedOpenWaterChains,
+    writable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(result, 'treesFilled', {
+    value: thinned.filled,
+    writable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(result, 'treesDropped', {
+    value: thinned.dropped,
     writable: false,
     enumerable: false,
   });

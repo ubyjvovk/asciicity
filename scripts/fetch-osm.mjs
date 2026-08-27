@@ -51,6 +51,14 @@ function buildQuery(bbox, timeoutSec = 180) {
   relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
   relation["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
   way["waterway"="river"](${minLat},${minLon},${maxLat},${maxLon});
+  node["natural"="tree"](${minLat},${minLon},${maxLat},${maxLon});
+  way["natural"="tree_row"](${minLat},${minLon},${maxLat},${maxLon});
+  way["natural"="wood"](${minLat},${minLon},${maxLat},${maxLon});
+  way["landuse"="forest"](${minLat},${minLon},${maxLat},${maxLon});
+  way["leisure"="park"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["natural"="wood"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["landuse"="forest"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["leisure"="park"](${minLat},${minLon},${maxLat},${maxLon});
 );
 out geom;`;
 }
@@ -204,7 +212,9 @@ async function main() {
       city.roads.length
     } roads, ${city.places.length} places, ${city.water?.length ?? 0} water, ${
       city.rivers?.length ?? 0
-    } rivers`;
+    } rivers, ${city.trees?.length ?? 0} trees (${city.treesFilled ?? 0} filled, ${
+      city.treesDropped ?? 0
+    } dropped)`;
     const terrainPart = city.terrain
       ? `, terrain ${city.terrain.cols}x${city.terrain.rows} @ ${city.terrain.step} m (${dem?.voids ?? 0} voids)`
       : '';
