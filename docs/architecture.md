@@ -503,10 +503,11 @@ pointer-lock clicks except their own controls):
 - `#mini` — a new standalone **top-left** panel holding the minimap canvas
   (`#minimap`, 180 px; 120 px under the 700 px breakpoint). `Minimap` itself
   is unchanged; only its mount moves.
-- `#gear` — a 40×40 px "⚙" button, **bottom-right**, on every platform. It
-  opens the pause/settings menu (below) — on desktop that means exiting
-  pointer lock (`document.exitPointerLock()`) so the existing resume overlay
-  shows; on touch it just shows the overlay. It stops `pointerdown`/`click`
+- `#gear` — a 40×40 px "⚙" button, **bottom-right**, **touch devices only**
+  (`'ontouchstart' in window || navigator.maxTouchPoints > 0`, the same test
+  `TouchControls` uses; `display: none` otherwise — revised 2026-08-27: on
+  desktop the pointer lock and the Esc overlay make it unreachable, and Esc
+  is the path). It opens the pause/settings menu (below). It stops `pointerdown`/`click`
   propagation so `TouchControls` never sees it.
 - `#credits` — a one-line footer, **bottom-centre**, 11 px monospace, 55 %
   opacity: `built by @ubyjvovk · github.com/ubyjvovk/asciicity`, the whole
@@ -603,6 +604,33 @@ the city's collision) and teleports: `state.x/z/yaw` set, `state.y =
 groundAt + EYE_HEIGHT`, `fly = false`, toast `→ <LABEL>`, overlay hidden
 and pointer lock re-requested on desktop. `history.replaceState` sets
 `at=<key>` so the URL stays shareable.
+
+### 4.14 Trees (wave 7)
+
+Data: `CityData.trees` / `CityData.woods` (types.ts; producer rules in
+data-format.md §Trees). Runtime:
+
+```ts
+// src/world/trees.ts
+export interface TreeInstances { count: number; matrices: Float32Array /* 16·count, column-major like THREE.Matrix4 */; colors: Float32Array /* 3·count, linear rgb */ }
+export function buildTreeInstances(trees: readonly [number, number, number, number][], heightAt: HeightFn, seed = 5): TreeInstances   // pure
+export class TreeField { constructor(trees, heightAt: HeightFn); readonly object: THREE.Object3D; readonly count: number }  // browser: two InstancedMeshes
+```
+
+- Per tree: `y0 = heightAt(x, z)`; **canopy** = `IcosahedronGeometry(1, 0)`
+  scaled `(r, 0.8·r, r)` centred at `(x, y0 + h − 0.8·r, z)`; **trunk** =
+  `CylinderGeometry(0.18, 0.28, 1, 5)` scaled to height `h − 0.8·r` with its
+  base at `y0`. Two `InstancedMesh`es (canopies, trunks) with
+  `MeshLambertMaterial({ vertexColors: false })`; canopy `instanceColor`
+  from a seeded olive/green range — HSL hue `95 + 35·rand`°, saturation
+  `0.45 + 0.25·rand`, lightness `0.22 + 0.16·rand` (`THREE.Color.setHSL`,
+  then `.convertSRGBToLinear()`); trunk colour fixed `0x4a3524`. No collision,
+  no per-frame work (`update` is not needed; the field is static).
+  `main.ts` adds `new TreeField(city.trees, groundAt).object` when
+  `city.trees?.length`, before the buildings. Budget: ≤ 40 000 instances =
+  two draw calls.
+- Minimap (§Colours in docs/minimap.md): `woods` rings filled `#0b2f18` in
+  the layer **between water and buildings**.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 

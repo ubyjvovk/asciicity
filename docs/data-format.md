@@ -83,6 +83,9 @@ Rules every producer must follow and `validateCity` must enforce:
 - `id` unique within each array.
 - `water` (optional): array of rings obeying the `poly` rules; may be absent or empty.
 - `rivers` (optional): array of polylines (≥ 2 finite points each); may be absent or empty.
+- `trees` (optional): array of `[x, z, h, r]` with finite numbers, `3 ≤ h ≤ 40`,
+  `1 ≤ r ≤ 15` (error paths `trees`, `trees[i]`). May be absent or empty.
+- `woods` (optional): rings obeying the `poly` rules (error path `woods[i]`).
 - `terrain` (optional): `x0`, `z0`, `datum` finite; `step > 0`; `cols ≥ 2`,
   `rows ≥ 2` integers; `heights` is an array of exactly `cols * rows` finite
   numbers (row-major, row 0 = north edge). Metres relative to `datum`,
@@ -155,6 +158,28 @@ name (keep the first).
 place is the OSM `name` tag. With `--lang <code>` the converter prefers
 `name:<code>` and falls back to `name` (both trimmed). London is fetched
 without `--lang`; Kyiv with `--lang en`.
+
+## Trees (`scripts/osm-convert.mjs`, wave 7)
+
+Overpass union gains `node["natural"="tree"]`, `way["natural"="tree_row"]`,
+`way["natural"="wood"]`, `way["landuse"="forest"]`, `way["leisure"="park"]`
+and the `relation[...]` forms of the last three (outer members assembled and
+clipped like water). Emitted as:
+
+- `woods`: the assembled, bbox-clipped wood/forest/park rings (for the minimap).
+- `trees`: one entry per `natural=tree` node; one every 8 m along each
+  `tree_row`; plus a **seeded jittered-grid fill** of every wood/forest ring
+  (one tree per 150 m²: grid step `√150 ≈ 12.2 m`, each point jittered
+  ±0.45·step) and of every park ring (one per 400 m², step 20 m). Fill points
+  inside any building footprint, within 6 m of any road centre-line, or
+  inside any water ring are dropped (bucket buildings/roads into a 50 m grid
+  first — the brute-force product is too slow). PRNG: `mulberry32(42)`
+  (copy the function; scripts cannot import TS), consumed in ring order then
+  grid order, so the output is byte-stable. Per tree: `h` from the node's
+  `height` tag when present, else `6 + rand·8` (6–14 m); `r = 0.35·h`.
+  Hard cap **40 000 trees per file**: above it, keep every k-th fill tree
+  (`k = ceil(n / 40000)`), never drop mapped nodes; the summary line reports
+  `T trees (F filled, D dropped)`.
 
 ## Terrain (`scripts/dem.mjs`, wave 5)
 

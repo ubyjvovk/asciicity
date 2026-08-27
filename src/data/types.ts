@@ -109,6 +109,18 @@ export interface CityData {
    */
   rivers?: Vec2[][];
   /**
+   * Optional trees as flat quads `[x, z, h, r]` — trunk base in local metres,
+   * total height `h` (m), canopy radius `r` (m). Produced by the converter
+   * from OSM tree nodes/rows and wood/park fills (data-format.md §Trees).
+   * Absent or empty when the producer has none. Added 2026-08-27 (wave 7).
+   */
+  trees?: [number, number, number, number][];
+  /**
+   * Optional woodland/park rings (same ring rules as `water`) — the minimap
+   * paints them; the 3D world uses `trees`. Added 2026-08-27 (wave 7).
+   */
+  woods?: Vec2[][];
+  /**
    * Optional height grid. Absent → the world is flat (`y = 0`). When present
    * every builder drapes geometry over it via a `HeightFn` (architecture.md
    * §4.9). Added 2026-08-26 (wave 5).
