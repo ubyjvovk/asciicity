@@ -22,3 +22,8 @@ export function mountCrt(parent: HTMLElement): HTMLElement {
   parent.append(crt);
   return crt;
 }
+
+/** Show or hide a mounted CRT overlay without re-creating it. */
+export function setCrt(el: HTMLElement, on: boolean): void {
+  el.style.display = on ? '' : 'none';
+}

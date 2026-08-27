@@ -13,18 +13,21 @@ body {
   overflow: hidden;
 }
 
-/* Canvas fills the viewport. */
+/* Canvas fills the viewport. `position` + `z-index: 0` puts it in the same
+   stacking context as the HUD / gear so WebGL compositing cannot steal taps
+   from the ⚙ button. */
 #view {
   display: block;
+  position: relative;
+  z-index: 0;
   width: 100vw;
   height: 100vh;
 }
 
 /* NAVIGATION panel: fixed 320 px wide, top-right, monospace green on black
-   with a 1 px dark-green border. Grows downward to fit the HUD rows plus
-   the optional minimap canvas (display:block, 8 px top margin via .minimap).
-   Display-only: `pointer-events: none` lets look-drags pass through to the
-   canvas, so the panel never intercepts pointer input. */
+   with a 1 px dark-green border. Display-only: `pointer-events: none` lets
+   look-drags pass through to the canvas, so the panel never intercepts
+   pointer input. The minimap lives in its own `#mini` panel (top-left). */
 #hud {
   position: fixed;
   top: 0;
@@ -38,24 +41,101 @@ body {
   border: 1px solid var(--hud-border);
   box-sizing: border-box;
   pointer-events: none;
+  z-index: 4;
 }
 
-#hud .minimap {
+/* Standalone minimap panel, top-left. The canvas keeps a 180 px backing
+   store; only the CSS box shrinks under the compact breakpoint. */
+#mini {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 180px;
+  height: 180px;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 4;
+}
+
+#mini .minimap {
   display: block;
+  margin-top: 0;
+  width: 180px;
+  height: 180px;
 }
 
-/* Compact layout on small screens: shrink the panel so it does not cover the
-   right side of the viewport on a phone. The minimap keeps its 180 px backing
-   store; only its CSS box shrinks. */
+/* ⚙ settings button: bottom-right, every platform (above the overlay so it
+   stays clickable while the pause menu is up). */
+#gear {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0;
+  background: #000;
+  color: var(--hud-green);
+  font-size: 22px;
+  line-height: 38px;
+  text-align: center;
+  border: 1px solid var(--hud-border);
+  box-sizing: border-box;
+  cursor: pointer;
+  z-index: 30;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transform: translateZ(0);
+}
+
+#gear:hover {
+  background: #0a1a0d;
+}
+
+/* Credits footer: bottom-centre, one line, 55 % opacity. max-width keeps it
+   off the gear (right) and the toast (left). */
+#credits {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 120px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+  color: var(--hud-green);
+  font-family: monospace;
+  font-size: 11px;
+  opacity: 0.55;
+  text-decoration: none;
+  z-index: 8;
+  pointer-events: auto;
+}
+
+#credits:hover {
+  opacity: 0.9;
+}
+
+/* Compact layout on small screens: shrink the HUD so it does not cover the
+   right side of a phone viewport. `#mini` becomes 120 px. */
 @media (max-width: 700px) {
   #hud {
     width: 176px;
     padding: 6px 8px;
   }
 
-  #hud .minimap {
-    width: 90px;
-    height: 90px;
+  #mini {
+    width: 120px;
+    height: 120px;
+  }
+
+  #mini .minimap {
+    width: 120px;
+    height: 120px;
   }
 }
 

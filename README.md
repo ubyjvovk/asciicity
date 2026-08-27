@@ -31,7 +31,9 @@ URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
 - `?seed=N` — seed passed to `syntheticCity(seed)`.
 - `?cell=WxH` — override the ASCII cell size in pixels, e.g. `?cell=8x16`.
 - `?crt=0` — disable the CRT scanline / vignette overlay (on by default).
-- `?minimap=0` — disable the heading-up minimap under the HUD rows (on by default).
+- `?minimap=0` — hide the heading-up minimap (top-left panel; on by default).
+- `?hud=0` — hide the NAVIGATION panel (on by default).
+- `?render=<id>` — start in a given look (`ascii`, `gloom`, `solarized`, …).
 - `?at=<name>` — spawn at a landmark preset (`bank`, `stpauls`, `gherkin`,
   `monument`, `tower`, `barbican`, `liverpoolst`, `leadenhall`, `bigben`,
   `parliament`, `trafalgar`, `embankment`, `walkietalkie`, `lloyds`) or at a coordinate
@@ -45,10 +47,17 @@ URL parameters (documented in [`docs/integration.md`](docs/integration.md)):
 See [`docs/integration.md`](docs/integration.md) for the full parameter list
 and preset table.
 
-The NAVIGATION panel shows SECTOR, WORLD position, BEARING with 8-way
-compass, ZONE (nearest named road or place), LANDMARK (named building in
-view, or `-`), FPS (1 s moving average), and a heading-up minimap of nearby
-streets.
+The NAVIGATION panel (top-right) shows SECTOR, WORLD position, BEARING with
+8-way compass, ZONE (nearest named road or place), LANDMARK (named building
+in view, or `-`), FPS (1 s moving average). A heading-up minimap of nearby
+streets sits top-left. Press `H` / `M` to hide the HUD / minimap; the ⚙
+button (bottom-right, including on phones) opens the settings menu
+(HUD / MINIMAP / CRT / STYLE / FLY toggles, copy-link, switch city).
+
+## Credits / rebranding
+
+The footer author and repo URL live in [`src/credits.ts`](src/credits.ts) —
+edit that file to rebrand.
 
 ## Tests
 

@@ -11,9 +11,15 @@ composition.
 The app runs a single asynchronous `main()` when the module executes.
 
 1. **Locate DOM.** Find `#view` (canvas), `#hud` (panel root), `#overlay`
-   (title/prompt). Any missing element is a hard error.
+   (title/prompt). Any missing element is a hard error. `#gear` is in
+   `index.html`; `#credits` and `#mini` are created here.
 2. **Parse URL** (`window.location.search`) into `UrlOptions` — see
-   [URL parameters](#url-parameters).
+   [URL parameters](#url-parameters). Then `loadSettings(localStorage,
+   searchParams)` (T-0060): URL wins, `localStorage['asciicity.settings']`
+   fills gaps, defaults last. Malformed JSON and private-mode throws are
+   ignored. The merged `hud` / `minimap` / `crt` / `render` / `city` overlay
+   the URL options; `history.replaceState` mirrors the four toggle keys
+   (`1`/`0`, omitted when they equal the default).
 3. **Choose city.** `?synthetic=1` skips straight to `syntheticCity(seed, 12, hills)`
    (`?hills=1` toggles the deterministic heightfield). With a **valid**
    `?city=` (matched by `cityById`), `loadCity(BASE_URL + info.file)` for that
@@ -59,11 +65,12 @@ The app runs a single asynchronous `main()` when the module executes.
    — `opts.render` comes from `?render=` (with `?theme=` / `?gloom=1` as
    aliases; unknown → `ascii`). `R` cycles forward, `Shift+R` backward; a
    `#toast` shows `RENDER: <LABEL>` for 1.5 s on every change.
-   When `minimap` is enabled (default), append a `<canvas id="minimap">` to
-   `#hud` from `main.ts` (after `Hud` has already inserted the title, rows,
-   and help line — the canvas is not in `index.html` so it stays below those
-   nodes) and construct `new Minimap(canvas, city)`. When `crt` is enabled
-   (default), `mountCrt(document.body)`.
+   Always append `<div id="mini"><canvas id="minimap"></canvas></div>` to
+   `document.body` and construct `new Minimap(canvas, city)` (T-0060: the
+   panel is created even when off). Hide `#mini` with `display: none` when
+   `settings.minimap` is false. Always `mountCrt(document.body)` and
+   `setCrt(el, settings.crt)` so the CRT overlay can be toggled without
+   re-mounting. `#hud` is hidden the same way when `settings.hud` is false.
 6. **Pick a spawn.**
    `resolveSpawn(opts.at, city.origin, collision.blocked, city, cityInfo.defaultSpawn)`
    with `?synthetic=1` short-circuiting to `(0, 0, −π/2)`. The city's own
@@ -85,9 +92,14 @@ The app runs a single asynchronous `main()` when the module executes.
    `CHOOSE A CITY`); a click (or tap) hides it and requests pointer lock on
    the canvas inside try/catch, because pointer lock rejects on touch
    devices. On `pointerlockchange` losing the lock (Escape), the overlay
-   reappears with class `resume`, text `CLICK TO RESUME`, and the **pause
-   menu** — `COPY LINK TO HERE` and `SWITCH CITY` populated into `#menu`
-   (see [City picker & pause menu](#city-picker--pause-menu)).
+   reappears with class `resume`, text `CLICK TO RESUME`, and the **pause /
+   settings menu** populated into `#menu` (HUD / MINIMAP / CRT / STYLE / FLY
+   / LANDMARKS stub / COPY LINK TO HERE / SWITCH CITY — see
+   [City picker & pause menu](#city-picker--pause-menu)). The ⚙ `#gear`
+   button (bottom-right, every platform) also opens this overlay: it calls
+   `document.exitPointerLock()` on desktop so the existing resume path
+   fires, and just shows the overlay on touch. Gear `pointerdown`/`click`
+   stop propagation so `TouchControls` never sees the tap.
 10. **Frame loop.** See below.
 
 **Sky cadence.** The sky is built once during startup (`makeSky`, with the
@@ -134,7 +146,9 @@ state.z)` so the discs stay 1200 m from the player (children keep
   - `mode` — `state.fly ? 'FLY' : undefined` (MODE row between LANDMARK and FPS).
   Then
   `zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined`,
-  followed by `hud.update(hudValues)` and, when enabled, `minimap.update(state)`.
+  followed by `hud.update(hudValues)` when `settings.hud` is on, and
+  `minimap.update(state)` when `settings.minimap` is on. Hidden panels skip
+  their per-frame update.
 - After the first successful frame, set `api.ready = true`.
 
 The `resolveMove` closure is created once (captures `collision`) so the loop
@@ -151,9 +165,9 @@ per-frame allocations are made inside `main.ts`.
 | `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
 | `cell`      | `?cell=8x16`   | Overrides every style's cell size (`cellW × cellH` in pixels). |
-| `crt`       | `?crt=0`       | Disable the CRT scanline/vignette overlay (default on).    |
-| `minimap`   | `?minimap=0`   | Disable the heading-up minimap under the HUD (default on). |
-| `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). |
+| `crt`       | `?crt=0`       | Hide the CRT scanline/vignette overlay (default on; toggle from the ⚙ menu). |
+| `minimap`   | `?minimap=0`   | Hide the top-left `#mini` panel (default on). The canvas is still created. `M` toggles. |
+| `hud`       | `?hud=0`       | Hide the NAVIGATION panel and skip its per-frame updates; the rest of the app still runs (default on). `H` toggles. |
 | `render`    | `?render=solarized` | Start render style (`ascii`, `gloom`, `solarized`, `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`, `edges`, `hatch`, `matrix`). Unknown or absent → `ascii`. Wins over `theme` / `gloom`. |
 | `gloom`     | `?gloom=1`     | Alias for `?render=gloom` when `render` is absent. Ignored when `theme` or `render` is present. |
 | `theme`     | `?theme=solarized` | Alias for `?render=`: `cyber`/`0` → `ascii`, `gloom`/`1` → `gloom`, `solarized`/`2` → `solarized`. `render` wins when both are present. |
@@ -250,22 +264,47 @@ first line and a smaller `<blurb>` below. Keys `1`…`9` select by index.
 Choosing calls `history.replaceState` with the current query plus
 `city=<id>` (every other parameter kept, so `?render=gloom` survives the
 choice) and boots that city. Data loading happens only after the choice.
-`?synthetic=1` or a valid `?city=` skips the picker entirely.
+`?synthetic=1` or a valid `?city=` skips the picker entirely. A city id
+remembered in `localStorage` also skips the picker when the URL has no
+`city` (URL still wins). **SWITCH CITY** clears the stored city so the
+picker comes back.
 
-### Pause menu
+### Pause / settings menu
 
-Losing pointer lock (Esc) shows the resume overlay (`CLICK TO RESUME`) with
-two buttons in `#menu`, both of which `stopPropagation()` on click so the
-overlay's own click-to-resume does not fire (clicking anywhere else resumes
-as before):
+Losing pointer lock (Esc) **or** clicking the ⚙ `#gear` button shows the
+resume overlay (`CLICK TO RESUME`) with these rows in `#menu` (architecture
+§4.12), all of which sit inside the container-level `stopPropagation()`
+guard so the overlay's own click-to-resume does not fire:
 
+- **HUD: ON/OFF** — toggles `#hud` (`display: none`) and skips its per-frame
+  update. Same path as the `H` key.
+- **MINIMAP: ON/OFF** — toggles `#mini`. Same path as the `M` key.
+- **CRT: ON/OFF** — `setCrt` on the already-mounted overlay.
+- **STYLE: \<LABEL\> ▸** — `StyleRenderer.next(1)` (same as `R`).
+- **FLY: ON/OFF** — flips `state.fly` (same as `F`; `stepPlayer` stays
+  pure).
+- **LANDMARKS ▸** — stub for T-0061 (does nothing yet).
 - **COPY LINK TO HERE** — calls `buildShareUrl(window.location.href,
   city.id, state, city.origin)`, best-effort `navigator.clipboard.writeText`,
   copies the URL into a read-only `<input id="share">` under the buttons and
   selects it, and shows `COPIED` for 1.5 s.
-- **SWITCH CITY** — navigates to `location.pathname` plus the current query
-  minus `city` and `at` (i.e. back to the picker; empty search → just the
-  pathname).
+- **SWITCH CITY** — writes `settings.city = null` to storage, then
+  navigates to `location.pathname` plus the current query minus `city` and
+  `at` (i.e. back to the picker; empty search → just the pathname).
+
+Every HUD / minimap / CRT / style change is written to
+`localStorage['asciicity.settings']` as `{ hud, minimap, crt, render, city }`
+and mirrored onto the URL (`hud`/`minimap`/`crt`/`render` only) via
+`history.replaceState`, so COPY LINK TO HERE carries the live toggles.
+`window.__asciicity.settings` is the live object. URL parameters still win
+on the next boot; storage fills whatever the URL left unset.
+
+### Credits
+
+`src/credits.ts` exports `CREDITS = { author, url }` — the only file to
+edit to rebrand. `main.ts` mounts `<a id="credits" href target="_blank"
+rel="noopener">built by @ubyjvovk · github.com/ubyjvovk/asciicity</a>` as a
+bottom-centre footer. Clicks stop propagation.
 
 ### Share URL format
 
@@ -316,8 +355,10 @@ ground catches the player.
 
 | Key | Effect                                   |
 |-----|------------------------------------------|
-| `R` | Next render style (`STYLE_ORDER`). A toast `#toast` shows `RENDER: <LABEL>` for 1.5 s. |
+| `R` | Next render style (`STYLE_ORDER`). A toast `#toast` shows `RENDER: <LABEL>` for 1.5 s. Persisted. |
 | `Shift+R` | Previous render style. |
+| `H` | Toggle the NAVIGATION panel (`#hud`). Ignored while the city picker is open; no key-repeat. Persisted. |
+| `M` | Toggle the minimap panel (`#mini`). Same rules as `H`. |
 | `1`…`9` | On the start picker only: choose city by index. |
 | `F` | Toggle fly mode (noclip flight).         |
 | `Space` / `C` | Climb / descend while flying (`Space` also `preventDefault`s). |
@@ -338,6 +379,7 @@ interface Window {
     city: string;      // 'london' | 'kyiv' | 'synthetic' (added T-0045)
     render: string;    // live style id (`ascii`, `gloom`, …) — updates on R
     styles: string[];  // ids in STYLE_ORDER (R-cycle order)
+    settings: Settings; // live { hud, minimap, crt, render, city } (T-0060)
     cols: number;      // StyleRenderer.cols after the last resize / style change
     rows: number;      // StyleRenderer.rows after the last resize / style change
   };

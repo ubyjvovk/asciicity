@@ -33,12 +33,20 @@ import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { StyleRenderer } from './render/post';
 import { STYLE_ORDER } from './render/style';
 import { STYLES } from './render/styles/index';
-import { mountCrt } from './render/crt';
+import { mountCrt, setCrt } from './render/crt';
 import { Hud, type HudValues } from './hud/hud';
 import { buildShareUrl } from './hud/share';
 import { Minimap } from './hud/minimap';
 import { ZoneIndex } from './hud/zone';
 import { formatAlt, formatBearing, formatWorld, sectorOf } from './hud/format';
+import { CREDITS } from './credits';
+import {
+  SETTINGS_KEY,
+  applySettingsToUrl,
+  loadSettings,
+  saveSettings,
+  type Settings,
+} from './settings';
 
 declare global {
   interface Window {
@@ -56,6 +64,8 @@ declare global {
       render: string;
       /** Style ids in `R`-cycle order. */
       styles: readonly string[];
+      /** Live UI settings (HUD / minimap / CRT / render / city). */
+      settings: Settings;
       cols: number;
       rows: number;
     };
@@ -277,17 +287,67 @@ async function main(): Promise<void> {
 
   const opts = parseUrlOptions(window.location.search);
 
+  // Persistence (T-0060): URL wins, localStorage fills gaps, defaults last.
+  // Private-mode browsers throw on `localStorage` access — treat that as empty.
+  let storage: Pick<Storage, 'getItem' | 'setItem'>;
+  try {
+    const probe = window.localStorage;
+    probe.getItem(SETTINGS_KEY);
+    storage = probe;
+  } catch {
+    storage = { getItem: () => null, setItem: () => undefined };
+  }
+  const settings = loadSettings(
+    storage,
+    new URLSearchParams(window.location.search),
+  );
+  opts.hud = settings.hud;
+  opts.minimap = settings.minimap;
+  opts.crt = settings.crt;
+  opts.render = settings.render;
+  opts.city = settings.city;
+
+  /** Mirror the four toggle keys onto the URL so COPY LINK carries them. */
+  const persist = (): void => {
+    try {
+      saveSettings(storage, settings);
+    } catch {
+      // private mode / quota
+    }
+    try {
+      const next = applySettingsToUrl(window.location.search, settings);
+      const dest = window.location.pathname + next;
+      if (dest !== window.location.pathname + window.location.search) {
+        history.replaceState(null, '', dest);
+      }
+    } catch {
+      // ignore
+    }
+  };
+  persist();
+
+  mountCredits(document.body);
+
   // City picker (T-0046): with neither `?synthetic=1` nor a valid `?city=` the
   // start overlay becomes a chooser — one button per `CITIES` entry, keys
   // 1…9. On a choice the current query plus `city=<id>` is written to the URL
   // via `history.replaceState` (every other parameter kept), then data loading
   // and the rest of the boot continue below.
+  let pickerOpen = false;
   const needsPicker = !opts.synthetic && !cityById(opts.city);
   if (needsPicker) {
+    pickerOpen = true;
     opts.city = (await drawCityPicker(overlay, menuRoot)).id;
+    pickerOpen = false;
+    settings.city = opts.city;
+    persist();
   }
 
   const { city, id: cityId, info: cityInfo } = await chooseCity(opts);
+  if (cityById(cityId)) {
+    settings.city = cityId;
+    persist();
+  }
 
   const renderer = makeRenderer(canvas);
   const scene = makeScene();
@@ -364,21 +424,21 @@ async function main(): Promise<void> {
       : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE',
   );
 
-  // `?hud=0` hides the panel (display-only) and skips its per-frame updates,
-  // but the rest of the app — world, controls, minimap — still runs.
-  if (!opts.hud) hudRoot.style.display = 'none';
+  // Panels are always created; `?hud=0` / `?minimap=0` (and the matching
+  // toggles) hide them with `display: none` and skip their per-frame updates.
+  if (!settings.hud) hudRoot.style.display = 'none';
 
-  // Canvas is created here (not in index.html) so it lands after Hud's
-  // title / rows / help. Disabled entirely on `?minimap=0`.
-  let minimap: Minimap | undefined;
-  if (opts.minimap) {
-    const miniCanvas = document.createElement('canvas');
-    miniCanvas.id = 'minimap';
-    hudRoot.append(miniCanvas);
-    minimap = new Minimap(miniCanvas, city);
-  }
+  const miniRoot = document.createElement('div');
+  miniRoot.id = 'mini';
+  const miniCanvas = document.createElement('canvas');
+  miniCanvas.id = 'minimap';
+  miniRoot.append(miniCanvas);
+  document.body.append(miniRoot);
+  const minimap = new Minimap(miniCanvas, city);
+  if (!settings.minimap) miniRoot.style.display = 'none';
 
-  if (opts.crt) mountCrt(document.body);
+  const crtEl = mountCrt(document.body);
+  setCrt(crtEl, settings.crt);
 
   const post = new StyleRenderer(renderer, STYLES, {
     initial: opts.render,
@@ -432,6 +492,7 @@ async function main(): Promise<void> {
     city: cityId,
     render: post.style.id,
     styles: STYLES.map((s) => s.id),
+    settings,
     cols: 0,
     rows: 0,
   };
@@ -450,8 +511,8 @@ async function main(): Promise<void> {
   window.addEventListener('resize', applySize);
 
   // Overlay: title + CLICK TO ENTER on load; on pointer-lock loss, a smaller
-  // CLICK TO RESUME reappears with the pause menu (COPY LINK TO HERE /
-  // SWITCH CITY) in `#menu`. Clicks hide it and request pointer lock.
+  // CLICK TO RESUME reappears with the pause/settings menu in `#menu`. Clicks
+  // hide it and request pointer lock. The ⚙ button also opens this overlay.
   const overlayEl: HTMLElement = overlay;
   const overlayHeading = overlayEl.querySelector('h1');
   const overlayPrompt = overlayEl.querySelector('p');
@@ -466,28 +527,101 @@ async function main(): Promise<void> {
     }
     setMenu(resume ? 'pause' : 'none');
   };
-  // Fill `#menu` (pause menu) or clear it (plain enter overlay). The picker's
-  // own menu is drawn by `drawCityPicker` and cleared here on boot.
+
+  let hudBtn: HTMLButtonElement | undefined;
+  let miniBtn: HTMLButtonElement | undefined;
+  let crtBtn: HTMLButtonElement | undefined;
+  let styleBtn: HTMLButtonElement | undefined;
+  let flyBtn: HTMLButtonElement | undefined;
+
+  const labelOnOff = (name: string, on: boolean): string =>
+    `${name}: ${on ? 'ON' : 'OFF'}`;
+
+  const relabelMenu = (): void => {
+    if (hudBtn) hudBtn.textContent = labelOnOff('HUD', settings.hud);
+    if (miniBtn) miniBtn.textContent = labelOnOff('MINIMAP', settings.minimap);
+    if (crtBtn) crtBtn.textContent = labelOnOff('CRT', settings.crt);
+    if (styleBtn) styleBtn.textContent = `STYLE: ${post.style.label} ▸`;
+    if (flyBtn) flyBtn.textContent = labelOnOff('FLY', state.fly);
+  };
+
+  const setHudVisible = (on: boolean): void => {
+    settings.hud = on;
+    hudRoot.style.display = on ? '' : 'none';
+    persist();
+    relabelMenu();
+  };
+  const setMinimapVisible = (on: boolean): void => {
+    settings.minimap = on;
+    miniRoot.style.display = on ? '' : 'none';
+    persist();
+    relabelMenu();
+  };
+  const setCrtVisible = (on: boolean): void => {
+    settings.crt = on;
+    setCrt(crtEl, on);
+    persist();
+    relabelMenu();
+  };
+  const applyStyleChange = (): void => {
+    settings.render = post.style.id;
+    api.render = post.style.id;
+    api.cols = post.cols;
+    api.rows = post.rows;
+    toast.show(post.style.label);
+    persist();
+    relabelMenu();
+  };
+  const setFly = (on: boolean): void => {
+    if (state.fly === on) {
+      relabelMenu();
+      return;
+    }
+    state.fly = on;
+    camera.far = on ? 6000 : 2000;
+    camera.updateProjectionMatrix();
+    api.fly = on;
+    relabelMenu();
+  };
+
+  const menuButton = (label: string, onClick: () => void): HTMLButtonElement => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'menu-btn';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    return btn;
+  };
+
+  // Fill `#menu` (pause/settings) or clear it (plain enter overlay). The
+  // picker's own menu is drawn by `drawCityPicker` and cleared here on boot.
   const setMenu = (mode: 'none' | 'pause'): void => {
     if (!(menuRoot instanceof HTMLElement)) return;
     menuRoot.textContent = '';
+    hudBtn = miniBtn = crtBtn = styleBtn = flyBtn = undefined;
     if (mode === 'none') return;
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'menu-btn';
-    copyBtn.textContent = 'COPY LINK TO HERE';
-    const switchBtn = document.createElement('button');
-    switchBtn.type = 'button';
-    switchBtn.className = 'menu-btn';
-    switchBtn.textContent = 'SWITCH CITY';
-    const shareInput = document.createElement('input');
-    shareInput.id = 'share';
-    shareInput.type = 'text';
-    shareInput.readOnly = true;
-    // Hidden until it holds a URL so the pause menu shows just the two buttons
-    // before the player copies for the first time.
-    shareInput.hidden = true;
-    copyBtn.addEventListener('click', () => {
+
+    hudBtn = menuButton(labelOnOff('HUD', settings.hud), () => {
+      setHudVisible(!settings.hud);
+    });
+    miniBtn = menuButton(labelOnOff('MINIMAP', settings.minimap), () => {
+      setMinimapVisible(!settings.minimap);
+    });
+    crtBtn = menuButton(labelOnOff('CRT', settings.crt), () => {
+      setCrtVisible(!settings.crt);
+    });
+    styleBtn = menuButton(`STYLE: ${post.style.label} ▸`, () => {
+      post.next(1);
+      applyStyleChange();
+    });
+    flyBtn = menuButton(labelOnOff('FLY', state.fly), () => {
+      setFly(!state.fly);
+    });
+    const landmarksBtn = menuButton('LANDMARKS ▸', () => {
+      // T-0061: fast travel. Stub row so the layout is final.
+    });
+
+    const copyBtn = menuButton('COPY LINK TO HERE', () => {
       const url = buildShareUrl(window.location.href, cityId, state, city.origin);
       navigator.clipboard?.writeText(url).catch(() => undefined);
       shareInput.value = url;
@@ -498,14 +632,37 @@ async function main(): Promise<void> {
         copyBtn.textContent = 'COPY LINK TO HERE';
       }, 1500);
     });
-    switchBtn.addEventListener('click', () => {
+    const switchBtn = menuButton('SWITCH CITY', () => {
+      settings.city = null;
+      try {
+        saveSettings(storage, settings);
+      } catch {
+        // private mode
+      }
       const params = new URLSearchParams(window.location.search);
       params.delete('city');
       params.delete('at');
       const qs = params.toString();
       window.location.href = window.location.pathname + (qs ? `?${qs}` : '');
     });
-    menuRoot.append(copyBtn, switchBtn, shareInput);
+    const shareInput = document.createElement('input');
+    shareInput.id = 'share';
+    shareInput.type = 'text';
+    shareInput.readOnly = true;
+    // Hidden until it holds a URL so the pause menu shows the rows before the
+    // player copies for the first time.
+    shareInput.hidden = true;
+    menuRoot.append(
+      hudBtn,
+      miniBtn,
+      crtBtn,
+      styleBtn,
+      flyBtn,
+      landmarksBtn,
+      copyBtn,
+      switchBtn,
+      shareInput,
+    );
   };
   setOverlay(false, true);
   overlayEl.addEventListener('click', () => {
@@ -520,14 +677,60 @@ async function main(): Promise<void> {
     if (document.pointerLockElement !== canvas) setOverlay(true, true);
   });
 
-  // `R` cycles the render style (Shift+R backwards); ignore key repeats.
+  const openSettings = (): void => {
+    if (pickerOpen) return;
+    try {
+      document.exitPointerLock();
+    } catch {
+      // not locked / unsupported
+    }
+    setOverlay(true, true);
+  };
+
+  const gear = document.getElementById('gear');
+  if (gear instanceof HTMLElement) {
+    for (const evt of ['pointerdown', 'mousedown'] as const) {
+      gear.addEventListener(evt, (e) => e.stopPropagation());
+    }
+    gear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openSettings();
+    });
+    // WebGL canvases (esp. SwiftShader) can steal hit-testing from HTML UI
+    // stacked on top of them. If a pointer lands in the gear's box but the
+    // canvas is the event target, swallow it before TouchControls sees it.
+    const stealGearHits = (e: Event): void => {
+      if (!(e instanceof PointerEvent) && !(e instanceof MouseEvent)) return;
+      const r = gear.getBoundingClientRect();
+      if (
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      ) {
+        return;
+      }
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (e.type === 'pointerdown') openSettings();
+    };
+    for (const evt of ['pointerdown', 'mousedown', 'click'] as const) {
+      canvas.addEventListener(evt, stealGearHits, true);
+    }
+  }
+
+  // `R` cycles the render style (Shift+R backwards); `H`/`M` toggle HUD /
+  // minimap. Ignore key repeats. `H`/`M` are ignored while the picker is open.
   window.addEventListener('keydown', (ev) => {
-    if (ev.code !== 'KeyR' || ev.repeat) return;
-    post.next(ev.shiftKey ? -1 : 1);
-    api.render = post.style.id;
-    api.cols = post.cols;
-    api.rows = post.rows;
-    toast.show(post.style.label);
+    if (ev.repeat) return;
+    if (ev.code === 'KeyR') {
+      post.next(ev.shiftKey ? -1 : 1);
+      applyStyleChange();
+      return;
+    }
+    if (pickerOpen) return;
+    if (ev.code === 'KeyH') setHudVisible(!settings.hud);
+    else if (ev.code === 'KeyM') setMinimapVisible(!settings.minimap);
   });
 
   // Stable closure over collision — avoids allocating a new arrow per frame.
@@ -589,32 +792,54 @@ async function main(): Promise<void> {
     }
 
     frameCount++;
-    if (opts.hud && frameCount % HUD_INTERVAL === 0) {
-      hudValues.sector = sectorOf(state.x, state.z);
-      hudValues.world = formatWorld(state.x, state.z);
-      hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
-      hudValues.zone = zone.zoneLabel(state.x, state.z);
-      // `ALT` is the eye altitude: on terrain it is the datum plus the eye
-      // height above sea level (walking: y − EYE_HEIGHT === groundAt, so the
-      // row is unchanged); without terrain it is only shown while flying, as
-      // metres above the ground.
-      if (city.terrain) {
-        hudValues.alt = formatAlt(city.terrain.datum + state.y - EYE_HEIGHT, 'ASL');
-      } else if (state.fly) {
-        hudValues.alt = formatAlt(agl, 'AGL');
-      } else {
-        hudValues.alt = undefined;
+    if (frameCount % HUD_INTERVAL === 0) {
+      if (settings.hud) {
+        hudValues.sector = sectorOf(state.x, state.z);
+        hudValues.world = formatWorld(state.x, state.z);
+        hudValues.bearing = formatBearing(yawToBearingDeg(state.yaw));
+        hudValues.zone = zone.zoneLabel(state.x, state.z);
+        // `ALT` is the eye altitude: on terrain it is the datum plus the eye
+        // height above sea level (walking: y − EYE_HEIGHT === groundAt, so the
+        // row is unchanged); without terrain it is only shown while flying, as
+        // metres above the ground.
+        if (city.terrain) {
+          hudValues.alt = formatAlt(city.terrain.datum + state.y - EYE_HEIGHT, 'ASL');
+        } else if (state.fly) {
+          hudValues.alt = formatAlt(agl, 'AGL');
+        } else {
+          hudValues.alt = undefined;
+        }
+        hudValues.mode = state.fly ? 'FLY' : undefined;
+        hudValues.landmark = zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined;
+        hudValues.fps = api.fps;
+        hud.update(hudValues);
       }
-      hudValues.mode = state.fly ? 'FLY' : undefined;
-      hudValues.landmark = zone.nearestLandmark(state.x, state.z, state.yaw)?.name ?? undefined;
-      hudValues.fps = api.fps;
-      hud.update(hudValues);
-      minimap?.update(state);
+      if (settings.minimap) minimap.update(state);
     }
 
     if (!api.ready) api.ready = true;
   }
   requestAnimationFrame(frame);
+}
+
+/**
+ * Mount the `#credits` footer from {@link CREDITS} (the only file to edit
+ * to rebrand). The whole line is a link; clicks stop so they never hit the
+ * canvas or the overlay.
+ */
+function mountCredits(parent: HTMLElement): HTMLAnchorElement {
+  const el = document.createElement('a');
+  el.id = 'credits';
+  el.href = CREDITS.url;
+  el.target = '_blank';
+  el.rel = 'noopener';
+  const display = CREDITS.url.replace(/^https?:\/\//, '');
+  el.textContent = `built by ${CREDITS.author} · ${display}`;
+  for (const evt of ['click', 'pointerdown', 'mousedown'] as const) {
+    el.addEventListener(evt, (e) => e.stopPropagation());
+  }
+  parent.append(el);
+  return el;
 }
 
 /**
