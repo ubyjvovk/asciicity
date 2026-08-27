@@ -97,7 +97,201 @@ function emitRoof(mesh: MeshBuilder, ring: Vec2[], roofY: number, color: Vec3): 
   }
 }
 
-/** Walls (group 0) then roofs (group 1) for every building with `|area| >= 1`. */
+/** Unit geometric normal of triangle a→b→c (cross product b−a, c−a, normalised). */
+function triNormal(a: Vec3, b: Vec3, c: Vec3): Vec3 {
+  const e1x = b[0] - a[0];
+  const e1y = b[1] - a[1];
+  const e1z = b[2] - a[2];
+  const e2x = c[0] - a[0];
+  const e2y = c[1] - a[1];
+  const e2z = c[2] - a[2];
+  let nx = e1y * e2z - e1z * e2y;
+  let ny = e1z * e2x - e1x * e2z;
+  let nz = e1x * e2y - e1y * e2x;
+  const len = Math.hypot(nx, ny, nz);
+  if (len === 0) return [0, 1, 0];
+  return [nx / len, ny / len, nz / len];
+}
+
+/**
+ * Emit triangle a→b→c whose stored normal points away from `ref`; if the
+ * natural winding faces inward, the last two vertices are swapped so the
+ * rendered face (front culling) and its normal agree (architecture §4.13).
+ */
+function emitTri(
+  mesh: MeshBuilder,
+  a: Vec3,
+  b: Vec3,
+  c: Vec3,
+  ref: Vec3,
+  color: Vec3,
+): void {
+  const uv: UV = [0, 0];
+  const n = triNormal(a, b, c);
+  const midX = (a[0] + b[0] + c[0]) / 3;
+  const midY = (a[1] + b[1] + c[1]) / 3;
+  const midZ = (a[2] + b[2] + c[2]) / 3;
+  const away = n[0] * (midX - ref[0]) + n[1] * (midY - ref[1]) + n[2] * (midZ - ref[2]);
+  if (away < 0) {
+    // triNormal(a, c, b) = −n → outward; winding now matches the normal.
+    mesh.triangle(a, c, b, [-n[0], -n[1], -n[2]], uv, uv, uv, color);
+  } else {
+    mesh.triangle(a, b, c, n, uv, uv, uv, color);
+  }
+}
+
+/** Two triangles of the quad a→b→c→d, normals oriented away from `ref`. */
+function emitQuad(
+  mesh: MeshBuilder,
+  a: Vec3,
+  b: Vec3,
+  c: Vec3,
+  d: Vec3,
+  ref: Vec3,
+  color: Vec3,
+): void {
+  emitTri(mesh, a, b, c, ref, color);
+  emitTri(mesh, a, c, d, ref, color);
+}
+
+/**
+ * Hemisphere cup of radius `r` above `roofY` — 8 segments × 4 rings, UV
+ * `(0,0)`, normals outward (architecture §4.13). The top band ends at a ring
+ * of 8 coincident apex vertices, so its second triangle is degenerate.
+ */
+function emitDome(
+  mesh: MeshBuilder,
+  cx: number,
+  cz: number,
+  roofY: number,
+  r: number,
+  color: Vec3,
+): void {
+  const S = 8;
+  const R = 4;
+  const center: Vec3 = [cx, roofY, cz];
+  const apex: Vec3 = [cx, roofY + r, cz];
+  const rings: Vec3[][] = [];
+  for (let k = 0; k < R; k++) {
+    const theta = (k / R) * (Math.PI / 2);
+    const rr = r * Math.cos(theta);
+    const y = roofY + r * Math.sin(theta);
+    const ring: Vec3[] = [];
+    for (let s = 0; s < S; s++) {
+      const azim = (s / S) * Math.PI * 2;
+      ring.push([cx + rr * Math.cos(azim), y, cz + rr * Math.sin(azim)]);
+    }
+    rings.push(ring);
+  }
+  for (let k = 0; k < R; k++) {
+    const ring = rings[k]!;
+    for (let s = 0; s < S; s++) {
+      const a = ring[s]!;
+      const b = ring[(s + 1) % S]!;
+      if (k === R - 1) {
+        // Top band squashes onto the single apex point (S degenerate copies).
+        emitQuad(mesh, a, b, apex, apex, center, color);
+      } else {
+        const next = rings[k + 1]!;
+        const c = next[(s + 1) % S]!;
+        const d = next[s]!;
+        emitQuad(mesh, a, b, c, d, center, color);
+      }
+    }
+  }
+}
+
+/**
+ * Conical spire of base radius `r` and height `apexH` above `roofY` —
+ * 8 side triangles (base omitted: it is coplanar with the roof, architecture
+ * §4.13), normals outward.
+ */
+function emitSpire(
+  mesh: MeshBuilder,
+  cx: number,
+  cz: number,
+  roofY: number,
+  r: number,
+  apexH: number,
+  color: Vec3,
+): void {
+  const S = 8;
+  const center: Vec3 = [cx, roofY, cz];
+  const apex: Vec3 = [cx, roofY + apexH, cz];
+  const base: Vec3[] = [];
+  for (let s = 0; s < S; s++) {
+    const azim = (s / S) * Math.PI * 2;
+    base.push([cx + r * Math.cos(azim), roofY, cz + r * Math.sin(azim)]);
+  }
+  for (let s = 0; s < S; s++) {
+    emitTri(mesh, apex, base[s]!, base[(s + 1) % S]!, center, color);
+  }
+}
+
+/**
+ * Second box of half the footprint (`bboxW`/2 × `bboxD`/2) and `0.5·h` extra
+ * height above `roofY` (architecture §4.13). 4 sides + top, normals outward.
+ */
+function emitTower(
+  mesh: MeshBuilder,
+  cx: number,
+  cz: number,
+  roofY: number,
+  bboxW: number,
+  bboxD: number,
+  h: number,
+  color: Vec3,
+): void {
+  const boxW = bboxW / 2;
+  const boxD = bboxD / 2;
+  const x0 = cx - boxW / 2;
+  const x1 = cx + boxW / 2;
+  const z0 = cz - boxD / 2;
+  const z1 = cz + boxD / 2;
+  const y0 = roofY;
+  const y1 = roofY + 0.5 * h;
+  const center: Vec3 = [cx, roofY + 0.25 * h, cz];
+  emitQuad(mesh, [x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], center, color); // +x
+  emitQuad(mesh, [x0, y0, z1], [x0, y0, z0], [x0, y1, z0], [x0, y1, z1], center, color); // −x
+  emitQuad(mesh, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], center, color); // +z
+  emitQuad(mesh, [x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], center, color); // −z
+  emitQuad(mesh, [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], center, color); // +y top
+}
+
+/**
+ * Emit a building's landmark cap above the roof, into the open group 0
+ * (walls material, same colour). Buildings without `shape` add nothing.
+ */
+function emitCap(
+  mesh: MeshBuilder,
+  ring: Vec2[],
+  building: Building,
+  roofY: number,
+  color: Vec3,
+): void {
+  const shape = building.shape;
+  if (shape === undefined) return;
+  let cx = 0;
+  let cz = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const p of ring) {
+    cx += p[0];
+    cz += p[1];
+    if (p[0] < minX) minX = p[0];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minZ) minZ = p[1];
+    if (p[1] > maxZ) maxZ = p[1];
+  }
+  cx /= ring.length;
+  cz /= ring.length;
+  const s = Math.min(maxX - minX, maxZ - minZ);
+  if (shape === 'dome') emitDome(mesh, cx, cz, roofY, 0.4 * s, color);
+  else if (shape === 'spire') emitSpire(mesh, cx, cz, roofY, 0.3 * s, 0.6 * building.h, color);
+  else if (shape === 'tower') emitTower(mesh, cx, cz, roofY, maxX - minX, maxZ - minZ, building.h, color);
+}
 export function buildBuildingsMesh(
   buildings: Building[],
   heightAt: HeightFn = FLAT_HEIGHT,
@@ -122,6 +316,7 @@ export function buildBuildingsMesh(
       emitWall(mesh, a, b, base, roofY, dist / TILE_M, (dist + edge) / TILE_M, color);
       dist += edge;
     }
+    emitCap(mesh, ring, building, roofY, color);
   }
   mesh.endGroup(0);
 

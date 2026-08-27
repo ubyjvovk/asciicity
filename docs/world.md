@@ -122,6 +122,35 @@ whose name is already present is not re-appended. Cities with empty tables
 Extra: `Motherland Monument` at (30.5632, 50.4266), h 102, size 20, silver
 `0xc0c0c0`. London: both tables empty (no change).
 
+### Silhouette caps (`Building.shape`, T-0062)
+
+`applyLandmarks` copies the fix `shape` onto the building (`Building.shape`,
+PM-made optional field). `buildBuildingsMesh` then emits, after the walls in
+**group 0** (walls material, same wall colour), a procedural cap sitting on
+the roof — buildings without a `shape` are byte-identical to today:
+
+| `shape` | geometry | vertices |
+|---|---|---|
+| `dome` | hemisphere of radius `0.4·min(bboxW, bboxD)`, 8 segments × 4 rings, centred on the footprint centroid at roof height | 64 triangles (192 verts), normals outward |
+| `spire` | cone of base radius `0.3·min(bboxW, bboxD)` and height `0.6·h`, 8 segments, apex at `roofY + 0.6·h` | 8 side triangles (24 verts); base omitted (coplanar with the roof) |
+| `tower` | second box of half the footprint (`bboxW/2` × `bboxD/2`) and `0.5·h` extra height, on the roof | 4 sides + top = 10 triangles (30 verts), top at `roofY + 0.5·h` |
+
+The cap is emitted into the open walls group, so the window texture shades
+it too (UVs `(0,0)`). Normals are unit length, computed per face and oriented
+outward (dome/spire away from the footprint centroid on the axis, tower away
+from the box centre). The dome's top band ends at 8 coincident apex
+vertices, so its 8 closing triangles are degenerate (zero-area) and
+invisible, keeping the count exactly `8·4·2 = 64`.
+
+Shapes by name (architecture §4.13):
+
+- **Kyiv** — `dome`: Saint Sophia Cathedral, St. Michael Golden-Domed
+  Cathedral, St. Volodymyr's Cathedral, St. Nicholas Cathedral. `spire`: Bell
+  tower (Sophia's), Great Lavra Belltower, Near Cave's Belltower, Bell Tower
+  of Far Caves, Saint Andrew's Church. Motherland Monument extra: `tower`.
+- **London** — St Paul's Cathedral: `dome`; Elizabeth Tower: `spire` (shape-
+  only fixes; heights and counts unchanged).
+
 ### Adding a city
 
 1. Add the city to `LANDMARK_FIXES`: keys are the **exact** OSM `name` strings

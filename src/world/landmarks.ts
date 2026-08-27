@@ -1,21 +1,23 @@
 /**
  * Landmark fixes (docs/architecture.md §4.13): a PM-curated table of exact
- * OSM-name height/colour overrides and extra synthetic buildings, applied to
- * the loaded `CityData` before anything is built. OSM gives Kyiv's landmarks
- * unusable stub heights (Saint Sophia 3 m, Great Lavra Belltower 8 m, the
- * Arch 3 m) and no Motherland Monument, so this module corrects them at load.
- * Pure: no DOM/WebGL.
+ * OSM-name height/colour/shape overrides and extra synthetic buildings,
+ * applied to the loaded `CityData` before anything is built. OSM gives
+ * Kyiv's landmarks unusable stub heights (Saint Sophia 3 m, Great Lavra
+ * Belltower 8 m, the Arch 3 m) and no Motherland Monument, so this module
+ * corrects them at load. Pure: no DOM/WebGL.
  */
 import type { CityData, Vec2 } from '../data/types';
 import { project } from '../geo';
 import { registerLandmarkColors } from './palette';
 
-/** A single overridable landmark property. Omit either to leave it unchanged. */
+/** A single overridable landmark property. Omit any to leave it unchanged. */
 export interface LandmarkFix {
   /** Replacement height in metres. */
   h?: number;
   /** Replacement hex colour (registered for `colorFor`). */
   color?: number;
+  /** Silhouette cap (architecture §4.13): dome / spire / tower. */
+  shape?: 'dome' | 'spire' | 'tower';
 }
 
 /** A synthetic building to append: a square footprint of side `size` centred on `(lon, lat)`. */
@@ -34,24 +36,28 @@ export interface ExtraBuilding {
 
 /**
  * Per-city map of exact OSM `name` → override. Heights are real-world metres;
- * colours feed `registerLandmarkColors`. London is empty (unchanged).
+ * colours feed `registerLandmarkColors`. Shapes (architecture §4.13) add a
+ * silhouette cap. London carries shape-only fixes. Empty table = unchanged.
  */
 export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, LandmarkFix>>>> = {
   kyiv: {
-    'Saint Sophia Cathedral': { h: 29, color: 0xf7dc6f },
-    'Bell tower': { h: 76, color: 0xf7dc6f },
-    'St. Michael Golden-Domed Cathedral': { h: 40, color: 0xf7dc6f },
-    "Saint Andrew's Church": { h: 50, color: 0xf7dc6f },
-    'Great Lavra Belltower': { h: 96, color: 0xf7dc6f },
-    "Near Cave's Belltower": { h: 27, color: 0xf7dc6f },
-    'Bell Tower of Far Caves': { h: 41, color: 0xf7dc6f },
+    'Saint Sophia Cathedral': { h: 29, color: 0xf7dc6f, shape: 'dome' },
+    'Bell tower': { h: 76, color: 0xf7dc6f, shape: 'spire' },
+    'St. Michael Golden-Domed Cathedral': { h: 40, color: 0xf7dc6f, shape: 'dome' },
+    "Saint Andrew's Church": { h: 50, color: 0xf7dc6f, shape: 'spire' },
+    'Great Lavra Belltower': { h: 96, color: 0xf7dc6f, shape: 'spire' },
+    "Near Cave's Belltower": { h: 27, color: 0xf7dc6f, shape: 'spire' },
+    'Bell Tower of Far Caves': { h: 41, color: 0xf7dc6f, shape: 'spire' },
     'Golden Gate': { h: 16, color: 0xe8e0c8 },
     'Arch of Freedom of the Ukrainian people': { h: 35, color: 0xe8e0c8 },
     'Verkhovna Rada of Ukraine': { h: 30, color: 0xe8e0c8 },
-    "St. Volodymyr's Cathedral": { h: 49, color: 0xe8e0c8 },
-    'St. Nicholas Cathedral': { color: 0xe8e0c8 },
+    "St. Volodymyr's Cathedral": { h: 49, color: 0xe8e0c8, shape: 'dome' },
+    'St. Nicholas Cathedral': { color: 0xe8e0c8, shape: 'dome' },
   },
-  london: {},
+  london: {
+    "St Paul's Cathedral": { shape: 'dome' },
+    'Elizabeth Tower': { shape: 'spire' },
+  },
 };
 
 /** Per-city extra synthetic buildings appended at load (London: none). */
@@ -103,11 +109,13 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
     return city;
   }
 
-  // Apply height overrides by exact OSM name.
+  // Apply height/shape overrides by exact OSM name.
   const buildings = city.buildings.map((b) => {
     const fix = b.name !== undefined ? fixes[b.name] : undefined;
-    if (fix && fix.h !== undefined && b.h !== fix.h) {
-      return { ...b, h: fix.h };
+    if (fix === undefined) return b;
+    const { h = b.h, shape = b.shape } = fix;
+    if (h !== b.h || shape !== b.shape) {
+      return { ...b, h, shape };
     }
     return b;
   });
@@ -125,7 +133,7 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
       [cx + half, cz + half],
       [cx - half, cz + half],
     ];
-    buildings.push({ id: -1000 - extraIndex, name: ex.name, h: ex.h, poly });
+    buildings.push({ id: -1000 - extraIndex, name: ex.name, h: ex.h, poly, shape: 'tower' });
     existing.add(ex.name);
     extraIndex++;
   }
