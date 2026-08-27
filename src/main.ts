@@ -11,7 +11,7 @@ import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/typ
 import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
-import { resolveSpawn } from './data/spawn';
+import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
@@ -69,6 +69,12 @@ declare global {
       settings: Settings;
       cols: number;
       rows: number;
+      /**
+       * Fast-travel to a spawn preset by key (T-0061). Same code path as the
+       * `LANDMARKS ▸` menu row and as `?at=<key>`. Returns `true` on success,
+       * `false` for an unknown key.
+       */
+      travel(key: string): boolean;
     };
   }
 }
@@ -456,7 +462,7 @@ async function main(): Promise<void> {
     cellH: opts.cellH,
   });
   const toast = mountToast();
-  toast.show(post.style.label);
+  toast.show(`RENDER: ${post.style.label}`);
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
   // otherwise resolve `?at=` (preset or coordinate) against the city origin,
@@ -505,6 +511,8 @@ async function main(): Promise<void> {
     settings,
     cols: 0,
     rows: 0,
+    // Overridden below once `travel` is in scope.
+    travel: (_key: string): boolean => false,
   };
   window.__asciicity = api;
 
@@ -578,7 +586,7 @@ async function main(): Promise<void> {
     api.render = post.style.id;
     api.cols = post.cols;
     api.rows = post.rows;
-    toast.show(post.style.label);
+    toast.show(`RENDER: ${post.style.label}`);
     persist();
     relabelMenu();
   };
@@ -603,13 +611,98 @@ async function main(): Promise<void> {
     return btn;
   };
 
-  // Fill `#menu` (pause/settings) or clear it (plain enter overlay). The
-  // picker's own menu is drawn by `drawCityPicker` and cleared here on boot.
-  const setMenu = (mode: 'none' | 'pause'): void => {
+  const isTouch = (): boolean =>
+    'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  /**
+   * Teleport to a spawn preset (T-0061, architecture.md §4.13). Resolves the
+   * key via `resolveSpawn` (same path as `?at=`), rewrites the pose in place,
+   * lands (`fly = false`), toasts `→ <LABEL>`, mirrors `at=<key>` onto the
+   * URL, hides the overlay and — on non-touch — re-requests pointer lock.
+   * Returns `false` for an unknown key (nothing changes).
+   */
+  const travel = (key: string): boolean => {
+    if (typeof key !== 'string') return false;
+    const trimmed = key.trim().toLowerCase();
+    const preset = SPAWN_PRESETS[trimmed];
+    if (!preset) return false;
+    const sp = resolveSpawn(
+      trimmed,
+      city.origin,
+      (p: Vec2, r?: number) => collision.blocked(p, r),
+      city,
+      cityInfo?.defaultSpawn,
+    );
+    state.x = sp.x;
+    state.z = sp.z;
+    state.yaw = sp.yaw;
+    state.pitch = 0;
+    if (state.fly) {
+      state.fly = false;
+      camera.far = 2000;
+      camera.updateProjectionMatrix();
+      api.fly = false;
+    }
+    state.y = groundAt(sp.x, sp.z) + EYE_HEIGHT;
+    api.y = state.y;
+    toast.show(`→ ${preset.label.toUpperCase()}`);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set('at', trimmed);
+      const qs = params.toString();
+      history.replaceState(
+        null,
+        '',
+        window.location.pathname + (qs ? `?${qs}` : ''),
+      );
+    } catch {
+      // ignore replaceState failures
+    }
+    setOverlay(false, false);
+    if (!isTouch()) {
+      try {
+        void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
+      } catch {
+        // Pointer lock is unavailable.
+      }
+    }
+    relabelMenu();
+    return true;
+  };
+
+  // Fill `#menu` (pause/settings, landmarks submenu) or clear it (plain enter
+  // overlay). The picker's own menu is drawn by `drawCityPicker` and cleared
+  // here on boot.
+  const setMenu = (mode: 'none' | 'pause' | 'landmarks'): void => {
     if (!(menuRoot instanceof HTMLElement)) return;
     menuRoot.textContent = '';
+    menuRoot.classList.remove('landmarks');
     hudBtn = miniBtn = crtBtn = styleBtn = flyBtn = undefined;
     if (mode === 'none') return;
+    if (mode === 'landmarks') {
+      menuRoot.classList.add('landmarks');
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'menu-btn back';
+      back.textContent = '◂ BACK';
+      back.addEventListener('click', () => setMenu('pause'));
+      menuRoot.append(back);
+      // `presetsFor` returns `[key, preset]` in table (insertion) order.
+      const list = cityById(cityId)
+        ? presetsFor(cityId as 'london' | 'kyiv')
+        : [];
+      for (const [key, preset] of list) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'landmark';
+        btn.textContent = preset.label;
+        btn.addEventListener('click', () => {
+          travel(key);
+        });
+        menuRoot.append(btn);
+      }
+      return;
+    }
 
     hudBtn = menuButton(labelOnOff('HUD', settings.hud), () => {
       setHudVisible(!settings.hud);
@@ -628,7 +721,7 @@ async function main(): Promise<void> {
       setFly(!state.fly);
     });
     const landmarksBtn = menuButton('LANDMARKS ▸', () => {
-      // T-0061: fast travel. Stub row so the layout is final.
+      setMenu('landmarks');
     });
 
     const copyBtn = menuButton('COPY LINK TO HERE', () => {
@@ -674,6 +767,7 @@ async function main(): Promise<void> {
       shareInput,
     );
   };
+  api.travel = travel;
   setOverlay(false, true);
   overlayEl.addEventListener('click', () => {
     setOverlay(false, false);
@@ -713,8 +807,19 @@ async function main(): Promise<void> {
 
   // `R` cycles the render style (Shift+R backwards); `H`/`M` toggle HUD /
   // minimap. Ignore key repeats. `H`/`M` are ignored while the picker is open.
+  // In the LANDMARKS submenu Escape returns to the pause menu (the overlay is
+  // already visible, so the browser's own Escape doesn't fire pointerlockchange).
   window.addEventListener('keydown', (ev) => {
     if (ev.repeat) return;
+    if (
+      ev.code === 'Escape' &&
+      menuRoot instanceof HTMLElement &&
+      menuRoot.classList.contains('landmarks')
+    ) {
+      setMenu('pause');
+      ev.preventDefault();
+      return;
+    }
     if (ev.code === 'KeyR') {
       post.next(ev.shiftKey ? -1 : 1);
       applyStyleChange();
@@ -836,16 +941,16 @@ function mountCredits(parent: HTMLElement): HTMLAnchorElement {
 
 /**
  * Create the `#toast` element (styled in `style.css`) and return a `show`
- * helper that displays `RENDER: <LABEL>` for 1.5 s.
+ * helper that displays raw text (e.g. `RENDER: ASCII`, `→ GHERKIN`) for 1.5 s.
  */
-function mountToast(): { show(label: string): void } {
+function mountToast(): { show(text: string): void } {
   const el = document.createElement('div');
   el.id = 'toast';
   document.body.append(el);
   let timer = 0;
   return {
-    show(label: string): void {
-      el.textContent = `RENDER: ${label}`;
+    show(text: string): void {
+      el.textContent = text;
       el.classList.add('show');
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {

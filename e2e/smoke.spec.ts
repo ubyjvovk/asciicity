@@ -5,9 +5,13 @@
  * saves a screenshot the PM can review at `e2e/__shots__/smoke.png`.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { syntheticCity } from '../src/data/synthetic';
+import type { CityData } from '../src/data/types';
 import { terrainHeightAt } from '../src/world/terrain';
+import { SPAWN_PRESETS } from '../src/data/spawn';
 
 /** Shape of the T-0010 debug contract exposed on `window.__asciicity`. */
 interface AsciiApi {
@@ -429,6 +433,195 @@ test('smoke: panels', async ({ page }) => {
     'href',
     'https://github.com/ubyjvovk/asciicity',
   );
+});
+
+/** Return the centroid of the first Kyiv building whose exact name matches. */
+function kyivBuildingCentroid(name: string): { x: number; z: number } {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const kyiv: CityData = JSON.parse(
+    readFileSync(resolve(here, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
+  );
+  const needle = name.toLowerCase();
+  const b = kyiv.buildings.find(
+    (bl) => bl.name !== undefined && bl.name.toLowerCase() === needle,
+  );
+  if (!b) throw new Error(`kyiv.json is missing building "${name}"`);
+  let cx = 0;
+  let cz = 0;
+  for (const [x, z] of b.poly) {
+    cx += x;
+    cz += z;
+  }
+  cx /= b.poly.length;
+  cz /= b.poly.length;
+  return { x: cx, z: cz };
+}
+
+test('smoke: fast travel — travel() jumps to Lavra, LANDMARKS menu teleports to Golden Gate', async ({
+  page,
+}) => {
+  await page.goto('/?city=kyiv');
+  await waitReady(page);
+
+  // Maidan is Kyiv's defaultSpawn, so the initial pose sits there.
+  const start = await readPos(page);
+  // Row format is `ZONE....... <value>` (label padded to 11 chars with dots).
+  const zoneBefore = await page.locator('#hud').evaluate((el) => {
+    const m = /ZONE[.\s]+([^\n]*)/.exec(el.textContent ?? '');
+    return m ? m[1].trim() : '';
+  });
+
+  // Fast-travel via the debug hook (same code path as the menu row).
+  const travelled = await page.evaluate(() => {
+    const api = (
+      window as unknown as {
+        __asciicity?: { travel?: (k: string) => boolean };
+      }
+    ).__asciicity;
+    return api?.travel?.('lavra') ?? false;
+  });
+  expect(travelled).toBe(true);
+
+  await page.waitForFunction(
+    (p) => {
+      const s = (
+        window as unknown as { __asciicity?: { state?: { x: number; z: number } } }
+      ).__asciicity?.state;
+      if (!s) return false;
+      return Math.hypot(s.x - p.x, s.z - p.z) > 1000;
+    },
+    { x: start.x, z: start.z },
+    { timeout: 5_000 },
+  );
+
+  const moved = await readPos(page);
+  expect(Math.hypot(moved.x - start.x, moved.z - start.z)).toBeGreaterThan(1000);
+
+  // The HUD is repainted every 4th frame; give it a couple of frames to catch up.
+  await page.waitForFunction(
+    (zone) => {
+      const el = document.getElementById('hud');
+      if (!el) return false;
+      const m = /ZONE[.\s]+([^\n]*)/.exec(el.textContent ?? '');
+      const now = m ? m[1].trim() : '';
+      return now !== '' && now !== zone;
+    },
+    zoneBefore,
+    { timeout: 5_000 },
+  );
+
+  // Open the pause menu via the ⚙ button. `travel` hid the overlay and — on
+  // desktop — tried to lock the pointer; release the lock so #gear is
+  // clickable (see the panels test for the same dance).
+  const wasLocked = await page.evaluate(() => {
+    if (document.pointerLockElement === null) return false;
+    document.exitPointerLock();
+    return true;
+  });
+  if (wasLocked) {
+    await page.waitForFunction(() => document.pointerLockElement === null);
+    await expect(page.locator('#overlay')).toBeVisible();
+    await page.locator('#overlay').evaluate((el) => {
+      (el as HTMLElement).style.display = 'none';
+    });
+  }
+  await page.locator('#gear').click();
+  await expect(page.locator('#overlay')).toBeVisible();
+  await expect(page.locator('#menu')).toContainText('LANDMARKS');
+
+  await page.getByRole('button', { name: 'LANDMARKS ▸' }).click();
+  const landmarks = page.locator('button.landmark');
+  const count = await landmarks.count();
+  expect(count).toBeGreaterThanOrEqual(15);
+
+  // Find the row that mentions the Golden Gate and click it.
+  const golden = page.locator('button.landmark', { hasText: 'Golden Gate' });
+  await expect(golden).toHaveCount(1);
+  const label = (await golden.textContent())?.trim() ?? '';
+  expect(SPAWN_PRESETS.goldengate.label).toBe(label);
+  await golden.click();
+
+  await expect(page.locator('#overlay')).toBeHidden();
+
+  const centroid = kyivBuildingCentroid('Golden Gate');
+  await page.waitForFunction(
+    (c) => {
+      const s = (
+        window as unknown as { __asciicity?: { state?: { x: number; z: number } } }
+      ).__asciicity?.state;
+      if (!s) return false;
+      return Math.hypot(s.x - c.x, s.z - c.z) < 250;
+    },
+    centroid,
+    { timeout: 5_000 },
+  );
+  const after = await readPos(page);
+  expect(Math.hypot(after.x - centroid.x, after.z - centroid.z)).toBeLessThan(250);
+
+  expect(page.url()).toContain('at=goldengate');
+});
+
+test('smoke: travel() returns false for an unknown key', async ({ page }) => {
+  await page.goto('/?city=kyiv');
+  await waitReady(page);
+  const before = await readPos(page);
+  const ok = await page.evaluate(() => {
+    const api = (
+      window as unknown as {
+        __asciicity?: { travel?: (k: string) => boolean };
+      }
+    ).__asciicity;
+    return api?.travel?.('nowhere') ?? true;
+  });
+  expect(ok).toBe(false);
+  const after = await readPos(page);
+  expect(after.x).toBe(before.x);
+  expect(after.z).toBe(before.z);
+});
+
+test.describe('smoke: fast travel (touch 390×844)', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+
+  test('gear → LANDMARKS → Saint Sophia teleports and hides the overlay', async ({
+    page,
+  }) => {
+    await page.goto('/?city=kyiv');
+    await waitReady(page);
+
+    // Dismiss the start overlay by tapping its heading so the ⚙ is the hit
+    // target (matches the pattern in the panels touch test).
+    await page.locator('#overlay h1').tap();
+    await expect(page.locator('#overlay')).toBeHidden();
+
+    await page.locator('#gear').tap();
+    await expect(page.locator('#overlay')).toBeVisible();
+    await page.getByRole('button', { name: 'LANDMARKS ▸' }).tap();
+
+    const sophia = page.locator('button.landmark', { hasText: 'Saint Sophia Cathedral' });
+    await expect(sophia).toHaveCount(1);
+    await sophia.tap();
+
+    await expect(page.locator('#overlay')).toBeHidden();
+
+    const centroid = kyivBuildingCentroid('Saint Sophia Cathedral');
+    await page.waitForFunction(
+      (c) => {
+        const s = (
+          window as unknown as { __asciicity?: { state?: { x: number; z: number } } }
+        ).__asciicity?.state;
+        if (!s) return false;
+        return Math.hypot(s.x - c.x, s.z - c.z) < 250;
+      },
+      centroid,
+      { timeout: 5_000 },
+    );
+    const after = await readPos(page);
+    expect(Math.hypot(after.x - centroid.x, after.z - centroid.z)).toBeLessThan(250);
+  });
 });
 
 test.describe('smoke: panels (touch 390×844)', () => {

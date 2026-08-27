@@ -309,7 +309,11 @@ guard so the overlay's own click-to-resume does not fire:
 - **STYLE: \<LABEL\> ▸** — `StyleRenderer.next(1)` (same as `R`).
 - **FLY: ON/OFF** — flips `state.fly` (same as `F`; `stepPlayer` stays
   pure).
-- **LANDMARKS ▸** — stub for T-0061 (does nothing yet).
+- **LANDMARKS ▸** — swaps `#menu` for a scrollable list of the current city's
+  presets in table order (`presetsFor(city)`), one `button.landmark` per
+  entry with the preset's `label` as row text, plus a `◂ BACK` row. `Escape`
+  (or the BACK row) returns to the pause menu. Choosing a row teleports —
+  see [Fast travel](#fast-travel-t-0061).
 - **COPY LINK TO HERE** — calls `buildShareUrl(window.location.href,
   city.id, state, city.origin)`, best-effort `navigator.clipboard.writeText`,
   copies the URL into a read-only `<input id="share">` under the buttons and
@@ -350,6 +354,35 @@ Example: looking east (`yaw = π/2`) at local `(100, −50)` in Kyiv
 ```
 /?render=gloom&city=kyiv&at=30.52481,50.45055,90
 ```
+
+## Fast travel (T-0061)
+
+The `LANDMARKS ▸` row in the pause menu (see [Pause / settings menu](#pause--settings-menu))
+opens a scrollable list of the current city's spawn presets — one
+`button.landmark` per `presetsFor(city)` entry in table order, labelled with
+the preset's `label`. Choosing a row (click / tap) or calling
+`__asciicity.travel(<key>)` runs the same code path as `?at=<key>`:
+
+- `sp = resolveSpawn(key, city.origin, blocked, city, cityInfo.defaultSpawn)`
+  — the same collision-aware resolver used at boot (architecture.md §4.13).
+- `state.{x, z, yaw}` are set from `sp`; `state.pitch = 0`; `state.fly = false`
+  (leaves fly mode; the camera far plane snaps back to 2000); `state.y =
+  groundAt(sp.x, sp.z) + EYE_HEIGHT` so the eye sits on the walkable ground
+  (bridge decks and terrain both flow through `groundAt`).
+- A toast shows `→ <LABEL>` (upper-cased) for 1.5 s.
+- `history.replaceState` sets `at=<key>` (every other parameter kept) so the
+  URL stays shareable.
+- The overlay is hidden and — on non-touch devices — pointer lock is
+  re-requested on the canvas (touch skips the request because
+  `requestPointerLock` rejects on touch devices).
+
+`Escape` (or the `◂ BACK` row) inside the landmarks submenu returns to the
+main pause menu without teleporting; nothing else uses the key while the
+overlay is up.
+
+`__asciicity.travel(key)` returns `true` on success and `false` for an
+unknown key (nothing changes). Keys are trimmed and lower-cased, mirroring
+`?at=` parsing.
 
 ## Fly mode & fog (T-0049)
 
@@ -408,6 +441,7 @@ interface Window {
     settings: Settings; // live { hud, minimap, crt, render, city } (T-0060)
     cols: number;      // StyleRenderer.cols after the last resize / style change
     rows: number;      // StyleRenderer.rows after the last resize / style change
+    travel(key: string): boolean; // fast-travel to a preset (T-0061); false on unknown key
   };
 }
 ```

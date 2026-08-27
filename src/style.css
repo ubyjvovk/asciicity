@@ -234,6 +234,18 @@ body {
   padding: 10px 14px;
 }
 
+/* Landmarks submenu (T-0061): the list scrolls inside `#menu`; each
+   `button.landmark` matches the .menu-btn padding so the rows are visually
+   uniform with the pause menu they replace. */
+#menu.landmarks {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+#menu .landmark {
+  padding: 10px 14px;
+}
+
 /* Read-only share-link input shown under the pause-menu buttons. */
 #share {
   width: 100%;
