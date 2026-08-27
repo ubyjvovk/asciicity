@@ -43,6 +43,9 @@ export function clipRingToBox(
   box: { minX: number; minZ: number; maxX: number; maxZ: number },
 ): Vec2[];
 
+/** Hard cap on emitted trees (data-format.md §Trees). Exposed for tests. */
+export const TREE_CAP: number;
+
 export function convertOverpass(
   json: { elements: unknown[] },
   opts: {
@@ -51,5 +54,12 @@ export function convertOverpass(
     lang?: string;
     dem?: DemLike;
     step?: number;
+    /** Override the 40 000 tree cap (tests pass a tiny value). */
+    treeCap?: number;
   },
-): CityData & { skippedRelations?: number; skippedOpenWaterChains?: number };
+): CityData & {
+  skippedRelations?: number;
+  skippedOpenWaterChains?: number;
+  treesFilled?: number;
+  treesDropped?: number;
+};

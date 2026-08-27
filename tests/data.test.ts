@@ -142,6 +142,81 @@ describe('validateCity', () => {
     expect(() => validateCity(c)).toThrow(/rivers\[0\]/);
   });
 
+  it('accepts optional valid trees and woods', () => {
+    const c = base();
+    c.trees = [[10, 20, 8, 2.8]];
+    c.woods = [
+      [
+        [0, 0],
+        [40, 0],
+        [40, 40],
+        [0, 40],
+      ],
+    ];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('accepts empty trees and woods arrays', () => {
+    const c = base();
+    c.trees = [];
+    c.woods = [];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('rejects a non-array trees, naming trees', () => {
+    const c = base() as unknown as { trees?: unknown };
+    c.trees = 'oak';
+    expect(() => validateCity(c)).toThrow(/trees/);
+  });
+
+  it('rejects a tree with h out of range, naming trees[i]', () => {
+    const c = base();
+    c.trees = [[0, 0, 50, 3]];
+    expect(() => validateCity(c)).toThrow(/trees\[0\]/);
+  });
+
+  it('rejects a tree with r out of range, naming trees[i]', () => {
+    const c = base();
+    c.trees = [[0, 0, 8, 0.5]];
+    expect(() => validateCity(c)).toThrow(/trees\[0\]/);
+  });
+
+  it('rejects a NaN tree coordinate, naming trees[i]', () => {
+    const c = base();
+    c.trees = [[NaN, 0, 8, 3]];
+    expect(() => validateCity(c)).toThrow(/trees\[0\]/);
+  });
+
+  it('rejects a 3-number tree quad, naming trees[i]', () => {
+    const c = base();
+    c.trees = [[0, 0, 8] as unknown as [number, number, number, number]];
+    expect(() => validateCity(c)).toThrow(/trees\[0\]/);
+  });
+
+  it('rejects a 2-point woods ring, naming woods[i]', () => {
+    const c = base();
+    c.woods = [
+      [
+        [0, 0],
+        [1, 1],
+      ],
+    ];
+    expect(() => validateCity(c)).toThrow(/woods\[0\]/);
+  });
+
+  it('rejects a woods ring whose first point repeats last, naming woods[i]', () => {
+    const c = base();
+    c.woods = [
+      [
+        [0, 0],
+        [10, 0],
+        [5, 8],
+        [0, 0],
+      ],
+    ];
+    expect(() => validateCity(c)).toThrow(/woods\[0\]/);
+  });
+
   it('accepts a valid 2x2 terrain', () => {
     const c = base();
     c.terrain = { x0: -10, z0: -10, step: 20, cols: 2, rows: 2, datum: 0, heights: [0, 1, 2, 3] };
