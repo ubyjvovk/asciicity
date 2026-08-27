@@ -592,7 +592,11 @@ on `Building`, PM-added) and the builder reads it. Kyiv: Sophia
 Cathedral / St Michael's / St Volodymyr's / St Nicholas → `dome`; Bell tower
 (Sophia), Great Lavra Belltower, Near Cave's / Far Caves bell towers,
 Saint Andrew's Church → `spire`; Motherland Monument → `tower`. London:
-St Paul's Cathedral → `dome`, Elizabeth Tower → `spire`.
+St Paul's Cathedral → `dome`, Elizabeth Tower → `spire`. **Nelson's Column
+(2026-08-27):** OSM's "Nelson's Column" polygon is the 338 m² plinth → fix
+`{ h: 6, color: 0xe8e0c8, label: 'Trafalgar Square' }`; the column itself is
+an extra `{ name: "Nelson's Column", lon: −0.12793, lat: 51.50776, h: 52, size: 5, color: 0xe8e0c8 }`
+(no shape); the `trafalgar` preset becomes building-based on it.
 
 **Labels (T-0063):** the `label` on a fix (default: the name) is drawn as a
 floating DOM tag (`div.tag`, 11 px monospace, HUD green on black at 70 %)
