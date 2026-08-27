@@ -95,12 +95,17 @@ synthetic landmarks, applied to the loaded `CityData` on boot via
 `applyLandmarks(city, cityId)` before anything is built.
 
 `applyLandmarks` returns a **new** `CityData`: heights in the fix table are
-replaced; every extra building gets ids −1000, −1001, … and a 4-point square
-footprint of side `size` centred on a `project`ed `(lon, lat)` point, with
-`name`/`h`/`color` set. The fix and extra colours are registered through
+replaced on OSM buildings (extras with id ≤ −1000 keep the properties they
+were created with, even when they share an OSM name); every extra building
+gets ids −1000, −1001, … and a 4-point square footprint of side `size`
+centred on a `project`ed `(lon, lat)` point, with `name`/`h`/`color` set and
+an optional `shape`. The fix and extra colours are registered through
 `registerLandmarkColors` so `colorFor` renders them. Idempotent: an extra
-whose name is already present is not re-appended. Cities with empty tables
-(London) or unknown ids (e.g. `synthetic`) are returned unchanged.
+already present (same name and id ≤ −1000) is not re-appended — an OSM
+building of the same name does not block it. Cities with empty tables or
+unknown ids (e.g. `synthetic`) are returned unchanged. A fix may also carry
+a `label` (default: the OSM name) used by the floating tags (architecture
+§4.13).
 
 ### Kyiv table
 
@@ -120,7 +125,20 @@ whose name is already present is not re-appended. Cities with empty tables
 | St. Nicholas Cathedral | — | ivory `0xe8e0c8` |
 
 Extra: `Motherland Monument` at (30.5632, 50.4266), h 102, size 20, silver
-`0xc0c0c0`. London: both tables empty (no change).
+`0xc0c0c0`, `tower`.
+
+### London table
+
+| Exact OSM name | h (m) | colour | label |
+|---|---|---|---|
+| St Paul's Cathedral | — (shape `dome`) | — | — |
+| Elizabeth Tower | — (shape `spire`) | — | — |
+| Nelson's Column | 6 (the 338 m² plinth) | ivory `0xe8e0c8` | Trafalgar Square |
+
+Extra: `Nelson's Column` at (−0.12793, 51.50776), h 52, size 5, ivory
+`0xe8e0c8`, no shape. OSM already has a building of that name (the plinth);
+the extra is still appended (id ≤ −1000) so the square has a 52 m column
+standing on the 6 m plinth.
 
 ### Silhouette caps (`Building.shape`, T-0062)
 
@@ -149,15 +167,17 @@ Shapes by name (architecture §4.13):
   tower (Sophia's), Great Lavra Belltower, Near Cave's Belltower, Bell Tower
   of Far Caves, Saint Andrew's Church. Motherland Monument extra: `tower`.
 - **London** — St Paul's Cathedral: `dome`; Elizabeth Tower: `spire` (shape-
-  only fixes; heights and counts unchanged).
+  only fixes; those heights unchanged). Nelson's Column extra: no shape
+  (flat-roof 5×5×52 m ivory shaft). Building count +1 for the extra.
 
 ### Adding a city
 
 1. Add the city to `LANDMARK_FIXES`: keys are the **exact** OSM `name` strings
    from the dataset; only the properties you want overridden differ from the
    dataset (`h` and/or `color`).
-2. Add any synthetic landmarks to `EXTRA_BUILDINGS` with a unique `name`,
-   a WGS84 `lon`/`lat` pivot, `h`, `size` (square side) and `color`.
+2. Add any synthetic landmarks to `EXTRA_BUILDINGS` with a `name` (may match
+   an OSM building — extras are keyed by id ≤ −1000), a WGS84 `lon`/`lat`
+   pivot, `h`, `size` (square side), `color`, and optional `shape`.
 3. `main.ts` already calls `applyLandmarks(city, cityId ?? 'synthetic')` right
    after `chooseCity`; cities not present in the tables are no-ops.
 4. Cover it in `tests/landmarks.test.ts` and (for spawns) `tests/spawn.test.ts`.

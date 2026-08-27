@@ -208,12 +208,13 @@ per-frame allocations are made inside `main.ts`.
 | `lloyds`      | Named building "Lloyd's" (data-driven).                               |
 | `bigben`      | Fixed coordinate — Westminster Bridge, facing Big Ben (yaw 268°).       |
 | `parliament`  | Fixed coordinate — Parliament Square, facing the Palace of Westminster (yaw 90°). |
-| `trafalgar`   | Fixed coordinate — Trafalgar Square, facing Whitehall (yaw 180°).       |
+| `trafalgar`   | Named building "Nelson's Column" (the 52 m extra; fallback Trafalgar Square, facing Whitehall, yaw 180°). |
 | `embankment`  | Fixed coordinate — Victoria Embankment, facing the London Eye (yaw 120°).|
 
 **Data-driven presets** (`stpauls`, `gherkin`, `monument`, `tower`,
-`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`, and the
-Kyiv building presets below): the named building is located in the loaded
+`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`,
+`trafalgar`, and the Kyiv building presets below): the named building is
+located in the loaded
 dataset by an **exact** (case-insensitive) match first, then a substring
 match on `Building.name`, its centroid computed, and the game spawns on the
 nearest road vertex as far away as the building's height dictates

@@ -154,7 +154,9 @@ describe('resolveSpawn', () => {
     expect(spawn.yaw).toBeCloseTo(Math.PI / 2, 6);
   });
 
-  it('resolves the trafalgar preset to its projected point with yaw 180°', () => {
+  it('falls back to the trafalgar coordinate (yaw 180°) when no city is given', () => {
+    // Hybrid building preset: without a city there is nothing to resolve
+    // against, so the previous WGS84 fallback (facing Whitehall) is used.
     const spawn = resolveSpawn('trafalgar', ORIGIN, () => false);
     expect(spawn.x).toBeCloseTo(
       project(-0.128, 51.5079, ORIGIN)[0],
@@ -331,6 +333,10 @@ describe('resolveSpawn', () => {
     expect(SPAWN_PRESETS.bigben.label).toBe(
       'Westminster Bridge, facing Big Ben',
     );
+    expect(SPAWN_PRESETS.trafalgar.label).toBe(
+      "Trafalgar Square, facing Nelson's Column",
+    );
+    expect('building' in SPAWN_PRESETS.trafalgar).toBe(true);
   });
 
   it('datadriven presets carry a city and a building name', () => {
@@ -805,5 +811,73 @@ describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
       );
     }
     console.log(`[kyiv-presets] ${rows.join(' | ')}`);
+  });
+});
+
+// T-0069: trafalgar is a building preset on the 52 m Nelson's Column extra.
+// Against the real London CollisionGrid it must resolve via landmarkSpawn
+// (not the WGS84 fallback), 100–180 m from the extra centroid (h=52 →
+// targetDist 132), with a clear T-0059 corridor, facing the extra within 10°.
+describe('London trafalgar preset (T-0069)', () => {
+  const LONDON: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'city.json'), 'utf8'),
+  );
+  const city = applyLandmarks(LONDON, 'london');
+  const collision = new CollisionGrid(
+    city.water?.length
+      ? [...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
+      : city.buildings,
+    25,
+    city.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+  );
+
+  it("resolveSpawn('trafalgar') against the real London data + CollisionGrid resolves via landmarkSpawn (not the fallback), 100–180 m from the extra's centroid (52 m → targetDist 132), corridor clear per the T-0059 rule, facing it within 10°", () => {
+    const extra = city.buildings.find(
+      (b) => b.name === "Nelson's Column" && b.id <= -1000,
+    );
+    expect(extra).toBeDefined();
+    expect(extra!.h).toBe(52);
+    let cx = 0;
+    let cz = 0;
+    for (const [px, pz] of extra!.poly) {
+      cx += px;
+      cz += pz;
+    }
+    cx /= extra!.poly.length;
+    cz /= extra!.poly.length;
+
+    const blocked = (p: Vec2, r?: number): boolean => collision.blocked(p, r);
+    const spawn = resolveSpawn('trafalgar', city.origin, blocked, city);
+
+    // Prove landmarkSpawn (not the WGS84 fallback) was picked.
+    const viaLandmark = landmarkSpawn("Nelson's Column", city, undefined, blocked);
+    expect(viaLandmark).not.toBeNull();
+    expect(spawn.x).toBeCloseTo(viaLandmark!.x, 6);
+    expect(spawn.z).toBeCloseTo(viaLandmark!.z, 6);
+    expect(spawn.yaw).toBeCloseTo(viaLandmark!.yaw, 6);
+    const fallback = project(-0.128, 51.5079, city.origin);
+    expect(Math.hypot(spawn.x - fallback[0], spawn.z - fallback[1])).toBeGreaterThan(50);
+
+    const dist = Math.hypot(spawn.x - cx, spawn.z - cz);
+    expect(dist).toBeGreaterThanOrEqual(100);
+    expect(dist).toBeLessThanOrEqual(180);
+
+    const fx = Math.sin(spawn.yaw);
+    const fz = -Math.cos(spawn.yaw);
+    let firstBlocked: number | 'inf' = 'inf';
+    for (let k = 4; k <= 40; k += 4) {
+      const q: Vec2 = [spawn.x + k * fx, spawn.z + k * fz];
+      if (collision.blocked(q, 1.5)) {
+        firstBlocked = k;
+        break;
+      }
+    }
+    expect(firstBlocked, 'corridor for trafalgar').toBe('inf');
+
+    const expectedYaw = Math.atan2(cx - spawn.x, -(cz - spawn.z));
+    const delta = Math.abs(normalizeAngle(spawn.yaw - expectedYaw));
+    expect(delta).toBeLessThan((10 * Math.PI) / 180);
   });
 });

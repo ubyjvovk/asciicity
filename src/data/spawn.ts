@@ -59,11 +59,12 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     city: 'london',
   },
   trafalgar: {
+    building: "Nelson's Column",
+    city: 'london',
+    label: "Trafalgar Square, facing Nelson's Column",
     lon: -0.128,
     lat: 51.5079,
     bearingDeg: 180,
-    label: 'Trafalgar Square, facing Whitehall',
-    city: 'london',
   },
   embankment: {
     lon: -0.122,
@@ -330,18 +331,21 @@ function normalizeAngle(a: number): number {
 /**
  * Resolve a named building to a spawn point ~`targetDist` metres away on a
  * road vertex, facing the building centroid. An **exact** (case-insensitive)
- * name match is preferred before a substring (`includes`) match. The default
- * target distance scales with the target's height: `clamp(70 + 1.2·h, 70, 220)`.
- * Returns the candidate road vertex from every road polyline (all classes)
- * whose distance from the centroid lies in `[targetDist − 40, targetDist + 60]`
- * with the smallest `|dist − targetDist|`; if none, any corridor-clear vertex
- * within 300 m. Every candidate must pass **both** a 6 m footprint clearance
- * (`blocked(pt, 6) === false`) and a clear view corridor toward the centroid
- * (`blocked(pt + k·forward, 1.5) === false` for `k = 4…40 m`) so the spawn
- * never sits inside a building nor against a wall that fills the frame; when
- * no candidate survives, `null` is returned (the caller falls back to a fixed
- * coordinate). Returns `null` when the building is unnamed/absent. Yaw faces
- * the centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward
+ * name match is preferred before a substring (`includes`) match; when several
+ * buildings share the exact name, an extra (`id ≤ −1000`) wins over an OSM
+ * footprint (Nelson's Column is both a 6 m plinth and a 52 m extra). The
+ * default target distance scales with the target's height:
+ * `clamp(70 + 1.2·h, 70, 220)`. Returns the candidate road vertex from every
+ * road polyline (all classes) whose distance from the centroid lies in
+ * `[targetDist − 40, targetDist + 60]` with the smallest `|dist − targetDist|`;
+ * if none, any corridor-clear vertex within 300 m. Every candidate must pass
+ * **both** a 6 m footprint clearance (`blocked(pt, 6) === false`) and a clear
+ * view corridor toward the centroid (`blocked(pt + k·forward, 1.5) === false`
+ * for `k = 4…40 m`) so the spawn never sits inside a building nor against a
+ * wall that fills the frame; when no candidate survives, `null` is returned
+ * (the caller falls back to a fixed coordinate). Returns `null` when the
+ * building is unnamed/absent. Yaw faces the centroid via
+ * `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward
  * `(sin yaw, −cos yaw)`).
  */
 export function landmarkSpawn(
@@ -351,10 +355,12 @@ export function landmarkSpawn(
   blocked?: (p: Vec2, r?: number) => boolean,
 ): SpawnPoint | null {
   const needle = name.toLowerCase();
-  // Exact (case-insensitive) match first, then substring match.
-  const exact = city.buildings.find(
+  // Exact (case-insensitive) match first, then substring match. An extra
+  // (id ≤ −1000) with the same exact name wins over an OSM building.
+  const exactMatches = city.buildings.filter(
     (b) => b.name !== undefined && b.name.toLowerCase() === needle,
   );
+  const exact = exactMatches.find((b) => b.id <= -1000) ?? exactMatches[0];
   const building =
     exact ??
     city.buildings.find(
