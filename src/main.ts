@@ -15,6 +15,7 @@ import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
+import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
@@ -76,6 +77,8 @@ declare global {
        * `false` for an unknown key.
        */
       travel(key: string): boolean;
+      /** Number of trees in the loaded city's TreeField (0 when absent, T-0066). */
+      trees: number;
     };
   }
 }
@@ -392,6 +395,10 @@ async function main(): Promise<void> {
   scene.add(groundMesh);
   if (terrain) scene.add(makeTerrainObject(terrain.data));
   scene.add(makeRoadsObject(city.roads, groundAt));
+  // Trees (architecture.md §4.14): two instanced meshes seated on the terrain,
+  // added before the buildings so canopies sit behind low structures. Static.
+  const treeField = city.trees?.length ? new TreeField(city.trees, groundAt) : undefined;
+  if (treeField) scene.add(treeField.object);
   scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
   if (city.water?.length) {
     scene.add(makeWaterObject(city.water, city.waterLevels));
@@ -527,6 +534,7 @@ async function main(): Promise<void> {
     render: post.style.id,
     styles: STYLES.map((s) => s.id),
     settings,
+    trees: treeField?.count ?? 0,
     cols: 0,
     rows: 0,
     // Overridden below once `travel` is in scope.

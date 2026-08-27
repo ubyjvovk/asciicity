@@ -327,3 +327,39 @@ reused `THREE.Object3D` dummy (`position.set(x, heightAt(x, z) + 1.0, z)`,
 `FLAT_HEIGHT` reproduces the flat `y = 1.0` world. Empty/absent rivers yield
 `count 0` and an inert group whose `update` is a no-op. `main.ts` instantiates
 it only when `city.rivers?.length` is non-zero.
+
+## Trees (`src/world/trees.ts`)
+
+`city.trees` (`[x, z, h, r][]`, T-0065) render as **two static instanced
+meshes** — canopies and trunks — seated on the terrain, one instance per tree.
+Pure geometry lives in `buildTreeInstances`; `TreeField` is the thin browser
+wrapper (docs/architecture.md §4.14; no collision, no wind, no LOD, no
+per-frame work).
+
+**`buildTreeInstances(trees, heightAt = FLAT_HEIGHT, seed = 5): TreeInstances`**
+returns `{ count, matrices, colors }`. `matrices` holds both meshes
+concatenated, column-major like `THREE.Matrix4`: indices `[0, 16·count)` are
+the canopies and `[16·count, 32·count)` the trunks (the §4.14 interface
+comment read `16·count`; two instanced meshes need `2·16·count` floats).
+Per tree `[x, z, h, r]` with ground `y0 = heightAt(x, z)`:
+
+- **canopy** — `IcosahedronGeometry(1, 0)` scaled `(r, 0.8·r, r)`, centred at
+  `(x, y0 + h − 0.8·r, z)` → matrix scale `(r, 0.8r, r)`, translation
+  `(x, y0 + h − 0.8r, z)`;
+- **trunk** — `CylinderGeometry(0.18, 0.28, 1, 5)` scaled to height `h − 0.8·r`,
+  its base at `y0` → matrix scale `(1, h − 0.8r, 1)`, translation
+  `(x, y0 + (h − 0.8r)/2, z)`.
+
+`colors` is `3·count` floats: the canopy **instance colours**, one linear-rgb
+triple per tree, from a seeded olive/green range (mulberry32 seed 5): HSL hue
+`95 + 35·rand`° (passed to `THREE.Color.setHSL` as `/360`), saturation
+`0.45 + 0.25·rand`, lightness `0.22 + 0.16·rand`, then `convertSRGBToLinear()`.
+Trunks always use the fixed `MeshLambertMaterial({ color: 0x4a3524 })`.
+
+**`TreeField(trees, heightAt = FLAT_HEIGHT)`** turns that into two
+`THREE.InstancedMesh`es (`MeshLambertMaterial({ vertexColors: false })`, canopy
+colours via `setColorAt`), held in a `THREE.Group`; `count` reports the number
+of trees (0 for empty input → an empty group). `main.ts` adds
+`new TreeField(city.trees, groundAt).object` **before the buildings** whenever
+`city.trees?.length` is non-zero, and exposes the count on
+`window.__asciicity.trees`. Budget: ≤ 40 000 instances = two draw calls.
