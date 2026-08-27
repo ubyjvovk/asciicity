@@ -18,6 +18,8 @@ export interface LandmarkFix {
   color?: number;
   /** Silhouette cap (architecture §4.13): dome / spire / tower. */
   shape?: 'dome' | 'spire' | 'tower';
+  /** Floating tag label (architecture §4.13); default is the OSM name. */
+  label?: string;
 }
 
 /** A synthetic building to append: a square footprint of side `size` centred on `(lon, lat)`. */
@@ -32,12 +34,14 @@ export interface ExtraBuilding {
   size: number;
   /** Hex colour. */
   color: number;
+  /** Silhouette cap; omit for a flat roof (architecture §4.13). */
+  shape?: 'dome' | 'spire' | 'tower';
 }
 
 /**
  * Per-city map of exact OSM `name` → override. Heights are real-world metres;
  * colours feed `registerLandmarkColors`. Shapes (architecture §4.13) add a
- * silhouette cap. London carries shape-only fixes. Empty table = unchanged.
+ * silhouette cap. Empty table = unchanged.
  */
 export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, LandmarkFix>>>> = {
   kyiv: {
@@ -57,10 +61,12 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
   london: {
     "St Paul's Cathedral": { shape: 'dome' },
     'Elizabeth Tower': { shape: 'spire' },
+    // OSM maps the column as its 338 m² plinth at the default 14 m.
+    "Nelson's Column": { h: 6, color: 0xe8e0c8, label: 'Trafalgar Square' },
   },
 };
 
-/** Per-city extra synthetic buildings appended at load (London: none). */
+/** Per-city extra synthetic buildings appended at load. */
 export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>> = {
   kyiv: [
     {
@@ -70,18 +76,31 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
       h: 102,
       size: 20,
       color: 0xc0c0c0,
+      shape: 'tower',
     },
   ],
-  london: [],
+  london: [
+    {
+      name: "Nelson's Column",
+      lon: -0.12793,
+      lat: 51.50776,
+      h: 52,
+      size: 5,
+      color: 0xe8e0c8,
+    },
+  ],
 };
 
 /**
  * Apply landmark fixes and extras to a `CityData`, returning a new object.
- * Heights are replaced by exact name match; colours are registered via
- * `registerLandmarkColors` so `colorFor` picks them up at build; extras with
- * ids −1000, −1001, … get a 4-point square footprint projected via
- * `src/geo.ts`. Idempotent: an extra already present is not re-appended.
- * Synthetic/unknown ids, or ids with empty tables, return the input unchanged.
+ * Heights/shapes are replaced by exact name match on OSM buildings (extras
+ * with id ≤ −1000 keep the properties they were created with); colours are
+ * registered via `registerLandmarkColors` so `colorFor` picks them up at
+ * build; extras with ids −1000, −1001, … get a 4-point square footprint
+ * projected via `src/geo.ts`. Idempotent: an extra already present (same
+ * name and id ≤ −1000) is not re-appended, even if an OSM building shares
+ * the name. Synthetic/unknown ids, or ids with empty tables, return the
+ * input unchanged.
  */
 export function applyLandmarks(city: CityData, cityId: string): CityData {
   const fixes = LANDMARK_FIXES[cityId];
@@ -109,8 +128,11 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
     return city;
   }
 
-  // Apply height/shape overrides by exact OSM name.
+  // Apply height/shape overrides by exact OSM name. Extras keep the h/shape
+  // they were created with, even when they share an OSM name (Nelson's
+  // Column is both a 6 m plinth and a 52 m extra).
   const buildings = city.buildings.map((b) => {
+    if (b.id <= -1000) return b;
     const fix = b.name !== undefined ? fixes[b.name] : undefined;
     if (fix === undefined) return b;
     const { h = b.h, shape = b.shape } = fix;
@@ -120,11 +142,14 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
     return b;
   });
 
-  // Append extras, skipping any whose name already exists (idempotency).
-  const existing = new Set(buildings.map((b) => b.name));
+  // Append extras, skipping any extra already present (idempotency). An OSM
+  // building of the same name does not block the extra.
+  const existingExtras = new Set(
+    buildings.filter((b) => b.id <= -1000).map((b) => b.name),
+  );
   let extraIndex = 0;
   for (const ex of extras) {
-    if (existing.has(ex.name)) continue;
+    if (existingExtras.has(ex.name)) continue;
     const [cx, cz] = project(ex.lon, ex.lat, city.origin);
     const half = ex.size / 2;
     const poly: Vec2[] = [
@@ -133,8 +158,14 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
       [cx + half, cz + half],
       [cx - half, cz + half],
     ];
-    buildings.push({ id: -1000 - extraIndex, name: ex.name, h: ex.h, poly, shape: 'tower' });
-    existing.add(ex.name);
+    buildings.push({
+      id: -1000 - extraIndex,
+      name: ex.name,
+      h: ex.h,
+      poly,
+      ...(ex.shape !== undefined ? { shape: ex.shape } : {}),
+    });
+    existingExtras.add(ex.name);
     extraIndex++;
   }
 
