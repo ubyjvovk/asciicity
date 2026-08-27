@@ -720,6 +720,7 @@ test.describe('smoke: panels (touch 390×844)', () => {
     });
     expect(after).toEqual(before);
   });
+});
 
 test('smoke: Kyiv sophia spawn shows a floating Sophia tag', async ({ page }) => {
   await page.goto('/?city=kyiv&at=sophia');
