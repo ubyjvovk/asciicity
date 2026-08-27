@@ -218,6 +218,107 @@ describe('buildBuildingsMesh', () => {
     arraysClose(a.colors, b.colors);
     expect(a.groups).toEqual(b.groups);
   });
+
+  it('a dome building adds exactly 8·4·2 = 64 triangles (192 vertices) in group 0 above roof height with outward unit normals', () => {
+    // 10×10 square at h=5: walls 24 + dome 192 = 216 group-0 vertices; roofs 6.
+    const mesh = buildBuildingsMesh([squareBuilding({ shape: 'dome' })]);
+    expect(mesh.positions.length / 3).toBe(216 + 6);
+    expect(mesh.groups).toEqual([
+      { start: 0, count: 216, materialIndex: 0 },
+      { start: 216, count: 6, materialIndex: 1 },
+    ]);
+    // The 192 cap vertices lie in group 0 (after the 24 wall vertices), never below the roof.
+    for (let v = 24; v < 216; v++) {
+      expect(mesh.positions[v * 3 + 1]!).toBeGreaterThanOrEqual(5);
+      const nx = mesh.normals[v * 3]!;
+      const ny = mesh.normals[v * 3 + 1]!;
+      const nz = mesh.normals[v * 3 + 2]!;
+      expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1);
+    }
+    // Every cap triangle faces away from the dome centre (5, 5, roofY=5).
+    const cx = 5;
+    const cz = 5;
+    const cy = 5;
+    for (let t = 0; t < 64; t++) {
+      const i = 24 + t * 3;
+      const ax = mesh.positions[i * 3]!;
+      const ay = mesh.positions[i * 3 + 1]!;
+      const az = mesh.positions[i * 3 + 2]!;
+      const bx = mesh.positions[(i + 1) * 3]!;
+      const by = mesh.positions[(i + 1) * 3 + 1]!;
+      const bz = mesh.positions[(i + 1) * 3 + 2]!;
+      const ggx = mesh.positions[(i + 2) * 3]!;
+      const ggy = mesh.positions[(i + 2) * 3 + 1]!;
+      const ggz = mesh.positions[(i + 2) * 3 + 2]!;
+      const mx = (ax + bx + ggx) / 3;
+      const my = (ay + by + ggy) / 3;
+      const mz = (az + bz + ggz) / 3;
+      const nx = mesh.normals[i * 3]!;
+      const ny = mesh.normals[i * 3 + 1]!;
+      const nz = mesh.normals[i * 3 + 2]!;
+      expect(nx * (mx - cx) + ny * (my - cy) + nz * (mz - cz)).toBeGreaterThan(0);
+    }
+  });
+
+  it('a spire building adds 8 side triangles (24 vertices) reaching roofY + 0.6·h at the apex; base omitted', () => {
+    // Walls 24 + spire 24 = 48 group-0 vertices; roofs 6.
+    const mesh = buildBuildingsMesh([squareBuilding({ shape: 'spire' })]);
+    expect(mesh.positions.length / 3).toBe(48 + 6);
+    expect(mesh.groups).toEqual([
+      { start: 0, count: 48, materialIndex: 0 },
+      { start: 48, count: 6, materialIndex: 1 },
+    ]);
+    // Exactly 8 side triangles in the spire (24 vertices = 8 triangles).
+    expect(24 / 3).toBe(8);
+    // Apex reaches roofY + 0.6·h = 5 + 3 = 8; the base ring sits at roofY = 5.
+    let maxY = -Infinity;
+    let minY = Infinity;
+    for (let v = 24; v < 48; v++) {
+      const y = mesh.positions[v * 3 + 1]!;
+      if (y > maxY) maxY = y;
+      if (y < minY) minY = y;
+      const nx = mesh.normals[v * 3]!;
+      const ny = mesh.normals[v * 3 + 1]!;
+      const nz = mesh.normals[v * 3 + 2]!;
+      expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1);
+    }
+    expect(maxY).toBeCloseTo(5 + 0.6 * 5);
+    expect(minY).toBeCloseTo(5);
+  });
+
+  it('a tower building adds a box whose top is roofY + 0.5·h', () => {
+    // Walls 24 + tower 30 (4 sides + top) = 54 group-0 vertices; roofs 6.
+    const mesh = buildBuildingsMesh([squareBuilding({ shape: 'tower' })]);
+    expect(mesh.positions.length / 3).toBe(54 + 6);
+    expect(mesh.groups).toEqual([
+      { start: 0, count: 54, materialIndex: 0 },
+      { start: 54, count: 6, materialIndex: 1 },
+    ]);
+    // Top at roofY + 0.5·h = 5 + 2.5 = 7.5; box sits on the roof at 5.
+    let maxY = -Infinity;
+    let minY = Infinity;
+    for (let v = 24; v < 54; v++) {
+      const y = mesh.positions[v * 3 + 1]!;
+      if (y > maxY) maxY = y;
+      if (y < minY) minY = y;
+      const nx = mesh.normals[v * 3]!;
+      const ny = mesh.normals[v * 3 + 1]!;
+      const nz = mesh.normals[v * 3 + 2]!;
+      expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1);
+    }
+    expect(maxY).toBeCloseTo(5 + 0.5 * 5);
+    expect(minY).toBeCloseTo(5);
+  });
+
+  it('no shape → identical output to a building whose shape key is absent (compare arrays)', () => {
+    const a = buildBuildingsMesh([squareBuilding()]);
+    const b = buildBuildingsMesh([squareBuilding({ shape: undefined })]);
+    arraysClose(a.positions, b.positions);
+    arraysClose(a.normals, b.normals);
+    arraysClose(a.uvs, b.uvs);
+    arraysClose(a.colors, b.colors);
+    expect(a.groups).toEqual(b.groups);
+  });
 });
 
 describe('colorFor', () => {

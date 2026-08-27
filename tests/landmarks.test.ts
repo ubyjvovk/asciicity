@@ -26,13 +26,41 @@ function byName(buildings: Building[]): Record<string, Building> {
 }
 
 describe('LANDMARK_FIXES', () => {
-  it('the Kyiv table is non-empty and the London table is empty', () => {
+  it('the Kyiv and London tables are non-empty and carry the §4.13 shapes', () => {
     expect(Object.keys(LANDMARK_FIXES.kyiv).length).toBeGreaterThan(0);
-    expect(Object.keys(LANDMARK_FIXES.london)).toHaveLength(0);
+    expect(Object.keys(LANDMARK_FIXES.london).length).toBeGreaterThan(0);
+    expect(LANDMARK_FIXES.kyiv['Saint Sophia Cathedral'].shape).toBe('dome');
+    expect(LANDMARK_FIXES.kyiv['Bell tower'].shape).toBe('spire');
+    expect(LANDMARK_FIXES.london["St Paul's Cathedral"].shape).toBe('dome');
+    expect(LANDMARK_FIXES.london['Elizabeth Tower'].shape).toBe('spire');
   });
 });
 
 describe('applyLandmarks (Kyiv)', () => {
+  it('Kyiv fixes carry the §4.13 shapes onto the buildings (dome/spire)', () => {
+    const city = applyLandmarks(KYIV, 'kyiv');
+    const names = byName(city.buildings);
+    expect(names['Saint Sophia Cathedral'].shape).toBe('dome');
+    expect(names['St. Michael Golden-Domed Cathedral'].shape).toBe('dome');
+    expect(names["St. Volodymyr's Cathedral"].shape).toBe('dome');
+    expect(names['St. Nicholas Cathedral'].shape).toBe('dome');
+    expect(names['Bell tower'].shape).toBe('spire');
+    expect(names['Great Lavra Belltower'].shape).toBe('spire');
+    expect(names["Near Cave's Belltower"].shape).toBe('spire');
+    expect(names['Bell Tower of Far Caves'].shape).toBe('spire');
+    expect(names["Saint Andrew's Church"].shape).toBe('spire');
+    // Non-shaped buildings are untouched.
+    expect(names['Golden Gate'].shape).toBeUndefined();
+    expect(names['Verkhovna Rada of Ukraine'].shape).toBeUndefined();
+  });
+
+  it('the Motherland Monument extra is a tower', () => {
+    const city = applyLandmarks(KYIV, 'kyiv');
+    const extra = city.buildings.find((b) => b.name === 'Motherland Monument');
+    expect(extra).toBeDefined();
+    expect(extra!.shape).toBe('tower');
+  });
+
   it('sets Saint Sophia Cathedral to 29 and Great Lavra Belltower to 96', () => {
     const city = applyLandmarks(KYIV, 'kyiv');
     const names = byName(city.buildings);
@@ -101,14 +129,21 @@ describe('applyLandmarks (Kyiv)', () => {
 });
 
 describe('applyLandmarks (London / synthetic)', () => {
-  it('returns London unchanged (deep-equal)', () => {
+  it('adds shape-only fixes to St Paul\'s (dome) and Elizabeth Tower (spire) with heights and count unchanged', () => {
     const city = applyLandmarks(LONDON, 'london');
-    expect(city).toEqual(LONDON);
+    const names = byName(city.buildings);
+    expect(names["St Paul's Cathedral"].shape).toBe('dome');
+    expect(names['Elizabeth Tower'].shape).toBe('spire');
+    // Heights and building count are untouched (shape-only fixes).
+    expect(names["St Paul's Cathedral"].h).toBe(
+      byName(LONDON.buildings)["St Paul's Cathedral"].h,
+    );
+    expect(names['Elizabeth Tower'].h).toBe(byName(LONDON.buildings)['Elizabeth Tower'].h);
+    expect(city.buildings.length).toBe(LONDON.buildings.length);
   });
 
   it('returns an unknown/synthetic id unchanged (deep-equal)', () => {
     const city = applyLandmarks(LONDON, 'synthetic');
     expect(city).toEqual(LONDON);
   });
-
 });
