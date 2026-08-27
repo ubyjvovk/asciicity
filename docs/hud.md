@@ -125,6 +125,36 @@ argument.
 `Hud.update` renders the `LANDMARK` row (via `hudRow`) after `ZONE` and before
 `FPS`, showing `-` when no landmark is found (`landmark` is undefined).
 
+## Floating landmark tags
+
+`src/hud/tags.ts` — pure `landmarkAnchors` / `pickTags` plus a thin DOM
+`Tags` class (architecture.md §4.13). Only buildings that carry a landmark
+fix (or an extra appended by `applyLandmarks`) get a tag.
+
+`landmarkAnchors(city, fixesForCity, heightAt = FLAT_HEIGHT)` returns
+`{ name, label, x, y, z }[]` for every named building whose exact name is a
+key in `fixesForCity`, and for extras (`id <= −1000`). `label` is
+`fix.label` when set, else the building name. `x`/`z` are the footprint
+centroid; `y` is `roofY + 4` where `roofY` is `max(heightAt over the ring)
++ h` — the same roof the building mesh uses. `heightAt` defaults to
+`FLAT_HEIGHT` so London / synthetic stay at `y = h + 4`.
+
+`pickTags(anchors, px, pz, maxDist = 600, max = 8)` returns the nearest
+`max` anchors whose 2-D (x/z) distance to the player is `<= maxDist`
+(inclusive), nearest first. Farther landmarks are dropped.
+
+`new Tags(root)` fills `root` with a **fixed pool of 8** `div.tag` elements
+(no per-frame allocation). `update(anchors, camera, w, h)` projects each
+anchor with `THREE.Vector3.project(camera)`, hides when NDC `z > 1` (behind
+the camera) or the pixel is outside `[0, w] × [0, h]`, and sets CSS
+`left`/`top` from NDC (`left = (x·0.5+0.5)·w`, `top = (−y·0.5+0.5)·h`).
+
+`main.ts` builds the anchor list once after `applyLandmarks`, calls
+`tags.update(pickTags(...), camera, w, h)` every 4th frame, and honours
+`?tags=0` (no container, no updates). The `#tags` overlay is
+`pointer-events: none`. CSS (`src/style.css`): `div.tag` is 11 px
+monospace, HUD green on black at 70 %.
+
 ## DOM panel
 
 `new Hud(root)` appends, using `textContent` only (no `innerHTML`):
