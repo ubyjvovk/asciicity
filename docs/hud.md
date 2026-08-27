@@ -145,11 +145,22 @@ Styles (`hud.css`): `#48e06a` monospace 13 px on black; title brighter
 At `(max-width: 700px)` the panel shrinks so it no longer covers the right
 side of a phone viewport (T-0031):
 
-- `src/style.css` `#hud`: width `176 px`, padding `6px 8px`; `#hud .minimap`
-  width/height `90 px` (CSS box only — the canvas keeps its 180 px backing
-  store).
+- `src/style.css` `#hud`: width `176 px`, padding `6px 8px`.
 - `src/hud/hud.css`: `.hud-rows` `10 px`, `.hud-title` `11 px`,
   `.hud-help` `9 px`.
 
 `#hud` is `pointer-events: none` at all sizes — it is display-only, so
 look-drags across it reach the canvas instead of being eaten.
+
+## Layout (T-0060)
+
+The NAVIGATION panel is **top-right** (`#hud`). The heading-up minimap is a
+separate **top-left** panel (`#mini`, 180 px; 120 px under the 700 px
+breakpoint) holding `<canvas id="minimap">` — it is no longer a child of
+`#hud`. `H` hides/shows `#hud`, `M` hides/shows `#mini` (`display: none`,
+and the matching per-frame update is skipped). Both panels are created at
+boot even when `?hud=0` / `?minimap=0` (those flags start them hidden).
+
+A ⚙ `#gear` button sits **bottom-right** (40×40 px, every platform) and
+opens the pause/settings menu. The `#credits` footer is **bottom-centre**.
+See `docs/integration.md` for the menu rows, persistence, and keys.

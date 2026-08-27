@@ -222,6 +222,7 @@ async function waitReady(page: Page): Promise<void> {
 }
 
 test('smoke: R cycles every render style and each paints', async ({ page }) => {
+  test.setTimeout(120_000);
   // `?cell=3x6` so SwiftShader's 64-row blanking does not hide the lower half.
   await page.goto('/?synthetic=1&cell=3x6');
   await waitReady(page);
@@ -308,5 +309,223 @@ test('smoke: ?render= aliases and R / Shift+R cycle', async ({ page }) => {
           ?.render,
     ),
   ).toBe('ascii');
+});
+
+/** Axis-aligned bounding box of a positioned element. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** True when two boxes have empty intersection (edges touching is OK). */
+function noOverlap(a: Box, b: Box): boolean {
+  return a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+}
+
+/** Read `#mini` / `#hud` / `#gear` / `#credits` bounding boxes. */
+async function panelBoxes(page: Page): Promise<Record<string, Box>> {
+  return page.evaluate(() => {
+    const ids = ['mini', 'hud', 'gear', 'credits'] as const;
+    const out: Record<string, Box> = {};
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (!el) {
+        out[id] = { x: 0, y: 0, w: 0, h: 0 };
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      out[id] = { x: r.x, y: r.y, w: r.width, h: r.height };
+    }
+    return out;
+  });
+}
+
+test('smoke: panels', async ({ page }) => {
+  await page.goto('/?synthetic=1');
+  await waitReady(page);
+
+  const mini = page.locator('#mini');
+  const hud = page.locator('#hud');
+  await expect(mini).toBeVisible();
+  await expect(hud).toBeVisible();
+
+  const boxes = await panelBoxes(page);
+  console.log('desktop boxes', JSON.stringify(boxes));
+  expect(boxes.mini.w).toBeGreaterThan(0);
+  expect(boxes.hud.w).toBeGreaterThan(0);
+  expect(boxes.gear.w).toBeGreaterThan(0);
+  expect(boxes.credits.w).toBeGreaterThan(0);
+  expect(noOverlap(boxes.mini, boxes.hud), `mini vs hud ${JSON.stringify(boxes)}`).toBe(
+    true,
+  );
+  expect(noOverlap(boxes.mini, boxes.gear), `mini vs gear ${JSON.stringify(boxes)}`).toBe(
+    true,
+  );
+  expect(
+    noOverlap(boxes.mini, boxes.credits),
+    `mini vs credits ${JSON.stringify(boxes)}`,
+  ).toBe(true);
+  expect(noOverlap(boxes.hud, boxes.gear), `hud vs gear ${JSON.stringify(boxes)}`).toBe(
+    true,
+  );
+  expect(
+    noOverlap(boxes.hud, boxes.credits),
+    `hud vs credits ${JSON.stringify(boxes)}`,
+  ).toBe(true);
+  expect(
+    noOverlap(boxes.gear, boxes.credits),
+    `gear vs credits ${JSON.stringify(boxes)}`,
+  ).toBe(true);
+
+  await page.keyboard.press('KeyM');
+  await expect(mini).toBeHidden();
+  const stored = await page.evaluate(() => localStorage.getItem('asciicity.settings'));
+  expect(stored).toContain('"minimap":false');
+
+  await page.keyboard.press('KeyH');
+  await expect(hud).toBeHidden();
+
+  // Enter the game: a canvas-centre click dismisses the start overlay and
+  // requests pointer lock. The ⚙ button is the hit target only once the
+  // overlay is gone (chrome is z-index 5, overlay is 10).
+  const viewBox = await page.locator('#view').boundingBox();
+  if (!viewBox) throw new Error('canvas has no bounding box');
+  await page.mouse.click(
+    viewBox.x + viewBox.width / 2,
+    viewBox.y + viewBox.height / 2,
+  );
+  await expect(page.locator('#overlay')).toBeHidden();
+
+  // Pointer lock delivers subsequent mouse events to the canvas, so a
+  // locator click on #gear would never land. Release it; pointerlockchange
+  // re-shows the overlay, which we then hide without clicking (a click
+  // would re-request lock).
+  const wasLocked = await page.evaluate(() => {
+    if (document.pointerLockElement === null) return false;
+    document.exitPointerLock();
+    return true;
+  });
+  if (wasLocked) {
+    await page.waitForFunction(() => document.pointerLockElement === null);
+    await expect(page.locator('#overlay')).toBeVisible();
+    await page.locator('#overlay').evaluate((el) => {
+      (el as HTMLElement).style.display = 'none';
+    });
+  }
+
+  await page.locator('#gear').click();
+  await expect(page.locator('#overlay')).toBeVisible();
+  await expect(page.locator('#menu')).toContainText('HUD: OFF');
+  await expect(page.locator('#menu')).toContainText('MINIMAP: OFF');
+
+  await page.getByRole('button', { name: 'MINIMAP: OFF' }).click();
+  await expect(mini).toBeVisible();
+
+  const credits = page.locator('#credits');
+  await expect(credits).toContainText('@ubyjvovk');
+  await expect(credits).toHaveAttribute(
+    'href',
+    'https://github.com/ubyjvovk/asciicity',
+  );
+});
+
+test.describe('smoke: panels (touch 390×844)', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+
+  test('gear is visible, opens the menu, and does not move the player', async ({
+    page,
+  }) => {
+    await page.goto('/?synthetic=1');
+    await waitReady(page);
+
+    const gear = page.locator('#gear');
+    await expect(gear).toBeVisible();
+    await expect(page.locator('#mini')).toBeVisible();
+    await expect(page.locator('#hud')).toBeVisible();
+
+    const boxes = await panelBoxes(page);
+    console.log('touch 390x844 boxes', JSON.stringify(boxes));
+    expect(noOverlap(boxes.mini, boxes.hud), `mini vs hud ${JSON.stringify(boxes)}`).toBe(
+      true,
+    );
+    expect(noOverlap(boxes.mini, boxes.gear), `mini vs gear ${JSON.stringify(boxes)}`).toBe(
+      true,
+    );
+    expect(
+      noOverlap(boxes.mini, boxes.credits),
+      `mini vs credits ${JSON.stringify(boxes)}`,
+    ).toBe(true);
+    expect(noOverlap(boxes.hud, boxes.gear), `hud vs gear ${JSON.stringify(boxes)}`).toBe(
+      true,
+    );
+    expect(
+      noOverlap(boxes.hud, boxes.credits),
+      `hud vs credits ${JSON.stringify(boxes)}`,
+    ).toBe(true);
+    expect(
+      noOverlap(boxes.gear, boxes.credits),
+      `gear vs credits ${JSON.stringify(boxes)}`,
+    ).toBe(true);
+    expect(boxes.mini.w).toBeGreaterThan(0);
+    expect(boxes.hud.w).toBeGreaterThan(0);
+
+    // Dismiss the start overlay so a tap on the gear could otherwise reach
+    // the joystick / look handler. Tap the overlay *heading* (centre of the
+    // screen) so the ⚙ button is not the hit target.
+    await page.locator('#overlay h1').tap();
+    await expect(page.locator('#overlay')).toBeHidden();
+
+    const before = await page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __asciicity?: {
+            state?: {
+              x: number;
+              z: number;
+              y: number;
+              yaw: number;
+              pitch: number;
+              fly: boolean;
+            };
+          };
+        }
+      ).__asciicity?.state;
+      return s
+        ? { x: s.x, z: s.z, y: s.y, yaw: s.yaw, pitch: s.pitch, fly: s.fly }
+        : null;
+    });
+    expect(before).not.toBeNull();
+
+    await gear.tap();
+    await expect(page.locator('#overlay')).toBeVisible();
+    await expect(page.locator('#menu')).toContainText('HUD:');
+
+    const after = await page.evaluate(() => {
+      const s = (
+        window as unknown as {
+          __asciicity?: {
+            state?: {
+              x: number;
+              z: number;
+              y: number;
+              yaw: number;
+              pitch: number;
+              fly: boolean;
+            };
+          };
+        }
+      ).__asciicity?.state;
+      return s
+        ? { x: s.x, z: s.z, y: s.y, yaw: s.yaw, pitch: s.pitch, fly: s.fly }
+        : null;
+    });
+    expect(after).toEqual(before);
+  });
 });
 
