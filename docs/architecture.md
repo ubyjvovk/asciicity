@@ -539,7 +539,7 @@ PM-curated table is applied to the loaded `CityData` before anything is built:
 
 ```ts
 // src/world/landmarks.ts
-export interface LandmarkFix { h?: number; color?: number }
+export interface LandmarkFix { h?: number; color?: number; shape?: 'dome' | 'spire' | 'tower'; label?: string }
 export interface ExtraBuilding { name: string; lon: number; lat: number; h: number; size: number /* square side, m */; color: number }
 export const LANDMARK_FIXES: Readonly<Record<string /* city id */, Readonly<Record<string /* exact OSM name */, LandmarkFix>>>>
 export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
@@ -572,6 +572,30 @@ National Sports Complex Stadium), `nicholas` (St. Nicholas Cathedral);
 `mariinsky` is removed (not in the data); `maidan`, `podil` (Kontraktova
 30.5151, 50.4658, bearing 180), `arsenalna`, `funicular`, `hydropark`,
 `parkbridge`, `glassbridge`, `metrobridge` stay fixed-coordinate.
+
+**Shapes (T-0062):** `shape` on a fix makes the building recognisable from
+afar. `buildBuildingsMesh` emits, after the roof, a cap in the same colour
+as the walls (group 0, so the window texture shades it): `dome` — a
+hemisphere of radius `0.4·min(bboxW, bboxD)` (8 segments, 4 rings, UV
+`(0,0)`) centred on the footprint centroid at roof height; `spire` — a
+cone of base radius `0.3·min(bboxW, bboxD)` and height `0.6·h` (8 segments)
+on the roof; `tower` — a second box of half the footprint size and `0.5·h`
+extra height on the roof. Shapes are looked up by exact name through the
+same `applyLandmarks` path: it sets `Building.shape` (a new optional field
+on `Building`, PM-added) and the builder reads it. Kyiv: Sophia
+Cathedral / St Michael's / St Volodymyr's / St Nicholas → `dome`; Bell tower
+(Sophia), Great Lavra Belltower, Near Cave's / Far Caves bell towers,
+Saint Andrew's Church → `spire`; Motherland Monument → `tower`. London:
+St Paul's Cathedral → `dome`, Elizabeth Tower → `spire`.
+
+**Labels (T-0063):** the `label` on a fix (default: the name) is drawn as a
+floating DOM tag (`div.tag`, 11 px monospace, HUD green on black at 70 %)
+above the building's roof centroid when the player is within **600 m** and
+the point is in front of the camera: `main.ts` keeps one `<div id="tags">`
+with at most 8 tags (nearest first), positioned each 4th frame by
+projecting `(cx, roofY + 4, cz)` with `camera` (`Vector3.project`), hidden
+when `z > 1` or off-screen. Tags never intercept pointer events. Only
+buildings carrying a fix (or extra) get a label; `?tags=0` disables them.
 
 Fast travel (menu `LANDMARKS ▸`): a scrollable list of `presetsFor(city)`
 labels; choosing one resolves it exactly like `?at=` (`resolveSpawn` with

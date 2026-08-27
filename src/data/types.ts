@@ -62,6 +62,8 @@ export interface Building {
   h: number;
   /** OSM `name` when present — named buildings render as landmarks. */
   name?: string;
+  /** Landmark silhouette cap set by `applyLandmarks` (architecture §4.13, wave 7). Absent = flat roof. */
+  shape?: 'dome' | 'spire' | 'tower';
   /**
    * Footprint ring in local metres, >= 3 points, first point NOT repeated at
    * the end. Winding is unspecified; consumers normalise it.
