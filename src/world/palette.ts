@@ -37,9 +37,28 @@ export const LANDMARK_COLORS: Readonly<Record<string, number>> = {
   'Mansion House': 0xe8e0c8,
 };
 
-/** Named-landmark colour, or `undefined` when `name` is missing or not in the table. */
+/**
+ * Extra landmark colours registered at load time via `registerLandmarkColors`
+ * (e.g. the Kyiv fix table from `applyLandmarks`). Consulted before the
+ * static `LANDMARK_COLORS` table so per-city overrides win over the global one.
+ */
+const registeredColors: Record<string, number> = {};
+
+/**
+ * Register extra exact-name → colour mappings consulted by `landmarkColor`/
+ * `colorFor` ahead of the static `LANDMARK_COLORS` table. Idempotent; later
+ * registrations for the same name overwrite earlier ones.
+ */
+export function registerLandmarkColors(map: Record<string, number>): void {
+  for (const [name, color] of Object.entries(map)) {
+    registeredColors[name] = color;
+  }
+}
+
+/** Named-landmark colour, or `undefined` when `name` is missing or not in the tables. */
 export function landmarkColor(name: string | undefined): number | undefined {
   if (name === undefined) return undefined;
+  if (Object.hasOwn(registeredColors, name)) return registeredColors[name];
   if (Object.hasOwn(LANDMARK_COLORS, name)) return LANDMARK_COLORS[name];
   return undefined;
 }

@@ -77,6 +77,62 @@ otherwise `PALETTE[id % 8]`. `landmarkColor(name)` looks up the table and
 returns `undefined` when `name` is missing or unknown. Lookup is exact and
 case-sensitive.
 
+**Per-city overrides** (`src/world/palette.ts`, wave 7):
+`registerLandmarkColors(map)` installs extra exact-name → hex mappings into a
+module-level `registeredColors` map consulted by `landmarkColor`/`colorFor`
+**before** the static `LANDMARK_COLORS` table. `applyLandmarks` (below) uses it
+to colour-fix Kyiv's landmarks so per-city overrides win over the global
+London table. Registering an empty map is a no-op; re-registering a name
+overwrites its previous value.
+
+## Landmark fixes (`src/world/landmarks.ts`)
+
+OSM gives several Kyiv landmarks unusable stub heights (Saint Sophia 3 m,
+Great Lavra Belltower 8 m, the Arch 3 m) and has no Motherland Monument at
+all, so a PM-curated table (`LANDMARK_FIXES`) overwrites heights/colours by
+**exact OSM name** and an extra-building list (`EXTRA_BUILDINGS`) appends
+synthetic landmarks, applied to the loaded `CityData` on boot via
+`applyLandmarks(city, cityId)` before anything is built.
+
+`applyLandmarks` returns a **new** `CityData`: heights in the fix table are
+replaced; every extra building gets ids −1000, −1001, … and a 4-point square
+footprint of side `size` centred on a `project`ed `(lon, lat)` point, with
+`name`/`h`/`color` set. The fix and extra colours are registered through
+`registerLandmarkColors` so `colorFor` renders them. Idempotent: an extra
+whose name is already present is not re-appended. Cities with empty tables
+(London) or unknown ids (e.g. `synthetic`) are returned unchanged.
+
+### Kyiv table
+
+| Exact OSM name | h (m) | colour |
+|---|---|---|
+| Saint Sophia Cathedral | 29 | gold `0xf7dc6f` |
+| Bell tower | 76 | gold `0xf7dc6f` |
+| St. Michael Golden-Domed Cathedral | 40 | gold `0xf7dc6f` |
+| Saint Andrew's Church | 50 | gold `0xf7dc6f` |
+| Great Lavra Belltower | 96 | gold `0xf7dc6f` |
+| Near Cave's Belltower | 27 | gold `0xf7dc6f` |
+| Bell Tower of Far Caves | 41 | gold `0xf7dc6f` |
+| Golden Gate | 16 | ivory `0xe8e0c8` |
+| Arch of Freedom of the Ukrainian people | 35 | ivory `0xe8e0c8` |
+| Verkhovna Rada of Ukraine | 30 | ivory `0xe8e0c8` |
+| St. Volodymyr's Cathedral | 49 | ivory `0xe8e0c8` |
+| St. Nicholas Cathedral | — | ivory `0xe8e0c8` |
+
+Extra: `Motherland Monument` at (30.5632, 50.4266), h 102, size 20, silver
+`0xc0c0c0`. London: both tables empty (no change).
+
+### Adding a city
+
+1. Add the city to `LANDMARK_FIXES`: keys are the **exact** OSM `name` strings
+   from the dataset; only the properties you want overridden differ from the
+   dataset (`h` and/or `color`).
+2. Add any synthetic landmarks to `EXTRA_BUILDINGS` with a unique `name`,
+   a WGS84 `lon`/`lat` pivot, `h`, `size` (square side) and `color`.
+3. `main.ts` already calls `applyLandmarks(city, cityId ?? 'synthetic')` right
+   after `chooseCity`; cities not present in the tables are no-ops.
+4. Cover it in `tests/landmarks.test.ts` and (for spawns) `tests/spawn.test.ts`.
+
 | OSM `name` | hex |
 |---|---|
 | Elizabeth Tower | `0xf7dc6f` |

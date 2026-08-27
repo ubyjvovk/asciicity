@@ -186,15 +186,23 @@ per-frame allocations are made inside `main.ts`.
 | `embankment`  | Fixed coordinate — Victoria Embankment, facing the London Eye (yaw 120°).|
 
 **Data-driven presets** (`stpauls`, `gherkin`, `monument`, `tower`,
-`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`,
-`sophia`, `michael`): the named building is located in the loaded dataset
-by a case-insensitive substring match on `Building.name`, its centroid
-computed, and the game spawns on the nearest road vertex ~70 m away from
-it (falling back to any road vertex within 200 m), facing the building. If
-the building is absent from the bbox (e.g. `tower`), the preset falls back
-to the current city's `defaultSpawn` (London → `bigben`, Kyiv → `maidan`)
-— nothing is logged. `sophia` and `michael` also carry a static
-coordinate fallback in case the OSM name changes upstream.
+`barbican`, `liverpoolst`, `leadenhall`, `walkietalkie`, `lloyds`, and the
+Kyiv building presets below): the named building is located in the loaded
+dataset by an **exact** (case-insensitive) match first, then a substring
+match on `Building.name`, its centroid computed, and the game spawns on the
+nearest road vertex as far away as the building's height dictates
+(`targetDist = clamp(70 + 1.2·h, 70, 220)` m, falling back to any passing
+road vertex within 300 m), facing the building. **Every candidate must keep
+a 6 m footprint clearance (`blocked(pt, 6) === false`) and a clear view
+corridor toward the building** — for `k = 4, 8, …, 40` m the point
+`pt + k·(sin yaw, −cos yaw)` stays `blocked(q, 1.5) === false` — so a spawn
+never sits inside a footprint nor against a wall that fills the frame. If
+no road vertex survives the corridor test, the preset falls back to its own
+static coordinate (which walks `+x`); if the building is absent from the
+bbox (e.g. `tower`), the preset falls back to the current city's
+`defaultSpawn` (London → `bigben`, Kyiv → `maidan`) — nothing is logged.
+Kyiv's building presets also carry a static coordinate fallback in case an
+OSM name changes upstream.
 
 With no `?at=` the game spawns at the current city's `defaultSpawn`
 (London → `bigben` on Westminster Bridge, Kyiv → `maidan` on Maidan
@@ -212,24 +220,37 @@ Combine freely, e.g. `?synthetic=1&seed=3&cell=6x12&crt=0&minimap=0`.
 ### Kyiv presets
 
 Available with `?city=kyiv&at=<name>`. Coordinate presets are fixed WGS84
-points; building presets resolve against `kyiv.json` via `landmarkSpawn`
-and fall back to their listed coordinates if the name goes missing.
+points; building presets resolve against `applyLandmarks(kyiv.json)` via
+`landmarkSpawn` (the fixes in `src/world/landmarks.ts` make the named
+buildings resolvable, incl. the synthetic `Motherland Monument`).
+`landmarkSpawn` keeps only road vertices with 6 m of footprint clearance
+**and** a clear 40 m view corridor toward the building (blocked `1.5 m` at
+`k = 4 … 40` samples), so a building spawn never lands inside/against a
+footprint nor in front of a wall that fills the frame, and falls back to a
+preset's listed coordinates if the name goes missing upstream or no
+corridor-clear vertex survives. New in wave 7: `rada`, `volodymyr`, `arch`,
+`olimpiyskiy`, `nicholas`; `mariinsky` was removed (no matching building in
+the data).
 
 | Key            | Kind        | Description                                                                 |
 |----------------|-------------|-----------------------------------------------------------------------------|
 | `maidan`       | coordinate  | Maidan Nezalezhnosti, facing Hotel Ukraina (default).                       |
-| `sophia`       | building    | Facing Saint Sophia Cathedral (`Sophia`).                                   |
-| `michael`      | building    | Facing St Michael's Golden-Domed Monastery (`Michael`).                     |
-| `lavra`        | coordinate  | Pechersk Lavra, facing the Great Bell Tower.                                |
-| `motherland`   | coordinate  | Facing the Motherland Monument.                                             |
+| `sophia`       | building    | Facing Saint Sophia Cathedral.                                              |
+| `michael`      | building    | Facing St. Michael's Golden-Domed Cathedral.                                |
+| `andriyivskyy` | building    | Top of Andriyivskyy Descent, facing St Andrew's Church.                     |
+| `lavra`        | building    | Pechersk Lavra, facing the Great Bell Tower.                                |
+| `motherland`   | building    | Facing the Motherland Monument (synthetic extra).                           |
+| `goldengate`   | building    | Facing the Golden Gate.                                                     |
+| `rada`         | building    | Facing the Verkhovna Rada of Ukraine.                                       |
+| `volodymyr`    | building    | Facing St. Volodymyr's Cathedral.                                           |
+| `arch`         | building    | Facing the Arch of Freedom of the Ukrainian people.                         |
+| `olimpiyskiy`  | building    | Facing the Olympic National Sports Complex Stadium.                         |
+| `nicholas`     | building    | Facing St. Nicholas Cathedral.                                              |
+| `bessarabka`   | building    | Bessarabska Square, looking down Khreshchatyk (Bessarabskyi market).        |
 | `podil`        | coordinate  | Kontraktova Square, Podil.                                                  |
-| `andriyivskyy` | coordinate  | Top of Andriyivskyy Descent, facing St Andrew's Church.                     |
-| `goldengate`   | coordinate  | Facing the Golden Gate.                                                     |
 | `arsenalna`    | coordinate  | Arsenalna, the deepest metro station.                                       |
 | `parkbridge`   | coordinate  | Parkovyi Bridge first vertex, facing Trukhaniv Island (bearing 33°).        |
 | `glassbridge`  | coordinate  | Klitschko glass bridge first vertex, facing the Arch (bearing 286°).        |
-| `mariinsky`    | coordinate  | Facing Mariinsky Palace.                                                    |
-| `bessarabka`   | coordinate  | Bessarabska Square, looking down Khreshchatyk.                              |
 | `funicular`    | coordinate  | Funicular lower station, looking up.                                        |
 | `hydropark`    | coordinate  | Hydropark, facing the right-bank hills.                                     |
 | `metrobridge`  | coordinate  | Metro Bridge over the Dnipro.                                               |
