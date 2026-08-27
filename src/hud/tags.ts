@@ -47,10 +47,13 @@ export function landmarkAnchors(
     if (!isTaggedBuilding(b, fixesForCity)) continue;
     const name = b.name;
     const { x, z, roofY } = centroidRoof(b, heightAt);
+    // Extras (id ≤ −1000) are tagged with their own name; the fix table's
+    // `label` applies only to the OSM building sharing that name (T-0070).
+    const isExtra = b.id <= -1000;
     const fix = fixesForCity[name];
     out.push({
       name,
-      label: fix?.label ?? name,
+      label: isExtra ? name : (fix?.label ?? name),
       x,
       y: roofY + TAG_LIFT,
       z,

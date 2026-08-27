@@ -134,7 +134,10 @@ fix (or an extra appended by `applyLandmarks`) get a tag.
 `landmarkAnchors(city, fixesForCity, heightAt = FLAT_HEIGHT)` returns
 `{ name, label, x, y, z }[]` for every named building whose exact name is a
 key in `fixesForCity`, and for extras (`id <= −1000`). `label` is
-`fix.label` when set, else the building name. `x`/`z` are the footprint
+`fix.label` when set, else the building name — except for extras
+(`id <= −1000`), which always use their own `name`, never the fix label
+(an extra sharing an OSM building's name still tags with its own name).
+`x`/`z` are the footprint
 centroid; `y` is `roofY + 4` where `roofY` is `max(heightAt over the ring)
 + h` — the same roof the building mesh uses. `heightAt` defaults to
 `FLAT_HEIGHT` so London / synthetic stay at `y = h + 4`.
