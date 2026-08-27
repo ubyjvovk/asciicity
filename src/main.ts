@@ -12,7 +12,7 @@ import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
 import { resolveSpawn } from './data/spawn';
-import { applyLandmarks } from './world/landmarks';
+import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
@@ -40,6 +40,7 @@ import { buildShareUrl } from './hud/share';
 import { Minimap } from './hud/minimap';
 import { ZoneIndex } from './hud/zone';
 import { formatAlt, formatBearing, formatWorld, sectorOf } from './hud/format';
+import { Tags, landmarkAnchors, pickTags } from './hud/tags';
 
 declare global {
   interface Window {
@@ -89,10 +90,11 @@ interface UrlOptions {
   city: string | null;
   time: Date | null;
   fly: boolean;
+  tags: boolean;
 }
 
 /**
- * Parse `?synthetic=1&seed=N&hills=1&city=…&cell=WxH&crt=0&minimap=0&hud=0&at=…&render=…&time=…`.
+ * Parse `?synthetic=1&seed=N&hills=1&city=…&cell=WxH&crt=0&minimap=0&hud=0&tags=0&at=…&render=…&time=…`.
  * Malformed values are ignored. `?theme=` / `?gloom=1` are aliases for `?render=`.
  */
 export function parseUrlOptions(search: string): UrlOptions {
@@ -122,7 +124,8 @@ export function parseUrlOptions(search: string): UrlOptions {
   const render = resolveRenderId(params);
   const time = parseTimeParam(params.get('time'));
   const fly = params.get('fly') === '1';
-  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, render, at, city, time, fly };
+  const tags = params.get('tags') !== '0';
+  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, render, at, city, time, fly, tags };
 }
 
 /**
@@ -385,6 +388,21 @@ async function main(): Promise<void> {
 
   if (opts.crt) mountCrt(document.body);
 
+  // Floating landmark labels (architecture.md §4.13): one `#tags` overlay,
+  // a fixed pool of 8 `div.tag`s, updated every 4th frame. `?tags=0` skips
+  // the container and the per-frame work. Anchors are built once after
+  // `applyLandmarks` so extras (id ≤ −1000) are already in `city.buildings`.
+  let tags: Tags | undefined;
+  const anchors = opts.tags
+    ? landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt)
+    : [];
+  if (opts.tags) {
+    const tagsRoot = document.createElement('div');
+    tagsRoot.id = 'tags';
+    document.body.append(tagsRoot);
+    tags = new Tags(tagsRoot);
+  }
+
   const post = new StyleRenderer(renderer, STYLES, {
     initial: opts.render,
     cellW: opts.cellW,
@@ -442,9 +460,14 @@ async function main(): Promise<void> {
   };
   window.__asciicity = api;
 
+  let viewW = Math.max(1, window.innerWidth);
+  let viewH = Math.max(1, window.innerHeight);
+
   function applySize(): void {
     const w = Math.max(1, window.innerWidth);
     const h = Math.max(1, window.innerHeight);
+    viewW = w;
+    viewH = h;
     post.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -615,6 +638,9 @@ async function main(): Promise<void> {
       hudValues.fps = api.fps;
       hud.update(hudValues);
       minimap?.update(state);
+    }
+    if (tags && frameCount % HUD_INTERVAL === 0) {
+      tags.update(pickTags(anchors, state.x, state.z), camera, viewW, viewH);
     }
 
     if (!api.ready) api.ready = true;

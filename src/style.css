@@ -183,3 +183,25 @@ body {
 #toast.show {
   opacity: 1;
 }
+
+/* Floating landmark labels (architecture.md §4.13): overlay the 3D view,
+   never intercept pointer events, HUD green on 70 % black. */
+#tags {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+
+div.tag {
+  position: absolute;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--hud-green);
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 1px 4px;
+  transform: translate(-50%, -100%);
+}

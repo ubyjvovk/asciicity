@@ -310,3 +310,12 @@ test('smoke: ?render= aliases and R / Shift+R cycle', async ({ page }) => {
   ).toBe('ascii');
 });
 
+test('smoke: Kyiv sophia spawn shows a floating Sophia tag', async ({ page }) => {
+  await page.goto('/?city=kyiv&at=sophia');
+  await waitReady(page);
+
+  const visible = page.locator('#tags .tag').filter({ visible: true });
+  await expect.poll(async () => visible.count()).toBeGreaterThanOrEqual(1);
+  await expect(visible.filter({ hasText: /Sophia/ }).first()).toBeVisible();
+});
+
