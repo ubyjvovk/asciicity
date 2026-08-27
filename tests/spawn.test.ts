@@ -361,6 +361,20 @@ describe('presetsFor', () => {
       if (p.city === 'kyiv') expect(all.has(k)).toBe(true);
     }
   });
+
+  it("presetsFor('kyiv') labels are unique and non-empty (T-0061 LANDMARKS menu)", () => {
+    // The fast-travel submenu (architecture.md §4.13) shows one row per
+    // preset labelled from `preset.label`; empty/duplicate labels would make
+    // rows ambiguous. Same for London.
+    for (const cityId of ['kyiv', 'london'] as const) {
+      const labels = presetsFor(cityId).map(([, p]) => p.label);
+      expect(labels.length).toBeGreaterThan(0);
+      for (const label of labels) {
+        expect(label.trim().length).toBeGreaterThan(0);
+      }
+      expect(new Set(labels).size).toBe(labels.length);
+    }
+  });
 });
 
 describe('landmarkSpawn', () => {
