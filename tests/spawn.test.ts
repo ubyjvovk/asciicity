@@ -514,6 +514,45 @@ describe('landmarkSpawn', () => {
     expect(landmarkSpawn('test tower', cityBuild, undefined, () => true)).toBeNull();
   });
 
+  it('a wall 6 m in front of the nearest vertex picks a clear vertex further away', () => {
+    // Building at (0,0), h=10 → target 82, range [42,142]. Vertex 100 is the
+    // nearest to target, but a wall slab at x≈94 sits 6 m ahead along its
+    // corridor toward the centroid; the clear 60 m vertex must win.
+    const cityBuild: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 1,
+        h: 10,
+        name: 'Test Tower',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'residential', pts: [[100, 0], [60, 0]] }],
+    };
+    // Vertical wall slab [90, 98] across the x-axis; ignores the radius arg.
+    const blocked = (p: Vec2): boolean => Math.abs(p[0] - 94) < 4;
+    const spawn = landmarkSpawn('test tower', cityBuild, undefined, blocked);
+    expect(spawn).not.toBeNull();
+    // The wall in front of 100 rejects it; the clear 60 m vertex is chosen.
+    expect(spawn!.x).toBeCloseTo(60, 6);
+    expect(spawn!.z).toBeCloseTo(0, 6);
+  });
+
+  it('returns null when every vertex has a wall within 40 m of its corridor', () => {
+    // Both vertices keep 6 m footprint clearance, but a wall slab [38, 62]
+    // lies inside every corridor toward the centroid (100 at k=40, 70 at
+    // k=12) → no candidate survives, so landmarkSpawn returns null.
+    const cityBuild: Pick<CityData, 'buildings' | 'roads'> = {
+      buildings: [{
+        id: 1,
+        h: 10,
+        name: 'Test Tower',
+        poly: [[-10, -10], [10, -10], [10, 10], [-10, 10]],
+      }],
+      roads: [{ id: 2, cls: 'residential', pts: [[100, 0], [70, 0]] }],
+    };
+    const blocked = (p: Vec2): boolean => Math.abs(p[0] - 50) < 12;
+    expect(landmarkSpawn('test tower', cityBuild, undefined, blocked)).toBeNull();
+  });
+
   it('falls back to a road vertex within 200 m when none is in range', () => {
     // Road vertex at 170 m (within 200, outside [30, 130] m ring).
     const farCity: Pick<CityData, 'buildings' | 'roads'> = {
@@ -733,7 +772,23 @@ describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
       cz /= b!.poly.length;
       const dist = Math.hypot(spawn.x - cx, spawn.z - cz);
       expect(dist).toBeLessThanOrEqual(250);
-      rows.push(`${key}: (${spawn.x.toFixed(1)}, ${spawn.z.toFixed(1)}) -> ${dist.toFixed(1)} m`);
+
+      // The view corridor toward the centroid must be clear to k = 40: the
+      // first sample where blocked(q, 1.5) is true must be beyond 40 ("inf").
+      const fx = Math.sin(spawn.yaw);
+      const fz = -Math.cos(spawn.yaw);
+      let firstBlocked: number | 'inf' = 'inf';
+      for (let k = 4; k <= 40; k += 4) {
+        const q: Vec2 = [spawn.x + k * fx, spawn.z + k * fz];
+        if (collision.blocked(q, 1.5)) {
+          firstBlocked = k;
+          break;
+        }
+      }
+      expect(firstBlocked, `corridor for ${key}`).toBe('inf');
+      rows.push(
+        `${key}: (${spawn.x.toFixed(1)}, ${spawn.z.toFixed(1)}) -> ${dist.toFixed(1)} m, corridor k=${firstBlocked}`,
+      );
     }
     console.log(`[kyiv-presets] ${rows.join(' | ')}`);
   });

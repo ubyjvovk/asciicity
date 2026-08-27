@@ -191,9 +191,15 @@ Kyiv building presets below): the named building is located in the loaded
 dataset by an **exact** (case-insensitive) match first, then a substring
 match on `Building.name`, its centroid computed, and the game spawns on the
 nearest road vertex as far away as the building's height dictates
-(`targetDist = clamp(70 + 1.2·h, 70, 220)` m, falling back to any road
-vertex within 200 m), facing the building. If the building is absent from
-the bbox (e.g. `tower`), the preset falls back to the current city's
+(`targetDist = clamp(70 + 1.2·h, 70, 220)` m, falling back to any passing
+road vertex within 300 m), facing the building. **Every candidate must keep
+a 6 m footprint clearance (`blocked(pt, 6) === false`) and a clear view
+corridor toward the building** — for `k = 4, 8, …, 40` m the point
+`pt + k·(sin yaw, −cos yaw)` stays `blocked(q, 1.5) === false` — so a spawn
+never sits inside a footprint nor against a wall that fills the frame. If
+no road vertex survives the corridor test, the preset falls back to its own
+static coordinate (which walks `+x`); if the building is absent from the
+bbox (e.g. `tower`), the preset falls back to the current city's
 `defaultSpawn` (London → `bigben`, Kyiv → `maidan`) — nothing is logged.
 Kyiv's building presets also carry a static coordinate fallback in case an
 OSM name changes upstream.
@@ -217,10 +223,12 @@ Available with `?city=kyiv&at=<name>`. Coordinate presets are fixed WGS84
 points; building presets resolve against `applyLandmarks(kyiv.json)` via
 `landmarkSpawn` (the fixes in `src/world/landmarks.ts` make the named
 buildings resolvable, incl. the synthetic `Motherland Monument`).
-`landmarkSpawn` skips every road vertex that is blocked with 6 m of clearance
-so a building spawn never lands inside or flush against a footprint, and
-falls back to a preset's listed coordinates if the name goes missing upstream
-or no unblocked vertex survives. New in wave 7: `rada`, `volodymyr`, `arch`,
+`landmarkSpawn` keeps only road vertices with 6 m of footprint clearance
+**and** a clear 40 m view corridor toward the building (blocked `1.5 m` at
+`k = 4 … 40` samples), so a building spawn never lands inside/against a
+footprint nor in front of a wall that fills the frame, and falls back to a
+preset's listed coordinates if the name goes missing upstream or no
+corridor-clear vertex survives. New in wave 7: `rada`, `volodymyr`, `arch`,
 `olimpiyskiy`, `nicholas`; `mariinsky` was removed (no matching building in
 the data).
 

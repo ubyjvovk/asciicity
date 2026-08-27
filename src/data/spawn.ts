@@ -251,6 +251,40 @@ const SPAWN_MAX = 200;
 /** Min clearance (metres) a `landmarkSpawn` road vertex must keep from buildings. */
 const CLEARANCE = 6;
 
+/** Widest radius (metres) a `landmarkSpawn` fallback road vertex may sit from the centroid. */
+const LANDMARK_FALLBACK = 300;
+
+/** Corridor sample spacing (metres) ahead of a spawn vertex toward its target. */
+const CORRIDOR_STEP = 4;
+
+/** Furthest corridor distance (metres) a spawn vertex must stay clear to its target. */
+const CORRIDOR_LIMIT = 40;
+
+/** Corridor probe radius (metres) kept clear of buildings along each sample. */
+const CORRIDOR_R = 1.5;
+
+/**
+ * True when the view corridor from `pt` toward the target is clear: for
+ * `k = 4, 8, …, 40` the point `pt + k·(sin yaw, −cos yaw)` (yaw faces the
+ * centroid) is not blocked with `CORRIDOR_R` clearance. A spawn with a wall
+ * close ahead fills the frame (an 8.6 m building 6 m away already blocks a
+ * 70° view), so road vertices must keep a clear corridor as well as a clear
+ * footprint. Returns true when `blocked` is undefined.
+ */
+function corridorClear(
+  pt: Vec2,
+  yaw: number,
+  blocked?: (p: Vec2, r?: number) => boolean,
+): boolean {
+  const fx = Math.sin(yaw);
+  const fz = -Math.cos(yaw);
+  for (let k = CORRIDOR_STEP; k <= CORRIDOR_LIMIT; k += CORRIDOR_STEP) {
+    const q: Vec2 = [pt[0] + k * fx, pt[1] + k * fz];
+    if (blocked?.(q, CORRIDOR_R) ?? false) return false;
+  }
+  return true;
+}
+
 /** Parameter type for `resolveSpawn`'s `city` argument (bbox is optional for tests). */
 type SpawnCity = Pick<CityData, 'buildings' | 'roads'> &
   Partial<Pick<CityData, 'bbox'>>;
@@ -300,13 +334,15 @@ function normalizeAngle(a: number): number {
  * target distance scales with the target's height: `clamp(70 + 1.2·h, 70, 220)`.
  * Returns the candidate road vertex from every road polyline (all classes)
  * whose distance from the centroid lies in `[targetDist − 40, targetDist + 60]`
- * with the smallest `|dist − targetDist|`; if none, any unblocked vertex within
- * 200 m. Every candidate for which `blocked(pt, 6)` is true (6 m of clearance)
- * is skipped, so the spawn never sits inside or flush against a building;
- * when no candidate survives, `null` is returned (the caller falls back to a
- * fixed coordinate). Returns `null` when the building is unnamed/absent. Yaw
- * faces the centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with
- * forward `(sin yaw, −cos yaw)`).
+ * with the smallest `|dist − targetDist|`; if none, any corridor-clear vertex
+ * within 300 m. Every candidate must pass **both** a 6 m footprint clearance
+ * (`blocked(pt, 6) === false`) and a clear view corridor toward the centroid
+ * (`blocked(pt + k·forward, 1.5) === false` for `k = 4…40 m`) so the spawn
+ * never sits inside a building nor against a wall that fills the frame; when
+ * no candidate survives, `null` is returned (the caller falls back to a fixed
+ * coordinate). Returns `null` when the building is unnamed/absent. Yaw faces
+ * the centroid via `atan2(c.x − p.x, −(c.z − p.z))` (consistent with forward
+ * `(sin yaw, −cos yaw)`).
  */
 export function landmarkSpawn(
   name: string,
@@ -338,31 +374,36 @@ export function landmarkSpawn(
   cx /= n;
   cz /= n;
 
-  // In-range road vertices, skipping every one that is blocked with 6 m of
-  // clearance so the player does not spawn inside or flush against a building.
+  // Yaw that faces the target centroid (the same bearing the preset faces).
+  const targetYaw = (px: number, pz: number): number =>
+    Math.atan2(cx - px, -(cz - pz));
+
+  // A candidate passes iff it keeps 6 m of footprint clearance AND a clear
+  // view corridor toward the centroid, so it never spawns inside/against a
+  // building nor with a wall filling the frame ahead.
+  const accept = (pt: Vec2): boolean =>
+    !(blocked?.(pt, CLEARANCE) ?? false) && corridorClear(pt, targetYaw(pt[0], pt[1]), blocked);
+
+  // In-range road vertices passing both checks.
   const inRange: { p: Vec2; dist: number }[] = [];
   for (const road of city.roads) {
     for (const pt of road.pts) {
       const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
-      if (
-        dist >= distance - 40 &&
-        dist <= distance + 60 &&
-        !(blocked?.(pt, CLEARANCE) ?? false)
-      ) {
+      if (dist >= distance - 40 && dist <= distance + 60 && accept(pt)) {
         inRange.push({ p: pt, dist });
       }
     }
   }
 
-  // Fallbacks: no (unblocked) in-range vertex → any unblocked vertex within
-  // 200 m; still none → null.
+  // Fallbacks: no (passing) in-range vertex → any passing vertex within
+  // 300 m; still none → null.
   let pool = inRange;
   if (pool.length === 0) {
     pool = [];
     for (const road of city.roads) {
       for (const pt of road.pts) {
         const dist = Math.hypot(pt[0] - cx, pt[1] - cz);
-        if (dist <= 200 && !(blocked?.(pt, CLEARANCE) ?? false)) {
+        if (dist <= LANDMARK_FALLBACK && accept(pt)) {
           pool.push({ p: pt, dist });
         }
       }
