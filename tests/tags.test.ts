@@ -60,6 +60,22 @@ describe('landmarkAnchors', () => {
     expect(mom.z).toBeCloseTo(0);
     expect(mom.y).toBeCloseTo(102 + 4);
   });
+
+  it('an extra named like a fixed building uses its own name, not the fix label', () => {
+    // OSM building `X` has a fix label, but the extra (id −1000) also called
+    // `X` must be tagged with its own name (T-0070).
+    const city = cityOf([
+      square(1, 'X', 10, 0, 0),
+      square(-1000, 'X', 20, 0, 100),
+    ]);
+    const anchors = landmarkAnchors(city, { X: { label: 'Plinth' } });
+    expect(anchors).toHaveLength(2);
+    const byX = anchors.filter((a) => a.x === 0);
+    expect(byX).toHaveLength(2);
+    const byZ = (z: number) => anchors.find((a) => a.z === z)!;
+    expect(byZ(0).label).toBe('Plinth');
+    expect(byZ(100).label).toBe('X');
+  });
 });
 
 describe('pickTags', () => {
