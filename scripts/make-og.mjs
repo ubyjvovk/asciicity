@@ -82,6 +82,23 @@ async function main() {
         if (el) el.style.display = 'none';
       });
 
+      // Wait until the game's 1-second FPS window has updated once, so the
+      // committed preview never ships a frozen `FPS........ 0` HUD. Throws on
+      // timeout, which exits non-zero below (a 0-FPS image must not be
+      // committed).
+      await page.waitForFunction(
+        () => /FPS\.+\s*[1-9]/.test(document.querySelector('#hud')?.textContent ?? ''),
+        undefined,
+        { timeout: 20_000 },
+      );
+
+      // Print the exact FPS value captured, so the rerun log shows a live frame.
+      const fps = await page.evaluate(() => {
+        const m = /FPS\.+\s*(\d+)/.exec(document.querySelector('#hud')?.textContent ?? '');
+        return m ? Number(m[1]) : 0;
+      });
+      console.log(`[make-og] FPS ${fps}`);
+
       // Paint two frames (the screenshot target is copied out of the frame
       // loop) before capturing.
       const paint = () =>
