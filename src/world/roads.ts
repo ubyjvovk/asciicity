@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { FLAT_HEIGHT, type HeightFn, type Road, type RoadClass } from '../data/types';
 import { MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
-import { bridgeProfile } from './terrain';
+import { bridgeProfile, chainBridgeRoads } from './terrain';
 
 /** Metres of ribbon width per OSM-style road class. */
 export const ROAD_WIDTH: Record<RoadClass, number> = {
@@ -42,10 +42,17 @@ function lerp(a: number, b: number, f: number): number {
   return a + (b - a) * f;
 }
 
-/** Build a merged triangle soup of draped road ribbons (no mitres). */
+/**
+ * Build a merged triangle soup of draped road ribbons (no mitres). Bridge
+ * roads are first passed through `chainBridgeRoads` so same-name pieces with
+ * coincident endpoints (e.g. the Golden Gate Bridge East Sidewalk, split into
+ * three OSM ways over open water) share one `bridgeProfile` spanning the true
+ * abutments — the ribbon then agrees with the walkable deck built by
+ * `BridgeDecks`. Non-bridge and unnamed bridge roads pass through untouched.
+ */
 export function buildRoadsMesh(roads: Road[], heightAt: HeightFn = FLAT_HEIGHT): MeshData {
   const mesh = new MeshBuilder();
-  for (const road of roads) {
+  for (const road of chainBridgeRoads(roads)) {
     const half = ROAD_WIDTH[road.cls] / 2;
     const color = colorForClass(road.cls);
     const pts = road.pts;

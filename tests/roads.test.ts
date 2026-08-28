@@ -1,10 +1,13 @@
 /**
  * Unit tests for `buildRoadsMesh` / `ROAD_WIDTH` (T-0005).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { Road, RoadClass } from '../src/data/types';
+import type { CityData, HeightFn, Road, RoadClass } from '../src/data/types';
 import { buildRoadsMesh, ROAD_LIFT, ROAD_WIDTH } from '../src/world/roads';
+import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
 import type { MeshData } from '../src/world/mesh';
 
 function road(cls: RoadClass, pts: [number, number][], id = 1): Road {
@@ -181,5 +184,66 @@ describe('buildRoadsMesh', () => {
     ]);
     for (const y of ys(m)) expect(y).toBeCloseTo(ROAD_LIFT);
     expect(ROAD_LIFT).toBe(0.15);
+  });
+
+  it('a same-name bridge split into three pieces with underwater joints is draped as one deck', () => {
+    // Abutments at x=0 (y=30) and x=300 (y=46); water at y=-24 between them.
+    // The middle piece (x=100..200) sits entirely over water: profiled alone
+    // it would drape from -24 → -24 + 0.15; chained through the abutments its
+    // middle vertex must sit at the lerp of 30..46.
+    const heightAt: HeightFn = (x, _z) => {
+      if (x <= 0) return 30;
+      if (x >= 300) return 46;
+      return -24;
+    };
+    const pieces: Road[] = [
+      { id: 1, cls: 'primary', name: 'Test Bridge', bridge: true, pts: [[0, 0], [100, 0]] },
+      { id: 2, cls: 'primary', name: 'Test Bridge', bridge: true, pts: [[100, 0], [200, 0]] },
+      { id: 3, cls: 'primary', name: 'Test Bridge', bridge: true, pts: [[200, 0], [300, 0]] },
+    ];
+    const m = buildRoadsMesh(pieces, heightAt);
+    // Middle piece endpoints x=100 and x=200 sit at chain fractions 1/3 and 2/3.
+    const ya = 30;
+    const yb = 46;
+    const yAt100 = ya + (yb - ya) * (100 / 300);
+    const yAt200 = ya + (yb - ya) * (200 / 300);
+    // Corner samples: collect ribbon ys at x=100 and x=200 exactly.
+    const ysAt100: number[] = [];
+    const ysAt200: number[] = [];
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const x = m.positions[i]!;
+      const y = m.positions[i + 1]!;
+      if (Math.abs(x - 100) < 1e-9) ysAt100.push(y);
+      if (Math.abs(x - 200) < 1e-9) ysAt200.push(y);
+    }
+    expect(ysAt100.length).toBeGreaterThan(0);
+    expect(ysAt200.length).toBeGreaterThan(0);
+    for (const y of ysAt100) expect(y).toBeCloseTo(yAt100 + ROAD_LIFT);
+    for (const y of ysAt200) expect(y).toBeCloseTo(yAt200 + ROAD_LIFT);
+    // And no ribbon vertex sits at the underwater lerp (−24 + 0.15).
+    for (let i = 1; i < m.positions.length; i += 3) {
+      expect(m.positions[i]!).toBeGreaterThan(0);
+    }
+  });
+
+  it('sf.json: every Golden Gate Bridge ribbon vertex is above 25 m', () => {
+    const SF: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+    );
+    const terrain = SF.terrain ? new Terrain(SF.terrain) : undefined;
+    const decks = terrain ? new BridgeDecks(SF.roads, terrain.heightAt) : undefined;
+    const groundAt = makeGroundAt(terrain, decks);
+    const ggb = SF.roads.filter(
+      (r) =>
+        r.bridge === true &&
+        (r.name === 'Golden Gate Bridge' ||
+          r.name === 'East Sidewalk' ||
+          r.name === 'West Sidewalk'),
+    );
+    expect(ggb.length).toBeGreaterThan(0);
+    const m = buildRoadsMesh(ggb, groundAt);
+    for (let i = 1; i < m.positions.length; i += 3) {
+      expect(m.positions[i]!).toBeGreaterThan(25);
+    }
   });
 });
