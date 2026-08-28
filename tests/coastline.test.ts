@@ -103,6 +103,39 @@ describe('coastline closeCoastline — coast → southern-band ring', () => {
   });
 });
 
+describe('coastline closeCoastline — corner ordering', () => {
+  it('walks CW past NW→NE→SE when a chain ends on the west edge', () => {
+    // Chain from south edge (0.5, 0) to west edge (0, 0.5): the walk from the
+    // end back to the start must cross NW (t=3), NE (t=4) then SE (t=5) — in
+    // that order. The naive fixed-order push [SE, SW, NW, NE] emits a bowtie.
+    const rings = closeCoastline([[[0.5, 0], [0, 0.5]]], UNIT_BBOX);
+    expect(rings).toEqual([
+      [
+        [0.5, 0],
+        [0, 0.5],
+        [0, 1], // NW corner
+        [1, 1], // NE corner
+        [1, 0], // SE corner
+      ],
+    ]);
+  });
+
+  it('walks CW past SW→NW→NE when a chain wraps t=4 from south to east', () => {
+    // Chain from east edge (1, 0.7) to south edge (0.5, 0): the walk wraps
+    // past t=4, crossing SW (t=2), NW (t=3), NE (t=4) in that order.
+    const rings = closeCoastline([[[1, 0.7], [0.5, 0]]], UNIT_BBOX);
+    expect(rings).toEqual([
+      [
+        [1, 0.7],
+        [0.5, 0],
+        [0, 0], // SW corner
+        [0, 1], // NW corner
+        [1, 1], // NE corner
+      ],
+    ]);
+  });
+});
+
 describe('coastline closeCoastline — strait → middle-band ring', () => {
   it('closes two opposing coasts into one ring with no corners passed', () => {
     const rings = closeCoastline(

@@ -552,11 +552,18 @@ export function closeCoastline(openChains, bbox) {
       }
       if (bestIdx === -1) break; // no chain to walk to (shouldn't happen)
       const target = endT + bestDist;
+      // Collect qualifying corners and sort by the SHIFTED parameter so the
+      // insertion order matches the CW walk order — the fixed `corners` array
+      // ([SE, SW, NW, NE]) does not, once any corner has been shifted past
+      // `endT` (e.g. `endT ≥ 1` puts SE at `ct ≥ 5` while NW/NE stay at 3/4).
+      const passing = [];
       for (const corner of corners) {
         let ct = corner.t;
         while (ct <= endT + eps) ct += 4;
-        if (ct < target - eps) ring.push(corner.pt);
+        if (ct < target - eps) passing.push({ ct, pt: corner.pt });
       }
+      passing.sort((a, b) => a.ct - b.ct);
+      for (const c of passing) ring.push(c.pt);
       cur = bestIdx;
     } while (cur !== i);
     // Dedupe consecutive equal points and drop any closing repeat.
