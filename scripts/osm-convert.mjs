@@ -312,6 +312,274 @@ export function clipRingToBox(ring, box) {
   return poly;
 }
 
+/**
+ * Signed polygon area (shoelace). Positive for counterclockwise winding with
+ * `y` axis pointing up (i.e. the lat/lon frame used by the coastline
+ * pipeline); negative for clockwise. Zero for a degenerate ring.
+ * @param {Array<[number, number]>} ring polygon vertices (first not repeated last)
+ * @returns {number} signed area in the ring's coordinate units squared
+ */
+export function signedArea(ring) {
+  let a = 0;
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[(i + 1) % n];
+    a += x1 * y2 - x2 * y1;
+  }
+  return a / 2;
+}
+
+/** Liang–Barsky clip of one segment to an axis-aligned bbox. */
+function clipSegmentLB(a, b, bbox) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  let t0 = 0;
+  let t1 = 1;
+  const ps = [-dx, dx, -dy, dy];
+  const qs = [
+    a[0] - bbox.minX,
+    bbox.maxX - a[0],
+    a[1] - bbox.minY,
+    bbox.maxY - a[1],
+  ];
+  for (let i = 0; i < 4; i++) {
+    const p = ps[i];
+    const q = qs[i];
+    if (p === 0) {
+      if (q < 0) return null;
+    } else {
+      const r = q / p;
+      if (p < 0) {
+        if (r > t1) return null;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return null;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+  return {
+    a: [a[0] + t0 * dx, a[1] + t0 * dy],
+    b: [a[0] + t1 * dx, a[1] + t1 * dy],
+  };
+}
+
+/**
+ * Clip an open polyline to an axis-aligned bbox, returning the interior
+ * sub-polylines in input vertex order (data-format.md "Coastline water"
+ * rule 2). Vertices strictly inside the bbox are preserved as-is; boundary
+ * crossings introduce Liang–Barsky intersection points. Each output piece is
+ * a polyline (≥ 2 points), and a new piece begins every time the polyline
+ * leaves the bbox and re-enters.
+ * @param {Array<[number, number]>} points polyline vertices
+ * @param {{minX:number, minY:number, maxX:number, maxY:number}} bbox
+ * @returns {Array<Array<[number, number]>>} interior pieces
+ */
+export function clipPolylineToBbox(points, bbox) {
+  const pieces = [];
+  if (!Array.isArray(points) || points.length < 2) return pieces;
+  const inside = (p) =>
+    p[0] >= bbox.minX &&
+    p[0] <= bbox.maxX &&
+    p[1] >= bbox.minY &&
+    p[1] <= bbox.maxY;
+  const eq = (a, b) =>
+    Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
+  let current = null;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const aIn = inside(a);
+    const bIn = inside(b);
+    if (aIn && bIn) {
+      if (current === null) current = [a];
+      current.push(b);
+    } else if (aIn && !bIn) {
+      const clip = clipSegmentLB(a, b, bbox);
+      if (!clip) continue; // shouldn't happen when aIn
+      if (current === null) current = [a];
+      current.push(clip.b);
+      pieces.push(current);
+      current = null;
+    } else if (!aIn && bIn) {
+      const clip = clipSegmentLB(a, b, bbox);
+      if (!clip) continue;
+      if (current === null) current = [clip.a];
+      else if (!eq(current[current.length - 1], clip.a)) current.push(clip.a);
+      current.push(b);
+    } else {
+      const clip = clipSegmentLB(a, b, bbox);
+      if (clip) {
+        if (current !== null) {
+          pieces.push(current);
+          current = null;
+        }
+        pieces.push([clip.a, clip.b]);
+      } else if (current !== null) {
+        pieces.push(current);
+        current = null;
+      }
+    }
+  }
+  if (current !== null) pieces.push(current);
+  return pieces;
+}
+
+/**
+ * Stitch coastline polyline pieces end-to-start on coinciding endpoints
+ * (tolerance 1e-7, matching `assembleRings`) — data-format.md "Coastline
+ * water" rule 3. A piece whose start and end coincide is a closed loop (an
+ * island coastline that stayed within the bbox); otherwise the chain stays
+ * open, with both endpoints on the bbox boundary, and is fed to
+ * `closeCoastline` next. Closed rings have their repeated closing point
+ * dropped so they match the water ring schema.
+ * @param {Array<Array<[number, number]>>} pieces polyline pieces from clip
+ * @returns {{closed: Array<Array<[number, number]>>, open: Array<Array<[number, number]>>}}
+ */
+export function stitchChains(pieces) {
+  const eps = 1e-7;
+  const same = (a, b) =>
+    Math.abs(a[0] - b[0]) < eps && Math.abs(a[1] - b[1]) < eps;
+  const remaining = pieces.map((p) => p.slice());
+  const used = new Set();
+  const closed = [];
+  const open = [];
+  for (let i = 0; i < remaining.length; i++) {
+    if (used.has(i)) continue;
+    let chain = remaining[i].slice();
+    used.add(i);
+    let progressed = true;
+    while (progressed && !same(chain[0], chain[chain.length - 1])) {
+      progressed = false;
+      const tail = chain[chain.length - 1];
+      for (let j = 0; j < remaining.length; j++) {
+        if (used.has(j)) continue;
+        const o = remaining[j];
+        if (same(tail, o[0])) {
+          chain = chain.concat(o.slice(1));
+          used.add(j);
+          progressed = true;
+          break;
+        }
+      }
+    }
+    if (chain.length < 2) continue;
+    if (same(chain[0], chain[chain.length - 1])) {
+      chain.pop(); // drop the repeated closing point
+      if (chain.length >= 3) closed.push(chain);
+    } else {
+      open.push(chain);
+    }
+  }
+  return { closed, open };
+}
+
+/**
+ * Close open coastline chains into water rings by walking the bbox perimeter
+ * CLOCKWISE from each chain's END to the START of some open chain, inserting
+ * bbox corners as passed (data-format.md "Coastline water" rule 4). The walk
+ * order — down the east edge, west across the south, up the west, east
+ * across the north — keeps water (right of the coastline way's direction)
+ * on the inside of the emitted rings. Coordinates are treated as
+ * `(x = lon east+, y = lat north+)`. Every open chain is consumed exactly
+ * once; the output rings have no repeated closing point.
+ * @param {Array<Array<[number, number]>>} openChains chains with both
+ *   endpoints on the bbox perimeter, in the order they should be considered
+ * @param {{minX:number, minY:number, maxX:number, maxY:number}} bbox
+ * @returns {Array<Array<[number, number]>>} closed water rings
+ */
+export function closeCoastline(openChains, bbox) {
+  if (!Array.isArray(openChains) || openChains.length === 0) return [];
+  const eps = 1e-7;
+  const width = bbox.maxX - bbox.minX;
+  const height = bbox.maxY - bbox.minY;
+  const same = (a, b) =>
+    Math.abs(a[0] - b[0]) < eps && Math.abs(a[1] - b[1]) < eps;
+  // Parameterise the bbox perimeter CW starting at the NE corner:
+  //   t ∈ [0, 1) east edge (y = maxY → minY, x = maxX)
+  //   t ∈ [1, 2) south edge (x = maxX → minX, y = minY)
+  //   t ∈ [2, 3) west edge (y = minY → maxY, x = minX)
+  //   t ∈ [3, 4) north edge (x = minX → maxX, y = maxY)
+  // Corners belong to the edge they start CW (NE→east, SE→south, ...).
+  const perim = (p) => {
+    const x = p[0];
+    const y = p[1];
+    const onEast = Math.abs(x - bbox.maxX) < eps;
+    const onSouth = Math.abs(y - bbox.minY) < eps;
+    const onWest = Math.abs(x - bbox.minX) < eps;
+    const onNorth = Math.abs(y - bbox.maxY) < eps;
+    if (onEast && onNorth) return 0;
+    if (onSouth && onEast) return 1;
+    if (onWest && onSouth) return 2;
+    if (onNorth && onWest) return 3;
+    if (onEast) return (bbox.maxY - y) / height;
+    if (onSouth) return 1 + (bbox.maxX - x) / width;
+    if (onWest) return 2 + (y - bbox.minY) / height;
+    if (onNorth) return 3 + (x - bbox.minX) / width;
+    throw new Error(
+      `closeCoastline: point (${x}, ${y}) is not on the bbox perimeter`,
+    );
+  };
+  const corners = [
+    { t: 1, pt: [bbox.maxX, bbox.minY] }, // SE
+    { t: 2, pt: [bbox.minX, bbox.minY] }, // SW
+    { t: 3, pt: [bbox.minX, bbox.maxY] }, // NW
+    { t: 4, pt: [bbox.maxX, bbox.maxY] }, // NE (0 mod 4)
+  ];
+  const rings = [];
+  const used = new Set();
+  for (let i = 0; i < openChains.length; i++) {
+    if (used.has(i)) continue;
+    const ring = [];
+    let cur = i;
+    do {
+      used.add(cur);
+      const chain = openChains[cur];
+      for (const pt of chain) ring.push(pt);
+      const endT = perim(chain[chain.length - 1]);
+      let bestDist = Infinity;
+      let bestIdx = -1;
+      for (let j = 0; j < openChains.length; j++) {
+        if (used.has(j) && j !== i) continue;
+        const startT = perim(openChains[j][0]);
+        let dist = startT - endT;
+        if (dist <= eps) dist += 4;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx = j;
+        }
+      }
+      if (bestIdx === -1) break; // no chain to walk to (shouldn't happen)
+      const target = endT + bestDist;
+      // Collect qualifying corners and sort by the SHIFTED parameter so the
+      // insertion order matches the CW walk order — the fixed `corners` array
+      // ([SE, SW, NW, NE]) does not, once any corner has been shifted past
+      // `endT` (e.g. `endT ≥ 1` puts SE at `ct ≥ 5` while NW/NE stay at 3/4).
+      const passing = [];
+      for (const corner of corners) {
+        let ct = corner.t;
+        while (ct <= endT + eps) ct += 4;
+        if (ct < target - eps) passing.push({ ct, pt: corner.pt });
+      }
+      passing.sort((a, b) => a.ct - b.ct);
+      for (const c of passing) ring.push(c.pt);
+      cur = bestIdx;
+    } while (cur !== i);
+    // Dedupe consecutive equal points and drop any closing repeat.
+    const cleaned = [];
+    for (const pt of ring) {
+      const prev = cleaned[cleaned.length - 1];
+      if (!prev || !same(prev, pt)) cleaned.push(pt);
+    }
+    while (cleaned.length > 1 && same(cleaned[0], cleaned[cleaned.length - 1])) {
+      cleaned.pop();
+    }
+    if (cleaned.length >= 3) rings.push(cleaned);
+  }
+  return rings;
+}
+
 /** Project a lat/lon point to rounded local [x, z]. */
 function toXY(p, origin) {
   const [x, z] = project(p.lon, p.lat, origin);
@@ -761,6 +1029,58 @@ export function convertOverpass(json, opts) {
     if (clipped.length < 3) continue;
     if (ringArea(clipped) < 25) continue; // degenerate / sliver
     water.push(clipped);
+  }
+
+  // Coastline (data-format.md "Coastline water" — bays/seas as OSM
+  // `natural=coastline` ways, not polygons). Pipeline in lat/lon:
+  //   1. clip each way's polyline to the bbox segment-by-segment
+  //   2. stitch pieces end-to-start on coinciding endpoints → closed loops
+  //      (islands) + open chains whose endpoints lie on the bbox boundary
+  //   3. close each open chain by walking the bbox perimeter CLOCKWISE
+  //      (this keeps water — right of the way direction — inside the ring)
+  //   4. warn (do not fail) if a closed island ring is CW instead of CCW
+  //   5. project to local metres and append to `water`; the DEM parity rule
+  //      distinguishes island rings from outer rings at flattening time.
+  const coastPolylines = [];
+  for (const el of elements) {
+    if (!el || typeof el !== 'object') continue;
+    const tags = el.tags || {};
+    if (el.type !== 'way' || tags.natural !== 'coastline') continue;
+    const geom = Array.isArray(el.geometry) ? el.geometry : [];
+    if (geom.length < 2) continue;
+    coastPolylines.push(geom.map((p) => [p.lon, p.lat]));
+  }
+  if (coastPolylines.length > 0) {
+    const coastBbox = {
+      minX: bbox[0],
+      minY: bbox[1],
+      maxX: bbox[2],
+      maxY: bbox[3],
+    };
+    const pieces = [];
+    for (const line of coastPolylines) {
+      for (const piece of clipPolylineToBbox(line, coastBbox)) pieces.push(piece);
+    }
+    const { closed: coastClosed, open: coastOpen } = stitchChains(pieces);
+    for (const ring of coastClosed) {
+      // Rule 5: an island's coastline should be CCW in lat/lon (land on the
+      // left). Positive signed area = CCW; warn on the opposite winding.
+      if (signedArea(ring) < 0) {
+        console.warn(
+          `coastline: closed ring (${ring.length} pts) is clockwise — expected CCW (land on the left)`,
+        );
+      }
+    }
+    const coastFromWalk = closeCoastline(coastOpen, coastBbox);
+    for (const latlonRing of [...coastClosed, ...coastFromWalk]) {
+      const poly = latlonRing.map(([lon, lat]) => {
+        const [x, z] = project(lon, lat, origin);
+        return [round1(x), round1(z)];
+      });
+      const cleaned = cleanRing(poly);
+      if (cleaned.length < 3) continue;
+      water.push(cleaned);
+    }
   }
 
   // Woods / forests / parks: standalone ways plus relation outer members,

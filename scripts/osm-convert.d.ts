@@ -43,6 +43,19 @@ export function clipRingToBox(
   box: { minX: number; minZ: number; maxX: number; maxZ: number },
 ): Vec2[];
 
+/** Bbox rect used by the coastline pipeline (data-format.md "Coastline water"). */
+type BboxRect = { minX: number; minY: number; maxX: number; maxY: number };
+
+export function signedArea(ring: Vec2[]): number;
+
+export function clipPolylineToBbox(points: Vec2[], bbox: BboxRect): Vec2[][];
+
+export function stitchChains(
+  pieces: Vec2[][],
+): { closed: Vec2[][]; open: Vec2[][] };
+
+export function closeCoastline(openChains: Vec2[][], bbox: BboxRect): Vec2[][];
+
 /** Hard cap on emitted trees (data-format.md §Trees). Exposed for tests. */
 export const TREE_CAP: number;
 

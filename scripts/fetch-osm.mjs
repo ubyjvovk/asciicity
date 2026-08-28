@@ -51,6 +51,8 @@ function buildQuery(bbox, timeoutSec = 180) {
   relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
   relation["waterway"="riverbank"](${minLat},${minLon},${maxLat},${maxLon});
   way["waterway"="river"](${minLat},${minLon},${maxLat},${maxLon});
+  // Bays/seas — mapped as ways, not polygons; see data-format.md "Coastline water".
+  way["natural"="coastline"](${minLat},${minLon},${maxLat},${maxLon});
   node["natural"="tree"](${minLat},${minLon},${maxLat},${maxLon});
   way["natural"="tree_row"](${minLat},${minLon},${maxLat},${maxLon});
   way["natural"="wood"](${minLat},${minLon},${maxLat},${maxLon});
