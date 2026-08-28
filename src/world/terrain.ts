@@ -196,6 +196,77 @@ export function bridgeProfile(pts: Vec2[], heightAt: HeightFn): number[] {
   return ys;
 }
 
+/** Distance between two points, in metres. */
+function vdist(p: Vec2, q: Vec2): number {
+  return Math.hypot(p[0] - q[0], p[1] - q[1]);
+}
+
+/**
+ * Attach `piece` onto `chain` at a coincident endpoint (≤ 0.5 m) in one of
+ * the four orientations (forward/reversed × prepend/append), mutating
+ * `chain.pts` and dropping the duplicated joint vertex on a match. Returns
+ * whether an attachment happened.
+ */
+function attachBridgePiece(chain: Road, piece: Road): boolean {
+  const L = chain.pts;
+  const P = piece.pts;
+  const cFirst = L[0]!;
+  const cLast = L[L.length - 1]!;
+  const pFirst = P[0]!;
+  const pLast = P[P.length - 1]!;
+  if (vdist(cLast, pFirst) <= 0.5) {
+    L.push(...P.slice(1));
+    return true;
+  }
+  if (vdist(cFirst, pLast) <= 0.5) {
+    L.unshift(...P.slice(0, -1));
+    return true;
+  }
+  if (vdist(cLast, pLast) <= 0.5) {
+    L.push(...P.slice(0, -1).reverse());
+    return true;
+  }
+  if (vdist(cFirst, pFirst) <= 0.5) {
+    L.unshift(...P.slice(1).reverse());
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Chain bridge roads that share a non-empty `name` and meet at coincident
+ * endpoints (≤ 0.5 m; a piece may be appended or prepended and REVERSED to
+ * fit) into single polylines, so `bridgeProfile` runs over the chain's true
+ * abutments rather than one piece's own ends (architecture.md §4.9).
+ * Non-bridge roads, unnamed bridge roads and pieces that never join pass
+ * through untouched. The result is independent of input order (loop to
+ * fixpoint); the chained road keeps its first piece's `id`/`cls`/`name`/
+ * `bridge` and drops the duplicated joint vertex.
+ */
+export function chainBridgeRoads(roads: Road[]): Road[] {
+  const work: (Road | null)[] = roads.map((r) => ({ ...r, pts: r.pts.slice() }));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < work.length; i++) {
+      const a = work[i];
+      if (a === null) continue;
+      if (a.bridge !== true || a.name === undefined || a.name.trim() === '') continue;
+      for (let j = 0; j < i; j++) {
+        const b = work[j];
+        if (b === null) continue;
+        if (b.bridge !== true || b.name !== a.name) continue;
+        if (attachBridgePiece(b, a)) {
+          work[i] = null;
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  return work.filter((r): r is Road => r !== null);
+}
+
 /**
  * Spatial hash of bridge-road corridors. `deckAt` returns the highest deck
  * under `p`, or `undefined` when `p` is outside every corridor.
@@ -210,7 +281,10 @@ export class BridgeDecks {
    */
   constructor(roads: Road[], heightAt: HeightFn, cell = 25) {
     this.cell = cell;
-    for (const road of roads) {
+    // Chain same-name bridge pieces into one polyline first, so a multi-piece
+    // bridge (e.g. the Golden Gate Bridge East Sidewalk) is profiled between
+    // its true abutments instead of between each piece's own water-level ends.
+    for (const road of chainBridgeRoads(roads)) {
       if (road.bridge !== true) continue;
       const pts = road.pts;
       if (pts.length < 2) continue;
