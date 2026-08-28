@@ -82,22 +82,23 @@ async function main() {
         if (el) el.style.display = 'none';
       });
 
-      // Wait until the game's 1-second FPS window has updated once, so the
-      // committed preview never ships a frozen `FPS........ 0` HUD. Throws on
-      // timeout, which exits non-zero below (a 0-FPS image must not be
-      // committed).
-      await page.waitForFunction(
-        () => /FPS\.+\s*[1-9]/.test(document.querySelector('#hud')?.textContent ?? ''),
-        undefined,
-        { timeout: 20_000 },
-      );
-
-      // Print the exact FPS value captured, so the rerun log shows a live frame.
-      const fps = await page.evaluate(() => {
-        const m = /FPS\.+\s*(\d+)/.exec(document.querySelector('#hud')?.textContent ?? '');
-        return m ? Number(m[1]) : 0;
-      });
-      console.log(`[make-og] FPS ${fps}`);
+      // Wait until the HUD actually shows a non-zero FPS (the 1-second
+      // moving average) so the committed preview never ships a frozen
+      // `FPS........ 0` row. Timeout → dump HUD + exit non-zero.
+      try {
+        await page.waitForFunction(
+          () => /FPS\.+\s*[1-9]/.test(document.querySelector('#hud')?.textContent ?? ''),
+          undefined,
+          { timeout: 20_000 },
+        );
+      } catch (err) {
+        const hud = await page.evaluate(
+          () => document.querySelector('#hud')?.textContent ?? '(no #hud)',
+        );
+        console.error('[make-og] timed out waiting for non-zero FPS; HUD was:');
+        console.error(hud);
+        throw err;
+      }
 
       // Paint two frames (the screenshot target is copied out of the frame
       // loop) before capturing.
@@ -110,6 +111,18 @@ async function main() {
         );
       await paint();
       await paint();
+
+      const fpsRow = await page.evaluate(() => {
+        const text = document.querySelector('#hud')?.textContent ?? '';
+        const m = /FPS\.+\s*\d+/.exec(text);
+        return m ? m[0] : '';
+      });
+      console.log(`[make-og] ${fpsRow}`);
+      if (!/FPS\.+\s*[1-9]/.test(fpsRow)) {
+        throw new Error(
+          `[make-og] refusing to write a 0-FPS image (${fpsRow || 'missing FPS row'})`,
+        );
+      }
 
       await page.screenshot({ path: OUT });
     } finally {
