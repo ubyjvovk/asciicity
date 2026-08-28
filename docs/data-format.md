@@ -52,7 +52,10 @@ downtown, Alamo Square, Alcatraz; Twin Peaks and the Bay Bridge east half
 are out), origin Union Square `-122.4075,37.788`, `--lang en --dem 1`
 (tile `N37W123`; Bay ≈ 0 m, Nob Hill ≈ 100 m). The Bay/Pacific come from
 the coastline rules above; Alcatraz is an island ring (visible, not
-walkable). Counts/size: recorded here by the PM at accept.
+walkable). **Size budget 15 MB** (raised from 12 at T-0076: the bbox is
+2.5–6× London/Kyiv by area and holds 44 k footprints; coordinates are
+already 0.1 m and footprints < 20 m² are 1 % of the file — the size is
+fidelity, not waste). Counts/size: recorded here by the PM at accept.
 
 ## The real dataset: City of London to Westminster
 
