@@ -434,6 +434,12 @@ export function clipPolylineToBbox(points, bbox) {
  * open, with both endpoints on the bbox boundary, and is fed to
  * `closeCoastline` next. Closed rings have their repeated closing point
  * dropped so they match the water ring schema.
+ *
+ * Stitching is independent of array order: on coinciding endpoints a piece
+ * may attach AFTER the chain (piece start = chain end) or BEFORE it (piece
+ * end = chain start), looping until no unused piece matches either end (or
+ * the chain closes). Pieces are never reversed — way direction carries the
+ * land-left/water-right side the clockwise closure depends on.
  * @param {Array<Array<[number, number]>>} pieces polyline pieces from clip
  * @returns {{closed: Array<Array<[number, number]>>, open: Array<Array<[number, number]>>}}
  */
@@ -452,12 +458,21 @@ export function stitchChains(pieces) {
     let progressed = true;
     while (progressed && !same(chain[0], chain[chain.length - 1])) {
       progressed = false;
+      const start = chain[0];
       const tail = chain[chain.length - 1];
       for (let j = 0; j < remaining.length; j++) {
         if (used.has(j)) continue;
         const o = remaining[j];
         if (same(tail, o[0])) {
+          // piece starts where the chain ends → attach AFTER the chain.
           chain = chain.concat(o.slice(1));
+          used.add(j);
+          progressed = true;
+          break;
+        }
+        if (same(start, o[o.length - 1])) {
+          // piece ends where the chain starts → attach BEFORE the chain.
+          chain = o.slice(0, -1).concat(chain);
           used.add(j);
           progressed = true;
           break;

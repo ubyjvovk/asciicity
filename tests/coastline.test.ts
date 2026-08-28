@@ -87,6 +87,49 @@ describe('coastline stitchChains', () => {
   it('empty input → no chains', () => {
     expect(stitchChains([])).toEqual({ closed: [], open: [] });
   });
+
+  it('joins two open pieces sharing an interior node regardless of array order', () => {
+    // A ends where B starts: A = [[0,0.5],[0.5,0.5]] ends at [0.5,0.5],
+    // B = [[0.5,0.5],[1,0.5]] starts there. A.concat(B.slice(1)) is one open
+    // chain [0,0.5]→[0.5,0.5]→[1,0.5].
+    const A = [
+      [0, 0.5],
+      [0.5, 0.5],
+    ];
+    const B = [
+      [0.5, 0.5],
+      [1, 0.5],
+    ];
+    // Pieces [B, A]: B is processed first, then A must prepend BEFORE it.
+    const { closed, open } = stitchChains([B, A]);
+    expect(closed).toEqual([]);
+    expect(open).toEqual([A.concat(B.slice(1))]);
+    // Same assertion with [A, B] proves order-independence.
+    const { closed: c2, open: o2 } = stitchChains([A, B]);
+    expect(c2).toEqual([]);
+    expect(o2).toEqual([A.concat(B.slice(1))]);
+  });
+
+  it('stitches a three-piece open coast given in the order [middle, last, first]', () => {
+    const first = [
+      [0, 0.5],
+      [0.33, 0.5],
+    ];
+    const middle = [
+      [0.33, 0.5],
+      [0.66, 0.5],
+    ];
+    const last = [
+      [0.66, 0.5],
+      [1, 0.5],
+    ];
+    const { closed, open } = stitchChains([middle, last, first]);
+    expect(closed).toEqual([]);
+    expect(open).toHaveLength(1);
+    // One open chain with the first piece's start and the last piece's end.
+    expect(open[0][0]).toEqual([0, 0.5]);
+    expect(open[0][open[0].length - 1]).toEqual([1, 0.5]);
+  });
 });
 
 describe('coastline closeCoastline — coast → southern-band ring', () => {
