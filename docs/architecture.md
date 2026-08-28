@@ -676,16 +676,20 @@ export class TreeField { constructor(trees, heightAt: HeightFn); readonly object
 ### 4.15 Postcard export & Open Graph (wave 8)
 
 **Capture module `src/export/postcard.ts`** (browser-only except pure
-helpers). The WebGL canvas is not preserved between frames
-(`preserveDrawingBuffer` stays false), so every capture copies the canvas
-with `ctx2d.drawImage(glCanvas, …)` **in the same task as the render**:
+helpers). The renderer ships `preserveDrawingBuffer: true` (scene.ts —
+the e2e pixel probes rely on it; corrected 2026-08-28, the first draft of
+this section claimed false), but captures must NOT depend on that flag:
+every capture copies the canvas with `ctx2d.drawImage(glCanvas, …)`
+**in the same task as the render**:
 `main.ts` calls `postcard.afterRender()` immediately after
 `post.render(scene, camera)` in the frame loop; the module does nothing
 unless a capture is pending.
 
 ```ts
 // src/export/postcard.ts
-export interface PostcardMeta { cityLabel: string }   // e.g. 'LONDON', from the city registry
+export interface PostcardMeta { cityId: string; cityLabel: string }
+// cityId: lower-case registry id ('london', 'sf', 'synthetic') — filenames.
+// cityLabel: upper-case registry label ('SAN FRANCISCO') — the caption text.
 export function createPostcard(
   canvas: HTMLCanvasElement,
   meta: () => PostcardMeta,
@@ -700,9 +704,11 @@ export interface Postcard {
 
 - **PNG**: canvas pixels at full size plus a 28-px caption bar appended
   below — `#000` fill, 1-px `#333` top border, `14px "DejaVu Sans Mono",
-  monospace` text: left `ASCIICITY · <CITY>` in `#ffb000`, right
-  `ubyjvovk.github.io/asciicity` in `#7a7a7a`. Filename
-  `asciicity-<city>-<yyyymmdd-hhmmss>.png`.
+  monospace` text: left `ASCIICITY · <CITY LABEL>` in `#ffb000`, right
+  `ubyjvovk.github.io/asciicity` in `#7a7a7a`. The bar sits BELOW the
+  frame (translate to `(0, canvasH)` before painting — the frame's pixels
+  are never covered). Filename `asciicity-<cityId>-<yyyymmdd-hhmmss>.png`
+  (the id, never the label — labels contain spaces).
 - **GIF** (`gifenc`, already a dependency): 36 frames at 12 fps over 3 s,
   scale `min(1, 960 / canvas.width)` (`imageSmoothingEnabled = false`),
   caption bar included, per-frame `quantize` + `applyPalette` (256
