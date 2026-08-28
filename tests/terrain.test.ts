@@ -2,13 +2,16 @@
  * Unit tests for src/world/terrain.ts (T-0042). Every case listed in the
  * ticket's acceptance criteria is covered here by name.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { HeightFn, Road, TerrainData, Vec2 } from '../src/data/types';
+import type { CityData, HeightFn, Road, TerrainData, Vec2 } from '../src/data/types';
 import {
   BridgeDecks,
   Terrain,
   bridgeProfile,
   buildTerrainGeometry,
+  chainBridgeRoads,
   makeGroundAt,
   terrainHeightAt,
 } from '../src/world/terrain';
@@ -335,6 +338,116 @@ describe('BridgeDecks', () => {
       heightAt,
     );
     expect(decks.deckAt([10, 0])).toBeCloseTo(8, 12);
+  });
+});
+
+describe('chainBridgeRoads', () => {
+  it('chainBridgeRoads joins three same-name bridge pieces given in shuffled order, reversing one', () => {
+    // The bridge runs x = 0..60: A [0→20], B reversed [40→20], C [40→60].
+    const A: Road = makeRoad({ id: 1, name: 'Span', bridge: true, pts: [[0, 0], [20, 0]] });
+    const B: Road = makeRoad({ id: 2, name: 'Span', bridge: true, pts: [[40, 0], [20, 0]] });
+    const C: Road = makeRoad({ id: 3, name: 'Span', bridge: true, pts: [[40, 0], [60, 0]] });
+    const out = chainBridgeRoads([C, B, A]);
+    const chains = out.filter((r) => r.name === 'Span');
+    expect(chains).toHaveLength(1);
+    expect(chains[0]!.pts).toEqual([[0, 0], [20, 0], [40, 0], [60, 0]]);
+    // A.start … C.end, no duplicated joint vertex (4 unique points, not 6).
+    expect(chains[0]!.pts).toHaveLength(4);
+    expect(chains[0]!.id).toBe(3);
+  });
+
+  it('chainBridgeRoads leaves unnamed, differently named and non-bridge roads alone', () => {
+    const unnamed = makeRoad({ id: 1, bridge: true, pts: [[0, 0], [10, 0]] });
+    const diffName = makeRoad({ id: 2, name: 'Alpha', bridge: true, pts: [[0, 0], [10, 0]] });
+    const nonBridge = makeRoad({ id: 3, name: 'Alpha', pts: [[0, 0], [10, 0]] });
+    const out = chainBridgeRoads([unnamed, diffName, nonBridge]);
+    expect(out).toHaveLength(3);
+    expect(out.map((r) => r.pts)).toEqual([
+      [[0, 0], [10, 0]],
+      [[0, 0], [10, 0]],
+      [[0, 0], [10, 0]],
+    ]);
+  });
+});
+
+describe('chained deck', () => {
+  it('chained deck: a three-piece bridge whose joints lie below the water is profiled between the outer abutments', () => {
+    const heightAt: HeightFn = (x, _z) => (x <= 0 ? 30 : x >= 60 ? 46 : -24);
+    const name = 'Span';
+    const roads: Road[] = [
+      makeRoad({ id: 1, name, bridge: true, cls: 'primary', pts: [[0, 0], [20, 0]] }),
+      makeRoad({ id: 2, name, bridge: true, cls: 'primary', pts: [[20, 0], [40, 0]] }),
+      makeRoad({ id: 3, name, bridge: true, cls: 'primary', pts: [[40, 0], [60, 0]] }),
+    ];
+    const decks = new BridgeDecks(roads, heightAt);
+    const mid = decks.deckAt([30, 0])!;
+    // Lerp 30 → 46 across the chain gives 38 at mid-span, well above the −24 water.
+    expect(mid).toBeGreaterThan(37);
+    expect(mid).toBeLessThan(39);
+  });
+});
+
+describe('Golden Gate Bridge chaining (sf.json)', () => {
+  it('sf.json: groundAt along the Golden Gate Bridge East Sidewalk never drops below 25 m and is within 4 m of the West Sidewalk', () => {
+    const sf: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+    );
+    const terrain = new Terrain(sf.terrain!);
+    const decks = new BridgeDecks(sf.roads, terrain.heightAt);
+    const groundAt = makeGroundAt(terrain, decks);
+
+    const east = sf.roads.filter((r) => r.name === 'Golden Gate Bridge East Sidewalk');
+    const west = sf.roads.find((r) => r.name === 'Golden Gate Bridge West Sidewalk');
+    expect(east.length).toBeGreaterThanOrEqual(3);
+    expect(west).toBeDefined();
+    const westPts = west!.pts;
+    const eastPts = east.flatMap((r) => r.pts);
+    expect(eastPts.length).toBeGreaterThan(10);
+
+    // Nearest point on the west polyline (projected onto its segments) so the
+    // height comparison reflects the same span-wise station, not a discrete
+    // vertex distance.
+    const projectNearest = (x: number, z: number): Vec2 => {
+      let best = Infinity;
+      let bestP: Vec2 = westPts[0]!;
+      for (let i = 0; i < westPts.length - 1; i++) {
+        const a = westPts[i]!;
+        const b = westPts[i + 1]!;
+        const dx = b[0] - a[0];
+        const dz = b[1] - a[1];
+        const lenSq = dx * dx + dz * dz;
+        let t = lenSq > 0 ? ((x - a[0]) * dx + (z - a[1]) * dz) / lenSq : 0;
+        t = Math.min(1, Math.max(0, t));
+        const px = a[0] + t * dx;
+        const pz = a[1] + t * dz;
+        const d = Math.hypot(px - x, pz - z);
+        if (d < best) {
+          best = d;
+          bestP = [px, pz];
+        }
+      }
+      return bestP;
+    };
+
+    // The two abutment vertices (global min/max z) are land falls: the East
+    // sidewalk runs ~10 m further than the West, so they land on different
+    // terrain heights (East south ~45.6, West south ~41.6) and are not
+    // deck-to-deck comparisons. Every vertex must clear `never below 25`;
+    // the interior deck vertices must track the West deck to within 4 m.
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const [, ez] of eastPts) {
+      if (ez < minZ) minZ = ez;
+      if (ez > maxZ) maxZ = ez;
+    }
+    for (const [ex, ez] of eastPts) {
+      const eg = groundAt(ex, ez);
+      expect(eg).toBeGreaterThanOrEqual(25);
+      if (ez === minZ || ez === maxZ) continue;
+      const wp = projectNearest(ex, ez);
+      const wg = groundAt(wp[0], wp[1]);
+      expect(Math.abs(eg - wg)).toBeLessThanOrEqual(4);
+    }
   });
 });
 
