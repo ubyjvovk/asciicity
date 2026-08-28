@@ -503,11 +503,12 @@ async function main(): Promise<void> {
   const toast = mountToast();
   toast.show(`RENDER: ${post.style.label}`);
 
-  // Postcard PNG export (T-0072): the meta callback labels the caption bar
-  // with the upper-cased registry label, or the URL id for synthetic/unknown.
+  // Postcard PNG export (T-0072): filename uses the registry id (no spaces);
+  // the caption bar paints the upper-cased label.
   const postcard = createPostcard(
     canvas,
     () => ({
+      cityId: cityId ?? 'synthetic',
       cityLabel: cityInfo?.label ?? (cityId ?? 'synthetic').toUpperCase(),
     }),
     (msg) => toast.show(msg),

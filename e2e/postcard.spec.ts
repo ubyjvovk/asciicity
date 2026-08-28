@@ -49,18 +49,39 @@ test('postcard: postcard("png") resolves to a real PNG of canvas + 28 px caption
     const height = dv.getUint32(20, false);
     const canvas = document.getElementById('view');
     if (!(canvas instanceof HTMLCanvasElement)) throw new Error('no #view canvas');
+    // Decode the PNG and count amber caption pixels in the bottom 28 rows
+    // (`#ffb000` text). The bar must sit BELOW the frame, not over the top.
+    const bitmap = await createImageBitmap(blob);
+    const off = document.createElement('canvas');
+    off.width = bitmap.width;
+    off.height = bitmap.height;
+    const ctx = off.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(bitmap, 0, 0);
+    const barH = 28;
+    const barY = bitmap.height - barH;
+    const data = ctx.getImageData(0, barY, bitmap.width, barH).data;
+    let amber = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      if (r > 150 && g > 90 && b < 100) amber++;
+    }
     return {
       magic: Array.from(buf.slice(0, 8)),
       width,
       height,
       canvasW: canvas.width,
       canvasH: canvas.height,
+      amber,
     };
   });
 
   expect(info.magic).toEqual(PNG_MAGIC);
   expect(info.width).toBe(info.canvasW);
   expect(info.height).toBe(info.canvasH + 28);
+  expect(info.amber).toBeGreaterThanOrEqual(50);
 });
 
 test('postcard: P key fires a download with an asciicity-*.png filename', async ({

@@ -15,9 +15,14 @@ export const CAPTION_PAD_X = 8;
 /** Text baseline y within the caption bar. */
 export const CAPTION_TEXT_Y = 20;
 
-/** What the caption bar labels the frame with (city registry label). */
+/**
+ * City identity for a postcard: the registry id goes in the filename (no
+ * spaces), the upper-cased label is painted on the caption bar.
+ */
 export interface PostcardMeta {
-  /** Upper-cased city label shown in the caption (e.g. `'LONDON'`). */
+  /** Lower-case registry id used in the filename (e.g. `'sf'`, `'synthetic'`). */
+  cityId: string;
+  /** Upper-cased city label shown in the caption (e.g. `'SAN FRANCISCO'`). */
   cityLabel: string;
 }
 
@@ -60,13 +65,19 @@ function pad2(n: number): string {
 }
 
 /**
- * Postcard PNG filename: `asciicity-<city>-<yyyymmdd-hhmmss>.png` in the
- * viewer's local time, city lower-cased.
+ * Postcard PNG filename: `asciicity-<cityId>-<yyyymmdd-hhmmss>.png` in the
+ * viewer's local time. `cityId` is lower-cased; never pass the display label
+ * (labels contain spaces).
  */
-export function postcardFilename(city: string, date: Date): string {
+export function postcardFilename(cityId: string, date: Date): string {
   const ymd = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
   const hms = `${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
-  return `asciicity-${city.toLowerCase()}-${ymd}-${hms}.png`;
+  return `asciicity-${cityId.toLowerCase()}-${ymd}-${hms}.png`;
+}
+
+/** Left caption text: `ASCIICITY · <CITY LABEL>`. */
+export function captionLeft(cityLabel: string): string {
+  return `ASCIICITY · ${cityLabel}`;
 }
 
 /** Handle returned by `createPostcard`. */
@@ -111,7 +122,11 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-/** Paint the caption bar (fill, border, left/right text) onto `ctx`. */
+/**
+ * Paint the caption bar (fill, border, left/right text) onto `ctx` in the
+ * current transform. Callers translate to `(0, canvasH)` first so the bar
+ * sits below the frame rather than covering its top 28 px.
+ */
 function paintCaption(ctx: CanvasRenderingContext2D, width: number, meta: PostcardMeta): void {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, width, CAPTION_HEIGHT);
@@ -119,7 +134,7 @@ function paintCaption(ctx: CanvasRenderingContext2D, width: number, meta: Postca
   ctx.fillRect(0, 0, width, 1);
   ctx.font = `14px "DejaVu Sans Mono", monospace`;
   ctx.textBaseline = 'alphabetic';
-  const leftText = `ASCIICITY · ${meta.cityLabel}`;
+  const leftText = captionLeft(meta.cityLabel);
   const rightText = 'ubyjvovk.github.io/asciicity';
   const rightWidth = ctx.measureText(rightText).width;
   const layout = captionLayout(width, rightWidth);
@@ -155,19 +170,24 @@ class PostcardImpl implements Postcard {
       fail(new Error('postcard: 2d context unavailable'));
       return;
     }
+    const info = this.meta();
     ctx.drawImage(this.canvas, 0, 0, w, h);
-    paintCaption(ctx, w, this.meta());
+    // Bar sits BELOW the frame — painting in origin coords would cover the
+    // top 28 px and leave the extra rows empty.
+    ctx.save();
+    ctx.translate(0, h);
+    paintCaption(ctx, w, info);
+    ctx.restore();
+    const wantDownload = p.waiters.some((w) => w.download);
     out.toBlob((blob) => {
       if (!blob) {
         fail(new Error('postcard: toBlob produced no PNG'));
         return;
       }
-      for (const waiter of p.waiters) {
-        if (waiter.download) {
-          downloadBlob(blob, postcardFilename(this.meta().cityLabel, new Date()));
-        }
+      if (wantDownload) {
+        downloadBlob(blob, postcardFilename(info.cityId, new Date()));
+        this.toast('POSTCARD SAVED');
       }
-      this.toast('POSTCARD SAVED');
       for (const waiter of p.waiters) waiter.resolve(blob);
     }, 'image/png');
   }
@@ -185,7 +205,8 @@ class PostcardImpl implements Postcard {
 
 /**
  * Create a `Postcard` bound to the given WebGL canvas. `meta` is called when a
- * capture lands to label the frame's city; `toast` reports `POSTCARD SAVED`.
+ * capture lands to label the frame's city; `toast` reports `POSTCARD SAVED`
+ * only when at least one waiter requested a download.
  */
 export function createPostcard(
   canvas: HTMLCanvasElement,

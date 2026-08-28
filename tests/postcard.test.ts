@@ -9,6 +9,7 @@ import {
   CAPTION_PAD_X,
   CAPTION_TEXT_Y,
   captionLayout,
+  captionLeft,
   postcardFilename,
 } from '../src/export/postcard';
 
@@ -30,6 +31,19 @@ describe('postcardFilename', () => {
     expect(postcardFilename('LONDON', new Date(2026, 0, 1, 0, 0, 0))).toBe(
       'asciicity-london-20260101-000000.png',
     );
+  });
+
+  it('uses cityId in the filename, never the display label', () => {
+    // San Francisco's label has a space; the id is the compact slug.
+    expect(postcardFilename('sf', new Date(2026, 7, 28, 14, 22, 33))).toBe(
+      'asciicity-sf-20260828-142233.png',
+    );
+  });
+});
+
+describe('captionLeft', () => {
+  it('paints the cityLabel, not the id', () => {
+    expect(captionLeft('SAN FRANCISCO')).toBe('ASCIICITY · SAN FRANCISCO');
   });
 });
 

@@ -209,9 +209,14 @@ overlaps the bar.
 
 `P` (desktop, no modifier) downloads the current frame as a PNG via
 `src/export/postcard.ts` (architecture.md §4.15) — a 28-px caption bar is
-appended below the frame. `Shift+P` is reserved for GIF recording (T-0073).
-Touch players have no `P`, so the pause/settings menu carries a `SAVE PNG`
-`menuButton` directly under the `STYLE:` row; it dismisses the overlay the
-way CLICK TO RESUME does, waits two `requestAnimationFrame`s, then runs the
-same capture path. `POSTCARD SAVED` is toasted on completion. See
+appended **below** the frame (never covering it). The bar reads
+`ASCIICITY · <CITY LABEL>` (the registry's upper-cased label, e.g.
+`SAN FRANCISCO`); the filename is `asciicity-<cityId>-<yyyymmdd-hhmmss>.png`
+(the compact id, e.g. `sf` — labels contain spaces). `Shift+P` is reserved
+for GIF recording (T-0073). Touch players have no `P`, so the pause/settings
+menu carries a `SAVE PNG` `menuButton` directly under the `STYLE:` row; it
+dismisses the overlay the way CLICK TO RESUME does, waits two
+`requestAnimationFrame`s, then runs the same capture path. `POSTCARD SAVED`
+is toasted only when a download was requested (the silent
+`window.__asciicity.postcard('png')` test hook does not toast). See
 `docs/integration.md` for the full menu rows, persistence, and keys.
