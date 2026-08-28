@@ -167,7 +167,8 @@ monospace, HUD green on black at 70 %.
 3. `div.hud-help` — the help line supplied by `main.ts` (see below)
 
 On desktop `main.ts` passes `'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY ·
-R STYLE · ESC MENU'`; the line ends with `ESC MENU` because on desktop the
+R STYLE · P POSTCARD · ESC MENU'`; it lists the render key (`R`), then the
+postcard key (`P`, T-0072), and ends with `ESC MENU` because on desktop the
 pause/settings menu opens via Escape (T-0068). On touch it passes
 `'LEFT: MOVE · RIGHT: LOOK · R STYLE'` unchanged (T-0031).
 
@@ -204,4 +205,18 @@ the very bottom of the page** (T-0068): `#view` is `calc(100vh − 20px)`
 tall, `applySize()` passes `innerHeight − 20` to the canvas and camera
 aspect, and `#gear`/`#toast` sit at `bottom: calc(20px + 16px)` so nothing
 overlaps the bar.
-See `docs/integration.md` for the menu rows, persistence, and keys.
+## Postcard export (T-0072)
+
+`P` (desktop, no modifier) downloads the current frame as a PNG via
+`src/export/postcard.ts` (architecture.md §4.15) — a 28-px caption bar is
+appended **below** the frame (never covering it). The bar reads
+`ASCIICITY · <CITY LABEL>` (the registry's upper-cased label, e.g.
+`SAN FRANCISCO`); the filename is `asciicity-<cityId>-<yyyymmdd-hhmmss>.png`
+(the compact id, e.g. `sf` — labels contain spaces). `Shift+P` is reserved
+for GIF recording (T-0073). Touch players have no `P`, so the pause/settings
+menu carries a `SAVE PNG` `menuButton` directly under the `STYLE:` row; it
+dismisses the overlay the way CLICK TO RESUME does, waits two
+`requestAnimationFrame`s, then runs the same capture path. `POSTCARD SAVED`
+is toasted only when a download was requested (the silent
+`window.__asciicity.postcard('png')` test hook does not toast). See
+`docs/integration.md` for the full menu rows, persistence, and keys.
