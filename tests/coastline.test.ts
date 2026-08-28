@@ -92,11 +92,11 @@ describe('coastline stitchChains', () => {
     // A ends where B starts: A = [[0,0.5],[0.5,0.5]] ends at [0.5,0.5],
     // B = [[0.5,0.5],[1,0.5]] starts there. A.concat(B.slice(1)) is one open
     // chain [0,0.5]→[0.5,0.5]→[1,0.5].
-    const A = [
+    const A: Vec2[] = [
       [0, 0.5],
       [0.5, 0.5],
     ];
-    const B = [
+    const B: Vec2[] = [
       [0.5, 0.5],
       [1, 0.5],
     ];
@@ -111,15 +111,15 @@ describe('coastline stitchChains', () => {
   });
 
   it('stitches a three-piece open coast given in the order [middle, last, first]', () => {
-    const first = [
+    const first: Vec2[] = [
       [0, 0.5],
       [0.33, 0.5],
     ];
-    const middle = [
+    const middle: Vec2[] = [
       [0.33, 0.5],
       [0.66, 0.5],
     ];
-    const last = [
+    const last: Vec2[] = [
       [0.66, 0.5],
       [1, 0.5],
     ];

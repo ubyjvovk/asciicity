@@ -292,7 +292,7 @@ describe('resolveSpawn', () => {
   });
 
   it('exposes presets with lower-case keys and labels', () => {
-    // London + Westminster + Kyiv (wave 7, T-0059) presets.
+    // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
       'andriyivskyy',
       'arch',
@@ -301,8 +301,11 @@ describe('resolveSpawn', () => {
       'barbican',
       'bessarabka',
       'bigben',
+      'coittower',
       'embankment',
+      'ferrybuilding',
       'funicular',
+      'ggb',
       'gherkin',
       'glassbridge',
       'goldengate',
@@ -311,6 +314,7 @@ describe('resolveSpawn', () => {
       'leadenhall',
       'liverpoolst',
       'lloyds',
+      'lombard',
       'maidan',
       'metrobridge',
       'michael',
@@ -318,14 +322,19 @@ describe('resolveSpawn', () => {
       'motherland',
       'nicholas',
       'olimpiyskiy',
+      'paintedladies',
       'parkbridge',
       'parliament',
+      'pier39',
       'podil',
       'rada',
+      'salesforce',
       'sophia',
       'stpauls',
       'tower',
       'trafalgar',
+      'transamerica',
+      'unionsquare',
       'volodymyr',
       'walkietalkie',
     ]);
@@ -360,25 +369,98 @@ describe('presetsFor', () => {
 
   it('every preset carries a city and every city id occurs in its presets', () => {
     for (const [, p] of Object.entries(SPAWN_PRESETS)) {
-      expect(['london', 'kyiv']).toContain(p.city);
+      expect(['london', 'kyiv', 'sf']).toContain(p.city);
     }
-    const all = new Set(presetsFor('kyiv').map(([k]) => k));
-    for (const [k, p] of Object.entries(SPAWN_PRESETS)) {
-      if (p.city === 'kyiv') expect(all.has(k)).toBe(true);
+    for (const cityId of ['london', 'kyiv', 'sf']) {
+      const all = new Set(presetsFor(cityId).map(([k]) => k));
+      for (const [k, p] of Object.entries(SPAWN_PRESETS)) {
+        if (p.city === cityId) expect(all.has(k)).toBe(true);
+      }
     }
   });
 
   it("presetsFor('kyiv') labels are unique and non-empty (T-0061 LANDMARKS menu)", () => {
     // The fast-travel submenu (architecture.md §4.13) shows one row per
     // preset labelled from `preset.label`; empty/duplicate labels would make
-    // rows ambiguous. Same for London.
-    for (const cityId of ['kyiv', 'london'] as const) {
+    // rows ambiguous. Same for London and San Francisco.
+    for (const cityId of ['kyiv', 'london', 'sf']) {
       const labels = presetsFor(cityId).map(([, p]) => p.label);
       expect(labels.length).toBeGreaterThan(0);
       for (const label of labels) {
         expect(label.trim().length).toBeGreaterThan(0);
       }
       expect(new Set(labels).size).toBe(labels.length);
+    }
+  });
+});
+
+// Wave 8 San Francisco presets (T-0076): every new preset key parses, all are
+// returned by `presetsFor('sf')`, and none collides with London/Kyiv.
+describe('San Francisco presets (wave 8)', () => {
+  const SF_KEYS = [
+    'ggb',
+    'transamerica',
+    'salesforce',
+    'coittower',
+    'ferrybuilding',
+    'paintedladies',
+    'lombard',
+    'pier39',
+    'unionsquare',
+  ];
+
+  it('every new SF preset key parses to its preset', () => {
+    for (const key of SF_KEYS) {
+      expect(parseAt(key), key).toEqual({ preset: key });
+      expect(parseAt(key.toUpperCase()), key).toEqual({ preset: key });
+      expect(SPAWN_PRESETS[key], key).toBeDefined();
+      expect(SPAWN_PRESETS[key].city, key).toBe('sf');
+      expect(SPAWN_PRESETS[key].label.trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it("presetsFor('sf') returns every SF preset and no foreign keys", () => {
+    const keys = presetsFor('sf').map(([k]) => k);
+    for (const key of SF_KEYS) expect(keys).toContain(key);
+    expect(keys.length).toBe(SF_KEYS.length);
+    expect(keys).not.toContain('bank');
+    expect(keys).not.toContain('maidan');
+  });
+
+  it('no SF preset key collides with a London or Kyiv preset key', () => {
+    const foreign = new Set([
+      ...presetsFor('london').map(([k]) => k),
+      ...presetsFor('kyiv').map(([k]) => k),
+    ]);
+    for (const key of SF_KEYS) {
+      expect(foreign.has(key), `${key} collides with london/kyiv`).toBe(false);
+    }
+  });
+
+  it('the SF building presets carry their exact verified OSM names', () => {
+    expect(SPAWN_PRESETS.transamerica).toMatchObject({ building: 'Transamerica Pyramid' });
+    expect(SPAWN_PRESETS.salesforce).toMatchObject({ building: 'Salesforce Tower' });
+    expect(SPAWN_PRESETS.coittower).toMatchObject({ building: 'Coit Tower' });
+    expect(SPAWN_PRESETS.ferrybuilding).toMatchObject({ building: 'San Francisco Ferry Building' });
+  });
+
+  it("ggb is a fixed-coordinate preset (sf's default spawn) bearing 160", () => {
+    expect('building' in SPAWN_PRESETS.ggb).toBe(false);
+    expect(SPAWN_PRESETS.ggb).toMatchObject({ city: 'sf', bearingDeg: 160 });
+  });
+
+  it('every SF preset coordinate falls inside the sf.json bbox', () => {
+    const SF: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+    );
+    for (const [, preset] of presetsFor('sf')) {
+      const p = preset as { lon?: number; lat?: number };
+      expect(p.lon).toBeDefined();
+      expect(p.lat).toBeDefined();
+      expect(p.lon!, preset.label).toBeGreaterThanOrEqual(SF.bbox[0]);
+      expect(p.lon!, preset.label).toBeLessThanOrEqual(SF.bbox[2]);
+      expect(p.lat!, preset.label).toBeGreaterThanOrEqual(SF.bbox[1]);
+      expect(p.lat!, preset.label).toBeLessThanOrEqual(SF.bbox[3]);
     }
   });
 });

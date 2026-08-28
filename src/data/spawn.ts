@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -228,14 +228,84 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     label: 'Metro Bridge over the Dnipro',
     city: 'kyiv',
   },
+  // San Francisco presets (wave 8, docs/integration.md §San Francisco
+  // presets). Building presets resolve against `applyLandmarks(sf.json)` and
+  // keep their fallback coordinates when a name goes missing upstream.
+  ggb: {
+    lon: -122.4784,
+    lat: 37.817,
+    bearingDeg: 160,
+    label: 'Golden Gate Bridge deck, facing the city',
+    city: 'sf',
+  },
+  transamerica: {
+    building: 'Transamerica Pyramid',
+    label: 'Facing the Transamerica Pyramid',
+    city: 'sf',
+    lon: -122.4026,
+    lat: 37.7952,
+    bearingDeg: 270,
+  },
+  salesforce: {
+    building: 'Salesforce Tower',
+    label: 'Facing Salesforce Tower',
+    city: 'sf',
+    lon: -122.397,
+    lat: 37.7898,
+    bearingDeg: 180,
+  },
+  coittower: {
+    building: 'Coit Tower',
+    label: 'Facing Coit Tower',
+    city: 'sf',
+    lon: -122.4058,
+    lat: 37.8024,
+    bearingDeg: 180,
+  },
+  ferrybuilding: {
+    building: 'San Francisco Ferry Building',
+    label: 'Facing the Ferry Building',
+    city: 'sf',
+    lon: -122.3934,
+    lat: 37.7955,
+    bearingDeg: 315,
+  },
+  paintedladies: {
+    lon: -122.433,
+    lat: 37.7765,
+    bearingDeg: 75,
+    label: 'Alamo Square, facing the Painted Ladies row',
+    city: 'sf',
+  },
+  lombard: {
+    lon: -122.4187,
+    lat: 37.8021,
+    bearingDeg: 100,
+    label: 'Top of the Lombard crooked block, facing down',
+    city: 'sf',
+  },
+  pier39: {
+    lon: -122.4103,
+    lat: 37.8087,
+    bearingDeg: 0,
+    label: 'Pier 39, out toward Alcatraz',
+    city: 'sf',
+  },
+  unionsquare: {
+    lon: -122.4075,
+    lat: 37.788,
+    bearingDeg: 315,
+    label: 'Union Square, facing downtown',
+    city: 'sf',
+  },
 };
 
 /**
- * All presets belonging to a city, as `[key, preset]` pairs in `SPAWN_PRESETS`
- * insertion (table) order. Used by the fast-travel menu (architecture.md
- * §4.13) and by tests to prove the per-city fence.
+ * All presets belonging to a city id, as `[key, preset]` pairs in
+ * `SPAWN_PRESETS` insertion (table) order. Used by the fast-travel menu
+ * (architecture.md §4.13) and by tests to prove the per-city fence.
  */
-export function presetsFor(cityId: 'london' | 'kyiv'): [string, SpawnPreset][] {
+export function presetsFor(cityId: string): [string, SpawnPreset][] {
   return Object.entries(SPAWN_PRESETS)
     .filter(([, p]) => p.city === cityId)
     .map(([k, v]) => [k, v]);
