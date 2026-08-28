@@ -439,17 +439,17 @@ async function main(): Promise<void> {
     updateSky(sky, opts.time ?? new Date(), city.origin);
   }, 10000);
 
-  // Water rings become fake footprints so the player cannot walk onto the
-  // river; bridge roads become corridors that override those footprints (and
-  // buildings alike), so the player can walk across the Thames.
+  // Water rings are passed as their own arg so an island ring nested in a Bay
+  // ring is walkable land (odd-parity test, architecture.md §4.6 wave-9);
+  // bridge roads become corridors that override footprints and water alike, so
+  // the player can walk across the Thames or the Golden Gate.
   const collision = new CollisionGrid(
-    city.water?.length
-      ? [...city.buildings, ...city.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
-      : city.buildings,
+    city.buildings,
     25,
     city.roads
       .filter((r) => r.bridge)
       .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+    city.water ?? [],
   );
   const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   const controls = new Controls(canvas);
