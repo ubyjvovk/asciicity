@@ -22,7 +22,7 @@ export interface HudValues {
 export class Hud {
   private readonly rows: HTMLElement;
 
-  constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY') {
+  constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · P POSTCARD · ESC MENU') {
     const doc = root.ownerDocument;
 
     const title = doc.createElement('div');

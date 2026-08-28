@@ -11,6 +11,7 @@ import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/typ
 import { loadCity } from './data/load';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
+import { createPostcard } from './export/postcard';
 import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
@@ -79,6 +80,11 @@ declare global {
       travel(key: string): boolean;
       /** Number of trees in the loaded city's TreeField (0 when absent, T-0066). */
       trees: number;
+      /**
+       * Test hook (T-0072): capture the next rendered frame as a PNG without
+       * downloading. `'png'` resolves to a `Blob`; `'gif'` rejects (T-0073).
+       */
+      postcard(kind: string): Promise<Blob>;
     };
   }
 }
@@ -455,7 +461,7 @@ async function main(): Promise<void> {
     hudRoot,
     touch
       ? 'LEFT: MOVE · RIGHT: LOOK · R STYLE'
-      : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · ESC MENU',
+      : 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · P POSTCARD · ESC MENU',
   );
 
   // Panels are always created; `?hud=0` / `?minimap=0` (and the matching
@@ -496,6 +502,16 @@ async function main(): Promise<void> {
   });
   const toast = mountToast();
   toast.show(`RENDER: ${post.style.label}`);
+
+  // Postcard PNG export (T-0072): the meta callback labels the caption bar
+  // with the upper-cased registry label, or the URL id for synthetic/unknown.
+  const postcard = createPostcard(
+    canvas,
+    () => ({
+      cityLabel: cityInfo?.label ?? (cityId ?? 'synthetic').toUpperCase(),
+    }),
+    (msg) => toast.show(msg),
+  );
 
   // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
   // otherwise resolve `?at=` (preset or coordinate) against the city origin,
@@ -547,6 +563,8 @@ async function main(): Promise<void> {
     rows: 0,
     // Overridden below once `travel` is in scope.
     travel: (_key: string): boolean => false,
+    postcard: (kind: string): Promise<Blob> =>
+      kind === 'png' ? postcard.snapPng(false) : Promise.reject(new Error('gif comes in T-0073')),
   };
   window.__asciicity = api;
 
@@ -759,6 +777,15 @@ async function main(): Promise<void> {
       post.next(1);
       applyStyleChange();
     });
+    // `SAVE PNG` (T-0072) downloads a postcard PNG. Touch users have no `P`,
+    // so the pause menu carries the button; it dismisses the overlay the way
+    // CLICK TO RESUME does, lets two frames render un-obscured, then snaps.
+    const savePngBtn = menuButton('SAVE PNG', () => {
+      setOverlay(false, false);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => void postcard.snapPng(true)),
+      );
+    });
     flyBtn = menuButton(labelOnOff('FLY', state.fly), () => {
       setFly(!state.fly);
     });
@@ -802,6 +829,7 @@ async function main(): Promise<void> {
       miniBtn,
       crtBtn,
       styleBtn,
+      savePngBtn,
       flyBtn,
       landmarksBtn,
       copyBtn,
@@ -872,6 +900,11 @@ async function main(): Promise<void> {
       applyStyleChange();
       return;
     }
+    // `P` downloads a postcard PNG; `Shift+P` is reserved for GIF (T-0073).
+    if (ev.code === 'KeyP') {
+      if (!ev.shiftKey) void postcard.snapPng(true);
+      return;
+    }
     if (pickerOpen) return;
     if (ev.code === 'KeyH') setHudVisible(!settings.hud);
     else if (ev.code === 'KeyM') setMinimapVisible(!settings.minimap);
@@ -926,6 +959,9 @@ async function main(): Promise<void> {
     boats?.update(dt);
 
     post.render(scene, camera);
+    // Copy the freshly rendered frame out (T-0072) — the canvas is not
+    // preserved between frames, so the capture must happen right here.
+    postcard.afterRender();
 
     fpsFrames++;
     fpsElapsed += dt;
