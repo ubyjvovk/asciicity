@@ -49,6 +49,8 @@ export function round1(v) {
 const ROAD_CLASS = {
   trunk: 'primary',
   trunk_link: 'primary',
+  motorway: 'primary',
+  motorway_link: 'primary',
   primary: 'primary',
   primary_link: 'primary',
   secondary: 'secondary',

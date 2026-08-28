@@ -286,8 +286,10 @@ the data).
 
 Available with `?city=sf&at=<name>`. Coordinate presets are fixed WGS84
 points; building presets resolve against `applyLandmarks(sf.json)` via
-`landmarkSpawn`. The Golden Gate Bridge deck exists only as the `Golden Gate
-Bridge East Sidewalk` / `West Sidewalk` pedestrian corridors, so `ggb` snaps
+`landmarkSpawn`. Since T-0077 the Golden Gate Bridge roadway (`highway=motorway`)
+is converted as a `primary` bridge road carrying the buses, in addition to the
+`Golden Gate Bridge East Sidewalk` / `West Sidewalk` pedestrian corridors, so
+`ggb` snaps
 the configured point onto the nearest point of any East Sidewalk piece (a
 point 30 m off the deck is open water and the spawn breaks); the bridge-tower
 extras (`Golden Gate Bridge South/North Tower`) snap onto the East Sidewalk
