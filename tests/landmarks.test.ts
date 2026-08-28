@@ -16,6 +16,9 @@ const KYIV: CityData = JSON.parse(
 const LONDON: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'city.json'), 'utf8'),
 );
+const SF: CityData = JSON.parse(
+  readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+);
 
 function byName(buildings: Building[]): Record<string, Building> {
   const out: Record<string, Building> = {};
@@ -193,3 +196,133 @@ describe('applyLandmarks (London / synthetic)', () => {
     expect(city).toEqual(LONDON);
   });
 });
+
+// Wave 8 SF landmarks (T-0076): the fixes touch only names that are present in
+// the fetched data, and the Golden Gate Bridge tower extras rise BESIDE the
+// East Sidewalk walkway instead of covering it.
+describe('applyLandmarks (San Francisco)', () => {
+  it('fixes only the Coit Tower colour (h 64 already right) and leaves other heights untouched', () => {
+    const city = applyLandmarks(SF, 'sf');
+    expect(LANDMARK_FIXES.sf).toEqual({ 'Coit Tower': { color: 0xf5f0e6 } });
+    const names = byName(city.buildings);
+    // The colour-only fix reaches colourFor but not height/shape.
+    expect(colorFor(names['Coit Tower'])).toBe(0xf5f0e6);
+    expect(names['Coit Tower'].h).toBe(64);
+    expect(names['Coit Tower'].shape).toBeUndefined();
+    // Well-tagged landmarks stay as OSM (no height fix).
+    expect(names['Transamerica Pyramid'].h).toBe(260);
+    expect(names['Salesforce Tower'].h).toBe(320);
+    expect(names['San Francisco Ferry Building'].h).toBe(15);
+  });
+
+  it('applies fixes only for names present in the fetched sf.json', () => {
+    const present = new Set(
+      SF.buildings.filter((b) => b.name !== undefined).map((b) => b.name),
+    );
+    for (const name of Object.keys(LANDMARK_FIXES.sf)) {
+      expect(present.has(name), `fix name "${name}" must exist in sf.json`).toBe(true);
+    }
+  });
+
+  it('appends the two GGB towers and the Ferry Building Clock Tower extras as towers', () => {
+    const city = applyLandmarks(SF, 'sf');
+    const extraNames = city.buildings
+      .filter((b) => b.id <= -1000)
+      .map((b) => b.name);
+    expect(extraNames).toEqual([
+      'Golden Gate Bridge South Tower',
+      'Golden Gate Bridge North Tower',
+      'Ferry Building Clock Tower',
+    ]);
+    for (const name of extraNames) {
+      const b = city.buildings.find((x) => x.name === name)!;
+      expect(b.shape).toBe('tower');
+    }
+    const south = city.buildings.find((b) => b.name === 'Golden Gate Bridge South Tower')!;
+    const north = city.buildings.find((b) => b.name === 'Golden Gate Bridge North Tower')!;
+    expect(south.h).toBe(227);
+    expect(north.h).toBe(227);
+  });
+
+  it('the Ferry Building Clock Tower is a 14×14 square centred on the OSM building centroid', () => {
+    const city = applyLandmarks(SF, 'sf');
+    const clock = city.buildings.find((b) => b.name === 'Ferry Building Clock Tower')!;
+    const osm = SF.buildings.find((b) => b.name === 'San Francisco Ferry Building')!;
+    let ocx = 0;
+    let ocz = 0;
+    for (const [x, z] of osm.poly) {
+      ocx += x;
+      ocz += z;
+    }
+    ocx /= osm.poly.length;
+    ocz /= osm.poly.length;
+    const [a, b, c, d] = clock.poly;
+    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(14);
+    expect(Math.hypot(b[0] - c[0], b[1] - c[1])).toBeCloseTo(14);
+    const cx = (a[0] + b[0] + c[0] + d[0]) / 4;
+    const cz = (a[1] + b[1] + c[1] + d[1]) / 4;
+    expect(Math.hypot(cx - ocx, cz - ocz)).toBeLessThan(2);
+  });
+
+  it('GGB tower extras do not cover the East Sidewalk line', () => {
+    const city = applyLandmarks(SF, 'sf');
+    const eastVertices = SF.roads
+      .filter((r) => r.name === 'Golden Gate Bridge East Sidewalk')
+      .flatMap((r) => r.pts);
+    expect(eastVertices.length).toBeGreaterThan(0);
+    for (const name of ['Golden Gate Bridge South Tower', 'Golden Gate Bridge North Tower']) {
+      const tower = city.buildings.find((b) => b.name === name)!;
+      // Distance from each East Sidewalk vertex to the extra's footprint:
+      // 0 when the vertex is INSIDE the footprint, else to its boundary.
+      for (const v of eastVertices) {
+        const inside = pointInPolygon(v, tower.poly);
+        const d = inside ? 0 : distToPolygon(v, tower.poly);
+        expect(d, `${name} covers East Sidewalk vertex`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('is idempotent — applying twice adds no second set of SF extras', () => {
+    const once = applyLandmarks(SF, 'sf');
+    const twice = applyLandmarks(once, 'sf');
+    const extras = twice.buildings.filter((b) => b.id <= -1000);
+    expect(extras).toHaveLength(3);
+    expect(twice.buildings.length).toBe(SF.buildings.length + 3);
+  });
+});
+
+/** True when `p` lies inside (or on the boundary of) the polygon ring. */
+function pointInPolygon(p: [number, number], poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0];
+    const yi = poly[i][1];
+    const xj = poly[j][0];
+    const yj = poly[j][1];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Distance from `p` to the polygon ring's boundary segments. */
+function distToPolygon(p: [number, number], poly: [number, number][]): number {
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    best = Math.min(best, distToSegment(p, a, b));
+  }
+  return best;
+}
+
+/** Squared-free nearest distance from `p` to segment `a`→`b`. */
+function distToSegment(p: [number, number], a: [number, number], b: [number, number]): number {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const len2 = abx * abx + aby * aby;
+  let t = len2 ? ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p[0] - (a[0] + t * abx), p[1] - (a[1] + t * aby));
+}

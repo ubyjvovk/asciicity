@@ -36,6 +36,15 @@ export interface ExtraBuilding {
   color: number;
   /** Silhouette cap; omit for a flat roof (architecture §4.13). */
   shape?: 'dome' | 'spire' | 'tower';
+  /**
+   * Bridge-tower marker (wave 8): the footprint is computed at load from
+   * the city's Golden Gate Bridge sidewalk roads — snap `(lon, lat)` onto
+   * the East Sidewalk line, offset 12 m perpendicular toward the West
+   * Sidewalk, and build a ~12×10 m rectangle beside the walkway instead of
+   * blocking it. Falls back to the `size` square when the sidewalks are
+   * absent. Only used by `EXTRA_BUILDINGS.sf`.
+   */
+  kind?: 'bridge-tower';
 }
 
 /**
@@ -64,6 +73,12 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
     // OSM maps the column as its 338 m² plinth at the default 14 m.
     "Nelson's Column": { h: 6, color: 0xe8e0c8, label: 'Trafalgar Square' },
   },
+  sf: {
+    // SF downtown is well-tagged (checked against the fetched sf.json):
+    // Transamerica 260 and Salesforce 320 already match the real heights,
+    // so only Coit Tower (h 64 right, wrong colour) needs a fix.
+    'Coit Tower': { color: 0xf5f0e6 },
+  },
 };
 
 /** Per-city extra synthetic buildings appended at load. */
@@ -89,6 +104,37 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
       color: 0xe8e0c8,
     },
   ],
+  sf: [
+    {
+      name: 'Golden Gate Bridge South Tower',
+      lon: -122.4775,
+      lat: 37.8107,
+      h: 227,
+      size: 10,
+      color: 0xc0362c,
+      shape: 'tower',
+      kind: 'bridge-tower',
+    },
+    {
+      name: 'Golden Gate Bridge North Tower',
+      lon: -122.4783,
+      lat: 37.8199,
+      h: 227,
+      size: 10,
+      color: 0xc0362c,
+      shape: 'tower',
+      kind: 'bridge-tower',
+    },
+    {
+      name: 'Ferry Building Clock Tower',
+      lon: -122.393378,
+      lat: 37.79554,
+      h: 75,
+      size: 14,
+      color: 0xf5f0e6,
+      shape: 'tower',
+    },
+  ],
 };
 
 /**
@@ -102,6 +148,79 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
  * the name. Synthetic/unknown ids, or ids with empty tables, return the
  * input unchanged.
  */
+/** Offset (m) of a GGB tower footprint centre from the East Sidewalk line, perpendicular toward the West Sidewalk. */
+const GG_BRIDGE_OFFSET = 12;
+/** Half-width (m) of a GGB tower footprint across the deck. */
+const GG_BRIDGE_HALF_W = 6;
+/** Half-length (m) of a GGB tower footprint along the deck. */
+const GG_BRIDGE_HALF_L = 5;
+
+/** Nearest point on segment `a`→`b` to `p`, with its distance. */
+function distToSegment(p: Vec2, a: Vec2, b: Vec2): { q: Vec2; d: number } {
+  const abx = b[0] - a[0];
+  const aby = b[1] - a[1];
+  const len2 = abx * abx + aby * aby;
+  let t = len2 ? ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return { q: [a[0] + t * abx, a[1] + t * aby], d: Math.hypot(p[0] - (a[0] + t * abx), p[1] - (a[1] + t * aby)) };
+}
+
+/** All `bridge: true` road segments of the named road, as `[a, b]` pairs. */
+function roadwaySegments(city: CityData, name: string): { a: Vec2; b: Vec2 }[] {
+  const segs: { a: Vec2; b: Vec2 }[] = [];
+  for (const r of city.roads) {
+    if (r.name !== name || !r.bridge) continue;
+    for (let i = 0; i < r.pts.length - 1; i++) segs.push({ a: r.pts[i], b: r.pts[i + 1] });
+  }
+  return segs;
+}
+
+/** Nearest point over a set of segments, or `null` when the set is empty. */
+function nearestPoint(p: Vec2, segs: { a: Vec2; b: Vec2 }[]): { q: Vec2; d: number } | null {
+  let best: { q: Vec2; d: number } | null = null;
+  for (const s of segs) {
+    const r = distToSegment(p, s.a, s.b);
+    if (!best || r.d < best.d) best = r;
+  }
+  return best;
+}
+
+/**
+ * Compute the footprint rectangle of a Golden Gate Bridge tower: snap the
+ * given WGS84 point onto the nearest point of the East Sidewalk line, offset
+ * the centre `GG_BRIDGE_OFFSET` m perpendicular toward the West Sidewalk, and
+ * build a `2·HALF_W × 2·HALF_L` rectangle oriented with the deck, so the tower
+ * rises beside the walkway instead of covering it. `null` when either sidewalk
+ * is absent from the dataset (the caller falls back to a square).
+ */
+function ggbTowerPoly(city: CityData, lon: number, lat: number): Vec2[] | null {
+  const east = roadwaySegments(city, 'Golden Gate Bridge East Sidewalk');
+  const west = roadwaySegments(city, 'Golden Gate Bridge West Sidewalk');
+  if (east.length === 0 || west.length === 0) return null;
+  const [px, pz] = project(lon, lat, city.origin);
+  const snapped = nearestPoint([px, pz], east);
+  if (!snapped) return null;
+  const wp = nearestPoint(snapped.q, west);
+  if (!wp) return null;
+  let wx = wp.q[0] - snapped.q[0];
+  let wz = wp.q[1] - snapped.q[1];
+  const wl = Math.hypot(wx, wz);
+  if (wl < 1e-6) return null;
+  wx /= wl;
+  wz /= wl;
+  const cx = snapped.q[0] + GG_BRIDGE_OFFSET * wx;
+  const cz = snapped.q[1] + GG_BRIDGE_OFFSET * wz;
+  // Along-deck axis is perpendicular to the cross-deck (west) direction.
+  const ax = -wz;
+  const az = wx;
+  return [
+    [cx + GG_BRIDGE_HALF_W * wx + GG_BRIDGE_HALF_L * ax, cz + GG_BRIDGE_HALF_W * wz + GG_BRIDGE_HALF_L * az],
+    [cx + GG_BRIDGE_HALF_W * wx - GG_BRIDGE_HALF_L * ax, cz + GG_BRIDGE_HALF_W * wz - GG_BRIDGE_HALF_L * az],
+    [cx - GG_BRIDGE_HALF_W * wx - GG_BRIDGE_HALF_L * ax, cz - GG_BRIDGE_HALF_W * wz - GG_BRIDGE_HALF_L * az],
+    [cx - GG_BRIDGE_HALF_W * wx + GG_BRIDGE_HALF_L * ax, cz - GG_BRIDGE_HALF_W * wz + GG_BRIDGE_HALF_L * az],
+  ];
+}
+
 export function applyLandmarks(city: CityData, cityId: string): CityData {
   const fixes = LANDMARK_FIXES[cityId];
   const extras = EXTRA_BUILDINGS[cityId];
@@ -150,14 +269,28 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
   let extraIndex = 0;
   for (const ex of extras) {
     if (existingExtras.has(ex.name)) continue;
-    const [cx, cz] = project(ex.lon, ex.lat, city.origin);
-    const half = ex.size / 2;
-    const poly: Vec2[] = [
-      [cx - half, cz - half],
-      [cx + half, cz - half],
-      [cx + half, cz + half],
-      [cx - half, cz + half],
-    ];
+    let poly: Vec2[];
+    if (ex.kind === 'bridge-tower') {
+      poly = ggbTowerPoly(city, ex.lon, ex.lat) ?? (() => {
+        const [qcx, qcz] = project(ex.lon, ex.lat, city.origin);
+        const half = ex.size / 2;
+        return [
+          [qcx - half, qcz - half],
+          [qcx + half, qcz - half],
+          [qcx + half, qcz + half],
+          [qcx - half, qcz + half],
+        ];
+      })();
+    } else {
+      const [cx, cz] = project(ex.lon, ex.lat, city.origin);
+      const half = ex.size / 2;
+      poly = [
+        [cx - half, cz - half],
+        [cx + half, cz - half],
+        [cx + half, cz + half],
+        [cx - half, cz + half],
+      ];
+    }
     buildings.push({
       id: -1000 - extraIndex,
       name: ex.name,

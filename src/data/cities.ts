@@ -34,6 +34,13 @@ export const CITIES: readonly CityInfo[] = [
     defaultSpawn: 'maidan',
     blurb: 'Central Kyiv · Dnipro hills, 120 m of relief',
   },
+  {
+    id: 'sf',
+    label: 'SAN FRANCISCO',
+    file: 'data/sf.json',
+    defaultSpawn: 'ggb',
+    blurb: 'Downtown to the Golden Gate · hills & bay',
+  },
 ];
 
 /**

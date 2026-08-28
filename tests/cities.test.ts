@@ -21,8 +21,8 @@ function loadBbox(file: string): DatasetHeader['bbox'] {
 }
 
 describe('CITIES registry', () => {
-  it('lists london first (default) then kyiv', () => {
-    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv']);
+  it('lists london first (default), then kyiv, then sf', () => {
+    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv', 'sf']);
   });
 
   it('carries the expected labels, files and blurbs', () => {
@@ -37,6 +37,12 @@ describe('CITIES registry', () => {
     expect(kyiv.file).toBe('data/kyiv.json');
     expect(kyiv.defaultSpawn).toBe('maidan');
     expect(kyiv.blurb).toBe('Central Kyiv · Dnipro hills, 120 m of relief');
+
+    const sf = CITIES[2];
+    expect(sf.label).toBe('SAN FRANCISCO');
+    expect(sf.file).toBe('data/sf.json');
+    expect(sf.defaultSpawn).toBe('ggb');
+    expect(sf.blurb).toBe('Downtown to the Golden Gate · hills & bay');
   });
 });
 
@@ -62,6 +68,11 @@ describe('cityById', () => {
 
   it('cityById of an unknown id → undefined', () => {
     expect(cityById('paris')).toBeUndefined();
+  });
+
+  it("cityById('sf') → the San Francisco entry (resolvable)", () => {
+    expect(cityById('sf')?.id).toBe('sf');
+    expect(cityById('SF ')?.id).toBe('sf');
   });
 });
 

@@ -172,7 +172,7 @@ per-frame allocations are made inside `main.ts`.
 
 | Name        | Example        | Effect                                                     |
 |-------------|----------------|------------------------------------------------------------|
-| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`). Trimmed + case-insensitive. Absent or invalid (`no picker for ?synthetic=1`) → the city picker (T-0046); a valid id boots that city directly. Ignored when `?synthetic=1`. |
+| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`, `sf`). Trimmed + case-insensitive. Absent or invalid (`no picker for ?synthetic=1`) → the city picker (T-0046); a valid id boots that city directly. Ignored when `?synthetic=1`. |
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
 | `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
@@ -281,6 +281,31 @@ the data).
 | `funicular`    | coordinate  | Funicular lower station, looking up.                                        |
 | `hydropark`    | coordinate  | Hydropark, facing the right-bank hills.                                     |
 | `metrobridge`  | coordinate  | Metro Bridge over the Dnipro.                                               |
+
+### San Francisco presets
+
+Available with `?city=sf&at=<name>`. Coordinate presets are fixed WGS84
+points; building presets resolve against `applyLandmarks(sf.json)` via
+`landmarkSpawn`. The Golden Gate Bridge deck exists only as the `Golden Gate
+Bridge East Sidewalk` / `West Sidewalk` pedestrian corridors, so `ggb` snaps
+the configured point onto the nearest point of any East Sidewalk piece (a
+point 30 m off the deck is open water and the spawn breaks); the bridge-tower
+extras (`Golden Gate Bridge South/North Tower`) snap onto the East Sidewalk
+line and are offset 12 m perpendicular toward the West Sidewalk so they rise
+beside the walkway instead of blocking it. Named-building fallbacks keep
+their coordinates when an OSM name changes upstream.
+
+| Key            | Kind        | Description                                                                 |
+|----------------|-------------|-----------------------------------------------------------------------------|
+| `ggb`          | coordinate  | Golden Gate Bridge deck mid-span, facing the city (default).                |
+| `transamerica` | building    | Facing the Transamerica Pyramid.                                           |
+| `salesforce`   | building    | Facing Salesforce Tower.                                                   |
+| `coittower`    | building    | Facing Coit Tower.                                                         |
+| `ferrybuilding`| building    | Facing the Ferry Building (San Francisco Ferry Building).                  |
+| `paintedladies`| coordinate  | Alamo Square, facing the Painted Ladies row (skyline behind).              |
+| `lombard`      | coordinate  | Top of the Lombard crooked block, looking down.                            |
+| `pier39`       | coordinate  | Pier 39, out toward Alcatraz.                                              |
+| `unionsquare`  | coordinate  | Union Square, facing downtown.                                             |
 
 ## City picker & pause menu
 
