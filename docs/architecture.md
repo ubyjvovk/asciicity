@@ -837,6 +837,13 @@ Geometry rules (all parts are axis-oriented boxes pushed through
   along-order, deduped joints): per segment a box of width `2·halfW`, top at
   `deckY − 0.4` (the road/sidewalk ribbons render above it), depth 7.6 m,
   spanning the full polyline extent (approach viaducts included).
+  **The top follows the deck profile (T-0084):** OSM crosses the whole main
+  span in one 884 m segment over which the deck rises ~5 m, so a flat top
+  at the segment's mid-height buries the ribbons for half the span. Each
+  polyline segment is subdivided into pieces ≤ 50 m, and every piece is a
+  sloped prism whose top is `deckY(s0) − 0.4` at its start and `deckY(s1) −
+  0.4` at its end (bottom = top − 7.6 at both ends), so the ribbon (`+0.15`
+  over the same profile) stays 0.55 m above the box everywhere.
 - **Towers** (2). Two legs per tower, 10 m across × 12 m along, centred at
   `±(sep/2 + 1.4)` across from the axis at the tower's along-position; from
   `heightAt(leg centre) − 2` (sea bed / shore) up to `topY = deckY(tower) +
