@@ -14,7 +14,8 @@
  *
  * How to rerun: `node scripts/make-og.mjs` (node ≥ 22, deps from the
  *   lockfile already installed). No new dependencies — `@playwright/test` is
- *   already a devDependency.
+ *   already a devDependency. Set `PW_ARGS` to override the Chromium flags
+ *   (the PM regenerates on a GPU host with `--use-angle=gl-egl`).
  */
 
 import { spawn } from 'node:child_process';
@@ -55,7 +56,11 @@ async function main() {
     await waitForServer(process.cwd());
 
     const browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      // PW_ARGS overrides the Chromium flags (space-separated) — e.g.
+      // `PW_ARGS='--use-angle=gl-egl --ignore-gpu-blocklist --no-sandbox'`
+      // on a host with a real GPU captures a full-density 60-fps frame
+      // instead of the SwiftShader default.
+      args: (process.env.PW_ARGS ?? '--no-sandbox --disable-dev-shm-usage').split(' '),
     });
     try {
       const page = await browser.newPage({
@@ -76,10 +81,14 @@ async function main() {
         { timeout: 30_000 },
       );
 
-      // Hide the start overlay so it doesn't cover the frame.
+      // Hide the start overlay and the boot-time style toast (`RENDER: ASCII`
+      // is still fading on a fast GPU when the FPS row first goes non-zero)
+      // so neither covers the frame.
       await page.evaluate(() => {
-        const el = document.getElementById('overlay');
-        if (el) el.style.display = 'none';
+        for (const id of ['overlay', 'toast']) {
+          const el = document.getElementById(id);
+          if (el) el.style.display = 'none';
+        }
       });
 
       // Wait until the HUD actually shows a non-zero FPS (the 1-second
