@@ -153,11 +153,15 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
   Clamp to `[3, 320]`.
 - `name` copied when present (trimmed).
 
-**Roads** — `highway` mapping to `cls`:
+**Roads** — `highway` mapping to `cls` (wave 9: `motorway`/`motorway_link`
+added — the Golden Gate Bridge roadway is `highway=motorway` and was dropped,
+leaving only the two sidewalks; the Overpass regex in `scripts/fetch-osm.mjs`
+carries the same two values. London/Kyiv were NOT re-fetched: their bboxes
+hold no motorways, so their committed files are unchanged):
 
 | OSM `highway`                                     | `cls`         |
 |---------------------------------------------------|---------------|
-| trunk, trunk_link, primary, primary_link           | `primary`     |
+| motorway, motorway_link, trunk, trunk_link, primary, primary_link | `primary` |
 | secondary, secondary_link                          | `secondary`   |
 | tertiary, unclassified                             | `tertiary`    |
 | residential, living_street                         | `residential` |

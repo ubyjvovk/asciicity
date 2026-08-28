@@ -158,10 +158,20 @@ export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if prese
 
 - `pointInPolygon(p: Vec2, poly: Vec2[]): boolean` — ray casting.
 - `distToSegment(p: Vec2, a: Vec2, b: Vec2): number`.
-- `class CollisionGrid { constructor(buildings: Building[], cell = 25) }`
-  buckets each footprint into every grid cell its bounding box touches.
+- `class CollisionGrid { constructor(buildings: Building[], cell = 25, corridors: Corridor[] = [], water: Vec2[][] = []) }`
+  buckets each footprint into every grid cell its bounding box touches;
+  water ring EDGES are bucketed the same way and rings keep their bbox for
+  the parity test.
 - `blocked(p, r = 0.6)`: true when `p` is inside any nearby footprint or
-  within `r` of any of its edges.
+  within `r` of any of its edges, **or on water**: `p` inside an ODD number
+  of water rings (ray-cast `pointInPolygon` over every ring whose bbox
+  contains `p`) or within `r` of any ring edge (shore margin, both sides).
+  **Wave 9 (island parity, mirrors data-format "Coastline water" rule 6):**
+  `main.ts` passes `city.water` as the `water` argument instead of merging
+  rings into the building list, so an island ring (Alcatraz) inside the Bay
+  ring is walkable land while the Bay stays water. London/Kyiv have no
+  nested rings → behaviour identical. Corridors (`bridge: true` roads)
+  override footprints and water alike.
 - `resolve(from, to, r = 0.6): Vec2`: returns `to` if not blocked; else tries
   `[to.x, from.z]` then `[from.x, to.z]` (wall sliding); else `from`.
 
@@ -644,6 +654,20 @@ groundAt + EYE_HEIGHT`, `fly = false`, toast `→ <LABEL>`, overlay hidden
 and pointer lock re-requested on desktop. `history.replaceState` sets
 `at=<key>` so the URL stays shareable.
 
+**Wave 9 amendments to §4.13.** (a) `LANDMARK_FIXES.sf['Alcatraz Island
+Lighthouse'] = { color: 0xf5f0e6, label: 'Alcatraz' }` makes the island a
+landmark: the lighthouse (OSM h 26) wears the tag **Alcatraz**, and the
+`alcatraz` preset (building `'Alcatraz Island Lighthouse'`, fallback
+−122.4222, 37.8262, bearing 150 — on the island, facing the city) joins
+`presetsFor('sf')` and therefore the fast-travel list. It is walkable only
+because of the §4.6 parity rule. (b) The two `kind: 'bridge-tower'` extras
+and `ggbTowerPoly` from T-0076 are REMOVED — they sat at the anchorage and at
+mid-span (spec coordinates from memory); the real towers are built by
+§4.16, which also supplies their tag anchors. `ExtraBuilding.kind` goes away
+with them. (c) The `ggb` preset moves to the east sidewalk 260 m south of the
+south tower, bearing 355 (looking north along the deck: the south tower fills
+the frame, cables sweeping up; the far tower is beyond the fog).
+
 ### 4.14 Trees (wave 7)
 
 Data: `CityData.trees` / `CityData.woods` (types.ts; producer rules in
@@ -749,6 +773,155 @@ gains (URLs must be absolute — the site is served from GitHub Pages):
 
 A unit test (`tests/og.test.ts`) reads `index.html` and asserts every tag
 above with absolute `https://ubyjvovk.github.io/asciicity/…` URLs.
+
+### 4.16 Golden Gate Bridge structure (wave 9) — `src/world/bridge.ts`
+
+The bridge deck arrives from OSM as two `pedestrian` + `bridge: true`
+sidewalk polylines (plus the `motorway` roadway once data-format's wave-9
+mapping is fetched); everything vertical is synthesised from a per-city
+spec table, in the same spirit as `EXTRA_BUILDINGS`:
+
+```ts
+// src/world/bridge.ts
+export interface SuspensionBridgeSpec {
+  name: string;                       // 'Golden Gate Bridge'
+  sidewalks: [string, string];        // exact road names: [east, west] deck-edge polylines (bridge: true)
+  towers: [[number, number], [number, number]]; // WGS84 [lon, lat] tower centres (OSM pier centroids)
+  towerTopAboveDeck: number;          // 160 (227 m above water − 67 m deck)
+  sideSpan: number;                   // 343 — tower → anchorage along the axis
+  color: number;                      // 0xc0362c international orange (everything)
+}
+export const SUSPENSION_BRIDGES: Readonly<Record<string, readonly SuspensionBridgeSpec[]>>; // sf only
+export function buildSuspensionBridge(spec, city: CityData, heightAt: HeightFn): MeshData; // pure (MeshBuilder), unit-testable
+export function bridgeAnchors(spec, city, heightAt): TagAnchor[];    // '<name> South Tower' / '<name> North Tower' at tower tops (+4 m)
+export function makeBridgesObject(cityId, city, heightAt): THREE.Object3D; // all specs for the city → one Mesh (toGeometry + MeshLambertMaterial vertexColors)
+```
+
+SF spec: towers south `[-122.4779, 37.8140]`, north `[-122.47923, 37.8255]`
+(OSM ways 1329971884 / 1330832681, the pylon centroids; legs 27 m apart in
+OSM). Measured from `sf.json`: sidewalk separation median 24.8 m, the OSM
+tower centroids lie 12.4–12.6 m from the east sidewalk, i.e. ON the deck
+centre-line; main span 1272 m.
+
+Geometry rules (all parts are axis-oriented boxes pushed through
+`MeshBuilder.quad`; every box has 6 faces with outward normals):
+
+- **Frames.** *Deck axis* = the straight line through the two projected
+  tower centres, extended both ways. *Along* = unit vector S→N tower;
+  *across* = along rotated +90° so it points from the east sidewalk toward
+  the west one (verify the sign against the data: the west sidewalk must be
+  on the +across side). *Deck surface height* `deckY(s)` at axis distance
+  `s` = `heightAt(q)` where `q` is the nearest point on the EAST sidewalk
+  polyline to the axis point — never sample the axis centre itself (the
+  bridge-deck hash only covers the sidewalk corridors; the centre returns the
+  sea bed). `sep` = median distance from east-sidewalk vertices to the west
+  polyline; `halfW = sep / 2 + 2` (deck box half-width, ≈ 14.4 m); cables,
+  hangers and legs sit at lateral `±(sep/2 + 1.4)` (just outside both
+  sidewalk lines).
+- **Deck box.** Follows the EAST sidewalk polyline (pieces concatenated in
+  along-order, deduped joints): per segment a box of width `2·halfW`, top at
+  `deckY − 0.4` (the road/sidewalk ribbons render above it), depth 7.6 m,
+  spanning the full polyline extent (approach viaducts included).
+- **Towers** (2). Two legs per tower, 10 m across × 12 m along, centred at
+  `±(sep/2 + 1.4)` across from the axis at the tower's along-position; from
+  `heightAt(leg centre) − 2` (sea bed / shore) up to `topY = deckY(tower) +
+  towerTopAboveDeck`. **Portal arch:** between `deckY − 1` and `deckY + 7`
+  each leg is not a full box but two 2 m-thick posts at the leg's inner and
+  outer faces, leaving a 6 m × 8 m opening centred on the leg axis — the
+  sidewalk line (`sep/2` from the axis, 1.4 m inside the leg centre) passes
+  through the opening. Four **portal struts** span the two legs across the
+  deck at `deckY + 30 / 70 / 110 / 150`: full width between the legs' inner
+  faces, 8 m tall, 10 m along. Nothing on the bridge is registered for
+  collision (walkers stay on the sidewalk corridors; the posts never cross a
+  sidewalk line — unit test).
+- **Main cables** (2, at `±(sep/2 + 1.4)`): from `topY` at one tower to
+  `topY` at the other as the parabola `y(u) = topY − sag·(1 − (2u − 1)²)`,
+  `u ∈ [0,1]` along the span, `sag = towerTopAboveDeck − 3` (3 m clearance
+  over the deck at mid-span, like the real bridge). Side spans: a straight
+  line from `topY` down to `deckY + 1` at `sideSpan` metres outward from
+  each tower (the anchorage). Cable = chain of 1.2 × 1.2 m square-section
+  boxes oriented along each 16 m segment (write an oriented-beam helper:
+  four side quads + two caps from two endpoints and a lateral unit vector).
+- **Hangers.** Every 16 m along both cables (main and side spans): a
+  vertical 0.6 × 0.6 m beam from the cable centre-line down to `deckY −
+  0.4`; skip when shorter than 2 m.
+- **Anchorages** (2): a box 25 m along × `2·halfW + 6` across × 14 m tall,
+  top at `deckY + 2`, centred on the axis at `±sideSpan` beyond each tower.
+- **Tags:** `bridgeAnchors` returns two `TagAnchor`s at the tower centres,
+  `y = topY + 4`, names `'Golden Gate Bridge South Tower'` / `'… North
+  Tower'` (the tower nearer the first `towers` entry is South); `main.ts`
+  concatenates them after `landmarkAnchors(...)`.
+- Budget: < 25 k vertices; one draw call; no per-frame work.
+
+Unit fixtures (`tests/bridge.test.ts`, on the committed `sf.json` with
+`FLAT_HEIGHT` and with a synthetic deck `HeightFn`): projected tower centres
+lie within 2 m of the sidewalk mid-line; the cable's lowest point sits
+`deckY + 3 ± 0.5` at mid-span and `topY` at the towers; every portal post
+polygon is ≥ 1.5 m from the east-sidewalk line; hanger count ≈ span/16 ± 2
+per cable; no NaN in positions; London/Kyiv → empty `MeshData` and no
+anchors.
+
+### 4.17 Bay shipping (wave 9) — `src/world/ships.ts`
+
+SF has no river centre-lines, so ships follow PM-curated **lanes**: WGS84
+polylines in a code table, walked exactly like the Thames boats
+(`PathWalker` with `reverseAtEnds`, random start edge/offset per instance so
+a lane's ships spread out). Two classes, each ONE `InstancedMesh` built from
+a merged-box `MeshData` (`MeshBuilder` → `toGeometry`, `MeshLambertMaterial({
+vertexColors: true })`), plus ONE unlit **lights** `InstancedMesh` per class
+(`MeshBasicMaterial({ vertexColors: true })`, sharing the same instance
+matrices) that is `visible` only at night.
+
+```ts
+// src/world/ships.ts
+export interface ShipLane { name: string; kind: 'cargo' | 'sail'; pts: [number, number][] /* [lon, lat] */; count: number }
+export const SHIP_LANES: Readonly<Record<string, readonly ShipLane[]>>;   // sf only; others → inert fleet
+export class ShipFleet {
+  constructor(cityId: string, city: CityData, heightAt: HeightFn, seed = 23);
+  readonly object: THREE.Object3D;   // Group holding the four instanced meshes
+  readonly count: number;            // total ships (0 when the city has no lanes)
+  get lightsOn(): boolean;
+  setNight(on: boolean): void;       // toggles the two lights meshes' `visible`
+  update(dt: number): void;          // advance walkers, write matrices to hull AND lights meshes; no allocation
+}
+```
+
+SF lanes (all vertices must lie on water — unit test with the §4.6 parity
+rule over `sf.json`):
+- `'Shipping channel'` cargo, count 3, speed 6 m/s: `[-122.4865, 37.8215]
+  → [-122.4786, 37.8198]` (under the main span) `→ [-122.4600, 37.8235] →
+  [-122.4300, 37.8330]` (north of Alcatraz) `→ [-122.4050, 37.8280] →
+  [-122.3850, 37.8160]` (ends at the bbox edges, so reversals happen in fog).
+- `'Marina reach'` sail, count 6, speed 3 m/s: `[-122.4700, 37.8120] →
+  [-122.4550, 37.8205] → [-122.4450, 37.8130] → [-122.4330, 37.8185]`.
+- `'Alcatraz reach'` sail, count 6, speed 3 m/s: `[-122.4300, 37.8160] →
+  [-122.4180, 37.8225] → [-122.4100, 37.8150] → [-122.4120, 37.8125]`
+  (the last vertex is 420 m from `pier39`).
+
+Hull geometry (local frame: +z = bow, y up, water at y = 0; instance `y =
+heightAt(x, z) + 0`, `rotation.y = −heading` like `BoatFleet`):
+- **cargo**: hull box 280 long × 40 wide, from y −2 to +14, `0x7a2e2e`;
+  container stacks: 2 across × 4 along, each 30 wide × 50 long × 12 tall on
+  the deck (y 14…26), colours cycling `0x2e6f9e / 0x8a8a2e / 0x9e4a2e /
+  0x3d7a4a`; superstructure 30 wide × 25 long × 22 tall at the stern (z
+  −110), `0xe6e6e6`; funnel 8 × 8 × 10 on top, `0x333333`.
+  Lights: 12 warm-white `0xfff2c0` 1.5 m cubes along each hull side at y 14
+  (every 22 m); a 20 × 3 m yellow `0xffe9a0` slab on the superstructure's
+  bow face at y 30 (bridge windows); nav lights 2 m cubes: red `0xff2020`
+  port (−x) and green `0x20ff40` starboard (+x) at the bow, white masthead 2
+  m cube on the funnel top.
+- **sail**: hull 12 long × 4 wide, y −0.6…+1.4, `0xf0f0f0`; mast 0.4 × 0.4
+  from deck to y 17; mainsail = a triangle (both windings, so it is
+  two-sided) from the mast top (0, 17) down to the boom (0, 2)…(−5, 2) at
+  x 0 (sail in the x-z plane, boom pointing −z toward the stern), cream
+  `0xfaf3dc`. Lights: white 1 m cube at the masthead; red/green 0.6 m cubes
+  at the bow.
+- Night: `main.ts` calls `fleet.setNight(sunPosition(date, lat,
+  lon).altitudeDeg < -6)` (the stars' threshold, `src/world/sky.ts`) in the
+  same 10 s sky interval and once at boot; `?time=` therefore pins it.
+  `window.__asciicity.ships = { count, lightsOn }` is exposed for the e2e.
+- Budget: ≤ 20 instances, 4 draw calls, no per-frame allocation, 60 fps on
+  the GPU host.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
