@@ -73,6 +73,25 @@ interface CorridorSeg {
   maxZ: number;
 }
 
+/** A closed water ring with its bounding box for the parity test. */
+interface WaterRing {
+  poly: Vec2[];
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/** One water ring edge with its bbox for the shore-margin bucketing. */
+interface WaterEdge {
+  a: Vec2;
+  b: Vec2;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
 /**
  * Spatial hash bucketing building footprints for near-constant-time
  * `blocked`/`resolve` queries (docs/architecture.md §4.6).
@@ -81,9 +100,22 @@ export class CollisionGrid {
   private readonly cell: number;
   private readonly cells: Map<string, Footprint[]> = new Map();
   private readonly corridorCells: Map<string, CorridorSeg[]> = new Map();
+  private readonly waterRings: WaterRing[] = [];
+  private readonly waterEdgeCells: Map<string, WaterEdge[]> = new Map();
 
-  /** Bucket each footprint into every cell its (radius-expanded) AABB touches. */
-  constructor(buildings: Building[], cell = 25, corridors: Corridor[] = []) {
+  /**
+   * Bucket footprints, corridor segments, and water ring edges into the grid.
+   * Water rings are additionally kept whole (with their bbox) for the odd-parity
+   * point-in-polygon test used by `blocked` — a point is "on water" only when
+   * it lies inside an ODD number of rings (an island ring nested inside a Bay
+   * ring is walkable land). Mirrors data-format.md "Coastline water" rule 6.
+   */
+  constructor(
+    buildings: Building[],
+    cell = 25,
+    corridors: Corridor[] = [],
+    water: Vec2[][] = [],
+  ) {
     this.cell = cell;
     for (const b of buildings) {
       if (b.poly.length < 3) continue;
@@ -151,9 +183,65 @@ export class CollisionGrid {
         }
       }
     }
+    // Water rings: keep each ring whole with its bbox (odd-parity test) and
+    // bucket every ring edge into the cells its (radius-expanded) AABB touches
+    // (shore-margin test — both sides of every shore).
+    for (const ring of water) {
+      if (ring.length < 3) continue;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const v of ring) {
+        if (v[0] < minX) minX = v[0];
+        if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minZ) minZ = v[1];
+        if (v[1] > maxZ) maxZ = v[1];
+      }
+      this.waterRings.push({ poly: ring, minX, maxX, minZ, maxZ });
+      const n = ring.length;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const a = ring[j];
+        const b = ring[i];
+        const eMinX = Math.min(a[0], b[0]) - 1;
+        const eMaxX = Math.max(a[0], b[0]) + 1;
+        const eMinZ = Math.min(a[1], b[1]) - 1;
+        const eMaxZ = Math.max(a[1], b[1]) + 1;
+        const edge: WaterEdge = {
+          a,
+          b,
+          minX: eMinX,
+          maxX: eMaxX,
+          minZ: eMinZ,
+          maxZ: eMaxZ,
+        };
+        const cxMin = Math.floor(eMinX / cell);
+        const cxMax = Math.floor(eMaxX / cell);
+        const czMin = Math.floor(eMinZ / cell);
+        const czMax = Math.floor(eMaxZ / cell);
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+          for (let cz = czMin; cz <= czMax; cz++) {
+            const key = `${cx},${cz}`;
+            let bucket = this.waterEdgeCells.get(key);
+            if (!bucket) {
+              bucket = [];
+              this.waterEdgeCells.set(key, bucket);
+            }
+            bucket.push(edge);
+          }
+        }
+      }
+    }
   }
 
-  /** True when `p` is inside any nearby footprint or within `r` of one of its edges. */
+  /**
+   * True when `p` is blocked: inside any nearby footprint or within `r` of one
+   * of its edges; OR on water — `p` inside an ODD number of water rings
+   * (parity: an island ring inside a Bay ring is walkable land) or within `r`
+   * of any bucketed ring edge (shore margin, both sides of every shore).
+   * Corridors (bridge roads) override footprints and water alike, so they are
+   * checked first — a point on a corridor is never blocked.
+   */
   blocked(p: Vec2, r: number = 0.6): boolean {
     const cx = Math.floor(p[0] / this.cell);
     const cz = Math.floor(p[1] / this.cell);
@@ -201,6 +289,38 @@ export class CollisionGrid {
         }
       }
     }
+    // Water shore margin: within `r` of any nearby ring edge is blocked
+    // (covers both sides of every shore uniformly). Bucketed like footprints.
+    const seenEdge = new Set<WaterEdge>();
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const bucket = this.waterEdgeCells.get(`${cx + dx},${cz + dz}`);
+        if (!bucket) continue;
+        for (const edge of bucket) {
+          if (seenEdge.has(edge)) continue;
+          seenEdge.add(edge);
+          if (
+            p[0] < edge.minX - r ||
+            p[0] > edge.maxX + r ||
+            p[1] < edge.minZ - r ||
+            p[1] > edge.maxZ + r
+          ) {
+            continue;
+          }
+          if (distToSegment(p, edge.a, edge.b) < r) return true;
+        }
+      }
+    }
+    // Odd-parity water test: only rings whose bbox contains `p` need a raycast
+    // (44 bbox checks in SF, then ≤ 2 ray casts in practice). No allocation.
+    let inside = 0;
+    for (const ring of this.waterRings) {
+      if (p[0] < ring.minX || p[0] > ring.maxX || p[1] < ring.minZ || p[1] > ring.maxZ) {
+        continue;
+      }
+      if (pointInPolygon(p, ring.poly)) inside++;
+    }
+    if ((inside & 1) === 1) return true;
     return false;
   }
 

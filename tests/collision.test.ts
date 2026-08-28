@@ -2,8 +2,10 @@
  * Unit tests for src/world/collision.ts (T-0007). Every case listed in the
  * ticket's acceptance criteria is covered here by name.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Building, Vec2 } from '../src/data/types';
+import type { Building, CityData, Vec2 } from '../src/data/types';
 import {
   CollisionGrid,
   distToSegment,
@@ -262,6 +264,94 @@ describe('CollisionGrid corridors (T-0030)', () => {
     };
     const grid = new CollisionGrid([footprint], 25, [farCorridor]);
     expect(grid.blocked([5, 5], 0.6)).toBe(true); // centre of footprint, far from corridor
+  });
+});
+
+describe('CollisionGrid water rings (T-0078 parity)', () => {
+  // Outer square ring (Bay) covering [-50, 50] × [-50, 50].
+  const outer: Vec2[] = [
+    [-50, -50],
+    [50, -50],
+    [50, 50],
+    [-50, 50],
+  ];
+  // Nested inner ring (island) covering [-10, 10] × [-10, 10] — walkable land
+  // by the odd-parity rule (inside two rings ⇒ even ⇒ not water).
+  const inner: Vec2[] = [
+    [-10, -10],
+    [10, -10],
+    [10, 10],
+    [-10, 10],
+  ];
+
+  it('a point inside one water ring is blocked', () => {
+    const grid = new CollisionGrid([], 25, [], [outer]);
+    // Well inside the ring and far from any edge — the parity test alone must
+    // return blocked (odd number of enclosing rings = 1).
+    expect(grid.blocked([0, 0], 0.6)).toBe(true);
+    expect(grid.blocked([30, 30], 0.6)).toBe(true);
+    // Outside the ring is free.
+    expect(grid.blocked([100, 100], 0.6)).toBe(false);
+  });
+
+  it('a point inside an island ring nested in a water ring is walkable (odd parity)', () => {
+    const grid = new CollisionGrid([], 25, [], [outer, inner]);
+    // Origin sits inside both rings → count = 2 → even → land, walkable.
+    expect(grid.blocked([0, 0], 0.6)).toBe(false);
+    // A point in the ring but off the island is still water.
+    expect(grid.blocked([30, 30], 0.6)).toBe(true);
+    // Outside both rings is free (open land).
+    expect(grid.blocked([100, 100], 0.6)).toBe(false);
+  });
+
+  it('a point within r of an island shore is blocked from both sides', () => {
+    const grid = new CollisionGrid([], 25, [], [outer, inner]);
+    // Just outside the island edge (over water side, x = 10.4, |dx| = 0.4 < r).
+    expect(grid.blocked([10.4, 0], 0.6)).toBe(true);
+    // Just inside the island edge (over land side, x = 9.6, |dx| = 0.4 < r).
+    expect(grid.blocked([9.6, 0], 0.6)).toBe(true);
+    // A metre inside the island is walkable land again.
+    expect(grid.blocked([9, 0], 0.6)).toBe(false);
+    // A metre out into the Bay is clearly water.
+    expect(grid.blocked([11, 0], 0.6)).toBe(true);
+  });
+
+  it('a bridge corridor over water stays walkable with parity water', () => {
+    const bridge: Corridor = {
+      pts: [
+        [-60, 0],
+        [60, 0],
+      ],
+      halfWidth: 3,
+    };
+    const grid = new CollisionGrid([], 25, [bridge], [outer]);
+    // Dead centre of the ring (would be water) but on the corridor → free.
+    expect(grid.blocked([0, 0], 0.6)).toBe(false);
+    // Off the corridor but still inside the ring → blocked.
+    expect(grid.blocked([0, 20], 0.6)).toBe(true);
+  });
+
+  it('Alcatraz: the lighthouse centroid is land and a point 300 m south of it is water', () => {
+    const SF: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+    );
+    const lighthouse = SF.buildings.find((b) => b.name === 'Alcatraz Island Lighthouse');
+    expect(lighthouse).toBeDefined();
+    // Centroid of the lighthouse footprint.
+    let cx = 0;
+    let cz = 0;
+    for (const v of lighthouse!.poly) {
+      cx += v[0];
+      cz += v[1];
+    }
+    cx /= lighthouse!.poly.length;
+    cz /= lighthouse!.poly.length;
+    // Buildings excluded; just water rings + parity test — the ticket contract.
+    const grid = new CollisionGrid([], 25, [], SF.water ?? []);
+    // Inside the Bay ring AND the Alcatraz island ring (count = 2 = even) → land.
+    expect(grid.blocked([cx, cz], 0.6)).toBe(false);
+    // 300 m south (positive z per §3) sits in the Bay only → odd → water.
+    expect(grid.blocked([cx, cz + 300], 0.6)).toBe(true);
   });
 });
 
