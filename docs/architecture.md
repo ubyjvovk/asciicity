@@ -141,7 +141,9 @@ export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if prese
   Corners are not mitred (overlap is fine). Height (`ROAD_LIFT = 0.15`):
   - ordinary road: each of the quad's four corners gets its own
     `y = heightAt(corner.x, corner.z) + ROAD_LIFT`;
-  - `bridge: true` road: `ys = bridgeProfile(road.pts, heightAt)` (§4.9)
+  - `bridge: true` road: `ys = bridgeProfile(road.pts, heightAt)` (§4.9) — over
+    `chainBridgeRoads(roads)` (wave 9, T-0083): fragmented bridges are chained
+    exactly as `BridgeDecks` does, so the ribbon and the walkable deck agree
     gives one deck height per polyline vertex; a sub-segment corner at
     fraction `f` along segment `i` gets `y = lerp(ys[i], ys[i+1], f) + ROAD_LIFT`
     (both edges identical — the deck is flat across).
