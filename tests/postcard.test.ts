@@ -1,7 +1,8 @@
 /**
- * Unit tests for the pure helpers of the postcard PNG export (T-0072,
- * docs/architecture.md §4.15). The capture itself is browser-only and covered
- * by `e2e/postcard.spec.ts`; here we test the filename and caption layout.
+ * Unit tests for the pure helpers of the postcard PNG/GIF export (T-0072 /
+ * T-0073, docs/architecture.md §4.15). The capture itself is browser-only
+ * and covered by `e2e/postcard.spec.ts`; here we test the filename, caption
+ * layout, GIF sampling schedule, and scale rule.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -10,6 +11,8 @@ import {
   CAPTION_TEXT_Y,
   captionLayout,
   captionLeft,
+  gifScale,
+  gifSchedule,
   postcardFilename,
 } from '../src/export/postcard';
 
@@ -38,6 +41,31 @@ describe('postcardFilename', () => {
     expect(postcardFilename('sf', new Date(2026, 7, 28, 14, 22, 33))).toBe(
       'asciicity-sf-20260828-142233.png',
     );
+  });
+
+  it('gif filename', () => {
+    expect(postcardFilename('london', new Date(2026, 7, 28, 14, 22, 33), 'gif')).toBe(
+      'asciicity-london-20260828-142233.gif',
+    );
+  });
+});
+
+describe('gifSchedule', () => {
+  it('schedule (36 × 83.33 ms)', () => {
+    const times = gifSchedule();
+    expect(times).toHaveLength(36);
+    expect(times[0]).toBe(0);
+    for (let i = 1; i < times.length; i++) {
+      expect(times[i]! - times[i - 1]!).toBeCloseTo(1000 / 12);
+    }
+    expect(times[35]).toBeCloseTo(35 * (1000 / 12));
+  });
+});
+
+describe('gifScale', () => {
+  it('scale rule', () => {
+    expect(gifScale(1920)).toBe(0.5);
+    expect(gifScale(800)).toBe(1);
   });
 });
 

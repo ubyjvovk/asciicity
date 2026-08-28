@@ -81,8 +81,8 @@ declare global {
       /** Number of trees in the loaded city's TreeField (0 when absent, T-0066). */
       trees: number;
       /**
-       * Test hook (T-0072): capture the next rendered frame as a PNG without
-       * downloading. `'png'` resolves to a `Blob`; `'gif'` rejects (T-0073).
+       * Test hook (T-0072/T-0073): capture a PNG of the next frame or a 3 s
+       * GIF without downloading. `'png'` / `'gif'` each resolve to a `Blob`.
        */
       postcard(kind: string): Promise<Blob>;
     };
@@ -565,7 +565,11 @@ async function main(): Promise<void> {
     // Overridden below once `travel` is in scope.
     travel: (_key: string): boolean => false,
     postcard: (kind: string): Promise<Blob> =>
-      kind === 'png' ? postcard.snapPng(false) : Promise.reject(new Error('gif comes in T-0073')),
+      kind === 'png'
+        ? postcard.snapPng(false)
+        : kind === 'gif'
+          ? postcard.recordGif(false)
+          : Promise.reject(new Error(`unknown postcard kind: ${kind}`)),
   };
   window.__asciicity = api;
 
@@ -778,13 +782,20 @@ async function main(): Promise<void> {
       post.next(1);
       applyStyleChange();
     });
-    // `SAVE PNG` (T-0072) downloads a postcard PNG. Touch users have no `P`,
-    // so the pause menu carries the button; it dismisses the overlay the way
-    // CLICK TO RESUME does, lets two frames render un-obscured, then snaps.
+    // `SAVE PNG` / `RECORD GIF (3S)` (T-0072/T-0073). Touch users have no
+    // `P` / `Shift+P`, so the pause menu carries both; each dismisses the
+    // overlay the way CLICK TO RESUME does, lets two frames render
+    // un-obscured, then runs the same capture path as the keys.
     const savePngBtn = menuButton('SAVE PNG', () => {
       setOverlay(false, false);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => void postcard.snapPng(true)),
+      );
+    });
+    const saveGifBtn = menuButton('RECORD GIF (3S)', () => {
+      setOverlay(false, false);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => void postcard.recordGif(true)),
       );
     });
     flyBtn = menuButton(labelOnOff('FLY', state.fly), () => {
@@ -831,6 +842,7 @@ async function main(): Promise<void> {
       crtBtn,
       styleBtn,
       savePngBtn,
+      saveGifBtn,
       flyBtn,
       landmarksBtn,
       copyBtn,
@@ -901,9 +913,10 @@ async function main(): Promise<void> {
       applyStyleChange();
       return;
     }
-    // `P` downloads a postcard PNG; `Shift+P` is reserved for GIF (T-0073).
+    // `P` downloads a postcard PNG; `Shift+P` records a 3 s GIF.
     if (ev.code === 'KeyP') {
-      if (!ev.shiftKey) void postcard.snapPng(true);
+      if (ev.shiftKey) void postcard.recordGif(true);
+      else void postcard.snapPng(true);
       return;
     }
     if (pickerOpen) return;
