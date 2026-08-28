@@ -1,8 +1,8 @@
 /**
- * End-to-end tests for postcard PNG export (T-0072, docs/architecture.md
- * §4.15). Verifies the `__asciicity.postcard('png')` hook (real PNG bytes +
- * IHDR dimensions), the `P` key download, and the touch pause-menu SAVE PNG
- * button download.
+ * End-to-end tests for postcard PNG/GIF export (T-0072 / T-0073,
+ * docs/architecture.md §4.15). Verifies the `__asciicity.postcard` hook
+ * (PNG magic + IHDR; GIF89a + width ≤ 960), the `P` / `Shift+P` downloads,
+ * and the touch pause-menu SAVE PNG button download.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -95,6 +95,48 @@ test('postcard: P key fires a download with an asciicity-*.png filename', async 
     page.keyboard.press('KeyP'),
   ]);
   expect(download.suggestedFilename()).toMatch(/^asciicity-\w+-\d{8}-\d{6}\.png$/);
+});
+
+test('postcard: postcard("gif") resolves to GIF89a ≤ 960 px wide', async ({
+  page,
+}) => {
+  // SwiftShader + 36-frame encode is slow; the capture itself is 3 s of
+  // wall-clock plus quantize, so give the evaluate a long leash.
+  test.setTimeout(60_000);
+  await page.goto('/?synthetic=1&cell=3x6');
+  await waitReady(page);
+
+  const info = await page.evaluate(async () => {
+    const api = (
+      window as unknown as { __asciicity?: Partial<AsciiApi> }
+    ).__asciicity;
+    if (!api?.postcard) throw new Error('__asciicity.postcard missing');
+    const blob = await api.postcard('gif');
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    return {
+      header: String.fromCharCode(...buf.slice(0, 6)),
+      width: buf[6]! | (buf[7]! << 8),
+      size: buf.byteLength,
+    };
+  });
+
+  expect(info.header).toBe('GIF89a');
+  expect(info.width).toBeLessThanOrEqual(960);
+  expect(info.size).toBeLessThanOrEqual(15 * 1024 * 1024);
+});
+
+test('postcard: Shift+P fires a download with an asciicity-*.gif filename', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto('/?synthetic=1&cell=3x6');
+  await waitReady(page);
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 60_000 }),
+    page.keyboard.press('Shift+KeyP'),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^asciicity-\w+-\d{8}-\d{6}\.gif$/);
 });
 
 test.describe('postcard (touch 390×844)', () => {

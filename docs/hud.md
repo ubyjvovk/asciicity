@@ -205,18 +205,27 @@ the very bottom of the page** (T-0068): `#view` is `calc(100vh − 20px)`
 tall, `applySize()` passes `innerHeight − 20` to the canvas and camera
 aspect, and `#gear`/`#toast` sit at `bottom: calc(20px + 16px)` so nothing
 overlaps the bar.
-## Postcard export (T-0072)
+## Postcard export (T-0072 / T-0073)
 
 `P` (desktop, no modifier) downloads the current frame as a PNG via
 `src/export/postcard.ts` (architecture.md §4.15) — a 28-px caption bar is
 appended **below** the frame (never covering it). The bar reads
 `ASCIICITY · <CITY LABEL>` (the registry's upper-cased label, e.g.
 `SAN FRANCISCO`); the filename is `asciicity-<cityId>-<yyyymmdd-hhmmss>.png`
-(the compact id, e.g. `sf` — labels contain spaces). `Shift+P` is reserved
-for GIF recording (T-0073). Touch players have no `P`, so the pause/settings
-menu carries a `SAVE PNG` `menuButton` directly under the `STYLE:` row; it
-dismisses the overlay the way CLICK TO RESUME does, waits two
-`requestAnimationFrame`s, then runs the same capture path. `POSTCARD SAVED`
-is toasted only when a download was requested (the silent
-`window.__asciicity.postcard('png')` test hook does not toast). See
-`docs/integration.md` for the full menu rows, persistence, and keys.
+(the compact id, e.g. `sf` — labels contain spaces).
+
+`Shift+P` records a 3-second · 12 fps animated GIF (36 frames on an 83.3 ms
+wall-clock schedule, scaled to at most 960 px wide with
+`imageSmoothingEnabled = false`, same caption bar on every frame) and
+downloads it as `asciicity-<cityId>-<yyyymmdd-hhmmss>.gif`. Toasts: `REC ●`
+at the start of capture, `ENCODING…` when the 36 frames are in, and
+`POSTCARD SAVED` after the download. Re-entrant `Shift+P` / menu / hook
+calls while a recording is in flight share the same in-flight promise.
+
+Touch players have no `P` / `Shift+P`, so the pause/settings menu carries
+`SAVE PNG` and `RECORD GIF (3S)` `menuButton`s directly under the `STYLE:`
+row (GIF under PNG); each dismisses the overlay the way CLICK TO RESUME
+does, waits two `requestAnimationFrame`s, then runs the same capture path.
+`POSTCARD SAVED` is toasted only when a download was requested (the silent
+`window.__asciicity.postcard('png' | 'gif')` test hook does not toast it).
+See `docs/integration.md` for the full menu rows, persistence, and keys.
