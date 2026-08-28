@@ -58,6 +58,53 @@ test('sf: boots at Union Square, renders non-black, terrain present (ALT row)', 
   await expect(page.locator('#hud')).toContainText('ALT');
 });
 
+test('sf: alcatraz boots above sea level on the island and the player can walk', async ({
+  page,
+}) => {
+  await page.goto('/?city=sf&at=alcatraz');
+  await waitReady(page);
+
+  // The lighthouse stands ~40 m ASL; datum ~23.6 → y ≈ 15. A spawn fallen
+  // into the Bay gives y ≈ −25, so y > 5 separates the island from the water.
+  const out = await page.evaluate(() => {
+    const api = (
+      window as unknown as {
+        __asciicity?: { state?: { y: number; x: number; z: number }; city?: string };
+      }
+    ).__asciicity;
+    const s = api?.state;
+    return {
+      city: api?.city ?? '',
+      y: s?.y ?? NaN,
+      x: s?.x ?? NaN,
+      z: s?.z ?? NaN,
+    };
+  });
+  expect(out.city).toBe('sf');
+  expect(out.y).toBeGreaterThan(5);
+
+  // Enter the canvas, hold W ~1 s, and confirm the player moved ≥ 0.5 m
+  // (copy of the smoke.spec.ts movement pattern).
+  const canvas = page.locator('#view');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+
+  const readPos = () =>
+    page.evaluate(() => {
+      const s = (
+        window as unknown as { __asciicity?: { state?: { x: number; z: number } } }
+      ).__asciicity?.state;
+      return { x: s?.x ?? NaN, z: s?.z ?? NaN };
+    });
+  const start = await readPos();
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(1000);
+  await page.keyboard.up('KeyW');
+  const moved = await readPos();
+  expect(Math.hypot(moved.x - start.x, moved.z - start.z)).toBeGreaterThanOrEqual(0.5);
+});
+
 test('sf: boots at the Golden Gate Bridge deck well above the datum (y > 20)', async ({
   page,
 }) => {
