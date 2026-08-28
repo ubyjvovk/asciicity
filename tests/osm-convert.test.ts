@@ -134,6 +134,8 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
   const rows: Array<[string, string | null]> = [
     ['trunk', 'primary'],
     ['trunk_link', 'primary'],
+    ['motorway', 'primary'],
+    ['motorway_link', 'primary'],
     ['primary', 'primary'],
     ['primary_link', 'primary'],
     ['secondary', 'secondary'],
@@ -152,6 +154,45 @@ describe('osm-convert roadClassOf mapping table + steps', () => {
     for (const [highway, cls] of rows) {
       expect(roadClassOf(highway)).toBe(cls);
     }
+  });
+
+  it('maps motorway and motorway_link to primary (bridge flag kept)', () => {
+    expect(roadClassOf('motorway')).toBe('primary');
+    expect(roadClassOf('motorway_link')).toBe('primary');
+    const city = convertOverpass(
+      {
+        elements: [
+          {
+            type: 'way',
+            id: 70,
+            tags: { highway: 'motorway', bridge: 'yes', name: 'Golden Gate Freeway' },
+            geometry: [
+              { lon: -0.0887, lat: 51.5133 },
+              { lon: -0.0886, lat: 51.5134 },
+            ],
+          },
+          {
+            type: 'way',
+            id: 71,
+            tags: { highway: 'motorway_link', name: 'GGB onramp' },
+            geometry: [
+              { lon: -0.0887, lat: 51.5133 },
+              { lon: -0.0886, lat: 51.5134 },
+            ],
+          },
+        ],
+      },
+      { origin: ORIGIN },
+    );
+    const motorway = city.roads.find((r) => r.id === 70);
+    expect(motorway).toBeDefined();
+    expect(motorway?.cls).toBe('primary');
+    expect(motorway?.bridge).toBe(true);
+    expect(motorway?.name).toBe('Golden Gate Freeway');
+    const link = city.roads.find((r) => r.id === 71);
+    expect(link).toBeDefined();
+    expect(link?.cls).toBe('primary');
+    expect(link?.bridge).toBeUndefined();
   });
 
   it('steps → null (unmapped)', () => {
