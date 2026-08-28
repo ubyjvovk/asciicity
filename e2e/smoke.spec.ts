@@ -236,7 +236,7 @@ test('smoke: R cycles every render style and each paints', async ({ page }) => {
     ).__asciicity;
     return api?.styles ?? [];
   });
-  expect(styles.length).toBe(12);
+  expect(styles.length).toBe(13);
 
   mkdirSync('e2e/__shots__', { recursive: true });
 

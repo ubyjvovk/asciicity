@@ -116,6 +116,7 @@ export const STYLE_ORDER = [
   'ascii',
   'gloom',
   'solarized',
+  'amber',
   'braille',
   'blocks',
   'teletext',

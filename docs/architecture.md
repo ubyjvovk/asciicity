@@ -373,9 +373,9 @@ fragment shader turns it into the look. A **style** is that shader plus its
 cell/sample geometry and its own uniforms (`RenderStyle` in `style.ts` —
 read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
-ship: `ascii`, `gloom`, `solarized` (the former themes), `braille`,
-`blocks`, `teletext`, `dither`, `gameboy`, `pico8`, `edges`, `hatch`,
-`matrix`. Every style must keep ≥ 30 fps on an integrated GPU: the scene
+ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
+module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
+`edges`, `hatch`, `matrix`. Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
 
 ```ts
@@ -493,6 +493,36 @@ only the trails themselves show faintly; head → `(0.9, 1.0, 0.9)·mask·(0.6 +
 Pure: `hash3(a, b, c)`, `matrixGlyph(cellX, cellY, timeS, count, S = 0)`,
 `rainIntensity(colX, y01, timeS)` (returns `I`), `matrixBrightness(S, I, head): [r, g, b]`.
 (Revised 2026-08-27 after the first GPU review: rising rain, 35 % glyph floor in the sky.)
+
+
+`amber` (wave 8) — the ascii family's fourth theme (`ascii.ts`,
+`asciiStyle('amber', 'AMBER', 3)`, already stubbed): high-contrast warm
+phosphor on true black (reference: the user's screenshot `ascii-another-example.png`,
+untracked at the repo root — near-black frame, amber/gold glyphs with olive-green accents, hot
+lamps/windows blooming warm white). Same atlas and cell geometry as
+`ascii`; themes 0–2 must stay **pixel-identical** (their shader terms and
+`themeMix` are untouched). The fragment gains an amber density with a
+black-point cut and a steeper curve, and the glyph index uses the
+theme-selected density:
+
+    aV    = clamp((v − 0.06) / 0.94, 0, 1)      // haze under 6 % → true black
+    aDens = pow(aV, gamma · 1.5)                // steeper than shaped(v): crushed darks
+    idx   = floor((theme < 2.5 ? dens : aDens) · (glyphCount − 1) + 0.5)
+
+Colour, from the raw tint (`rawTint = c / max(v, 0.02)`, i.e. before the
+ascii luminance fold `· clamp(dens·0.7 + 0.4, 0, 1)`):
+
+    gr       = clamp((rawTint.g − 0.5·(rawTint.r + rawTint.b)) · 2, 0, 1)  // greenness of the source hue
+    chroma   = mix((1.00, 0.62, 0.18), (0.75, 0.85, 0.32), gr)             // amber ↔ olive
+    aHot     = smoothstep(0.82, 1.0, v)
+    glyphC   = mix(chroma · (0.18 + 0.82·aDens), (1.00, 0.88, 0.58), aHot) // hot cells bloom warm white
+    amberCol = glyphC · mask                                               // sky stays pure black
+
+Pure mirrors, unit-tested in node: `amberDensity(v, gamma): number` and
+`amberMix(rawTint, v, mask, gamma): [r, g, b]` — `themeMix` keeps its
+signature and its tests. The constants are a starting point: the ticket's
+mechanical criteria (dark floor, warm dominance) are the contract; tune
+within them and record final constants here.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
@@ -642,6 +672,77 @@ export class TreeField { constructor(trees, heightAt: HeightFn); readonly object
   two draw calls.
 - Minimap (§Colours in docs/minimap.md): `woods` rings filled `#0b2f18` in
   the layer **between water and buildings**.
+
+### 4.15 Postcard export & Open Graph (wave 8)
+
+**Capture module `src/export/postcard.ts`** (browser-only except pure
+helpers). The WebGL canvas is not preserved between frames
+(`preserveDrawingBuffer` stays false), so every capture copies the canvas
+with `ctx2d.drawImage(glCanvas, …)` **in the same task as the render**:
+`main.ts` calls `postcard.afterRender()` immediately after
+`post.render(scene, camera)` in the frame loop; the module does nothing
+unless a capture is pending.
+
+```ts
+// src/export/postcard.ts
+export interface PostcardMeta { cityLabel: string }   // e.g. 'LONDON', from the city registry
+export function createPostcard(
+  canvas: HTMLCanvasElement,
+  meta: () => PostcardMeta,
+  toast: (msg: string) => void,
+): Postcard
+export interface Postcard {
+  afterRender(): void                 // hook: called once per frame, after post.render
+  snapPng(download?: boolean): Promise<Blob>
+  recordGif(download?: boolean): Promise<Blob>   // 3 s · 12 fps · ≤ 960 px wide
+}
+```
+
+- **PNG**: canvas pixels at full size plus a 28-px caption bar appended
+  below — `#000` fill, 1-px `#333` top border, `14px "DejaVu Sans Mono",
+  monospace` text: left `ASCIICITY · <CITY>` in `#ffb000`, right
+  `ubyjvovk.github.io/asciicity` in `#7a7a7a`. Filename
+  `asciicity-<city>-<yyyymmdd-hhmmss>.png`.
+- **GIF** (`gifenc`, already a dependency): 36 frames at 12 fps over 3 s,
+  scale `min(1, 960 / canvas.width)` (`imageSmoothingEnabled = false`),
+  caption bar included, per-frame `quantize` + `applyPalette` (256
+  colours, `rgb565`), frame delay 83 ms, infinite loop. Toasts: `REC ●`
+  while capturing, `ENCODING…` before the encode, `POSTCARD SAVED` after.
+  A briefly blocked frame loop during encode is acceptable. ≤ 15 MB at
+  1080p.
+- Download = temporary `<a download>` + `URL.createObjectURL`, revoked
+  after the click.
+- **Keys** (same `keydown` listener as `R`/`H`/`M`, repeats ignored):
+  `P` → PNG, `Shift+P` → GIF. **Pause-menu buttons** `SAVE PNG` /
+  `RECORD GIF (3S)` directly under the `STYLE:` row — touch users have no
+  `P` — dismiss the overlay exactly the way CLICK TO RESUME does, wait
+  2 rAF, then run the same code paths.
+- Test hook: `window.__asciicity.postcard(kind: 'png' | 'gif'):
+  Promise<Blob>` — capture without download. e2e lives in a NEW file
+  `e2e/postcard.spec.ts` (never edit `smoke.spec.ts`): PNG magic + IHDR
+  dimensions (canvas px, height + 28), `GIF89a` header.
+- Pure + unit-tested (`tests/postcard.test.ts`): `postcardFilename(city,
+  date)`, caption layout, GIF frame-count/delay/scale math.
+
+**Open Graph / social meta** (`index.html`, `scripts/make-og.mjs`): the
+static social-preview image `public/og.png` (1200×630, committed) is
+captured by `scripts/make-og.mjs` — start vite on a strict port and drive
+playwright chromium exactly like `e2e/smoke.spec.ts` boots (wait for
+`__asciicity.ready`, hide `#overlay`), viewport 1200×630, London default
+spawn with `?time=22:30`, `page.screenshot` → `public/og.png`. `<head>`
+gains (URLs must be absolute — the site is served from GitHub Pages):
+
+    og:title "AsciiCity" · og:type "website"
+    og:url   https://ubyjvovk.github.io/asciicity/
+    og:image https://ubyjvovk.github.io/asciicity/og.png
+    og:image:width 1200 · og:image:height 630
+    og:description (and the existing name=description, updated to match):
+      "Walk London and Kyiv rendered as coloured ASCII — 13 render
+      styles, fly mode, postcards."
+    twitter:card "summary_large_image" · twitter:image (same image URL)
+
+A unit test (`tests/og.test.ts`) reads `index.html` and asserts every tag
+above with absolute `https://ubyjvovk.github.io/asciicity/…` URLs.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 

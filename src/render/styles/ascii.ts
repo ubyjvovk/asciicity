@@ -189,4 +189,5 @@ export const STYLES: readonly RenderStyle[] = [
   asciiStyle('ascii', 'ASCII', 0),
   asciiStyle('gloom', 'GLOOM', 1),
   asciiStyle('solarized', 'SOLARIZED', 2),
+  asciiStyle('amber', 'AMBER', 3),
 ];
