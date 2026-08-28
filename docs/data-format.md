@@ -44,6 +44,16 @@ for London. The registry the app uses is `src/data/cities.ts`
 - Command: `node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --out public/data/kyiv.json`
   (`npm run fetch-data:kyiv`).
 
+### San Francisco (`sf.json`, wave 8)
+
+`npm run fetch-data:sf` — bbox `-122.487,37.764,-122.383,37.835`
+(Golden Gate Bridge to the Embarcadero, Marina/Russian Hill/Nob Hill/
+downtown, Alamo Square, Alcatraz; Twin Peaks and the Bay Bridge east half
+are out), origin Union Square `-122.4075,37.788`, `--lang en --dem 1`
+(tile `N37W123`; Bay ≈ 0 m, Nob Hill ≈ 100 m). The Bay/Pacific come from
+the coastline rules above; Alcatraz is an island ring (visible, not
+walkable). Counts/size: recorded here by the PM at accept.
+
 ## The real dataset: City of London to Westminster
 
 - **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`
@@ -159,6 +169,55 @@ place is the OSM `name` tag. With `--lang <code>` the converter prefers
 `name:<code>` and falls back to `name` (both trimmed). London is fetched
 without `--lang`; Kyiv with `--lang en`.
 
+## Coastline water (`scripts/osm-convert.mjs`, wave 8 — San Francisco)
+
+Rivers and docks arrive as closed `natural=water` polygons, but seas and
+bays are mapped as `natural=coastline` WAYS with no polygon at all. OSM
+convention: walking a coastline way in its direction, LAND is on the LEFT,
+WATER on the RIGHT. The converter turns the coastline crossing the bbox
+into ordinary `water` rings so everything downstream (water mesh,
+collision, flattening, minimap) is unchanged:
+
+1. **Fetch**: the Overpass query gains a `way["natural"="coastline"]`
+   clause (same bbox, `out geom`).
+2. **Clip** each coastline way's polyline to the bbox segment-by-segment
+   (reuse the existing clipping helpers where possible); keep the pieces
+   in way order.
+3. **Stitch** pieces end-to-start on coinciding coordinates (the same
+   tolerance `assembleRings` uses). Results: open chains whose two
+   endpoints both lie on the bbox boundary, plus fully-closed rings.
+4. **Boundary closure**: treat lon as x (east+) and lat as y (north+).
+   From an open chain's END point, walk the bbox perimeter CLOCKWISE
+   (down the east edge, west along the south edge, up the west edge, east
+   along the north edge), inserting bbox corners as passed, until the
+   START point of an open chain is reached (the same chain or another —
+   several chains may close into one ring); follow that chain and repeat
+   until the walk returns to the first chain's start. Each closed walk is
+   one water ring; consume every open chain exactly once. This clockwise
+   closure is what keeps water (right of the way direction) inside the
+   ring. No coastline intersecting the bbox → nothing emitted (an all-sea
+   bbox is not supported).
+5. **Islands**: a fully-closed ring (step 3) encloses land — with land on
+   the left the traversal is counterclockwise; warn (do not fail) if the
+   signed area says otherwise. Emit island rings as `water` rings too:
+   consumers distinguish them by parity (next rule). Islands inside
+   islands are out of scope.
+6. **Flattening parity** (amends Terrain step 4): a grid node is flattened
+   only when it lies inside an ODD number of water rings; its level comes
+   from the last odd-making ring in array order. Existing datasets have no
+   nested rings, so London/Kyiv terrain output is byte-identical
+   (regression fixture required).
+7. **Runtime stays "inside any ring = water"** for collision: an island
+   (Alcatraz) renders with its terrain and buildings but is not walkable —
+   you cannot walk to an island anyway. Intentional; documented here.
+
+Unit fixtures (`tests/coastline.test.ts`) pin the geometry: a single
+west→east coast (water south) → one ring covering the southern band; a
+strait (west→east coast at the top, east→west at the bottom) → one middle
+band ring; a CCW closed square → island ring emitted, and a parity check
+shows a point inside it is NOT flattened while a point between island and
+outer ring is; a bbox with no coastline → no rings.
+
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 
 Overpass union gains `node["natural"="tree"]`, `way["natural"="tree_row"]`,
@@ -211,7 +270,9 @@ The converter (`--dem 1`, default off) builds `terrain` as follows:
    (rounded 0.1). Then every grid node whose `(x, z)` is inside ring `i`
    (ray-casting point-in-polygon) gets `heights = waterLevels[i]` — so the
    river bed is a flat plane the water mesh sits 0.3 m above and nothing
-   pokes through. Rings are processed in array order.
+   pokes through. Rings are processed in array order. Wave 8: a node is
+   flattened only when inside an ODD number of rings (island parity — see
+   "Coastline water" rule 6); with no nested rings this is the old rule.
 5. Tiles are cached under `.cache/dem/` (gitignored); the fetch fails
    loudly (non-zero exit) when a needed tile cannot be downloaded — never a
    partial file.
