@@ -54,6 +54,21 @@ streets sits top-left. Press `H` / `M` to hide the HUD / minimap; the ⚙
 button (bottom-right, including on phones) opens the settings menu
 (HUD / MINIMAP / CRT / STYLE / FLY toggles, copy-link, switch city).
 
+## Social preview
+
+`public/og.png` is the committed 1200×630 social-preview image that X, Reddit
+and Slack use when an AsciiCity link is shared (the Open Graph / Twitter meta
+in `index.html` points at it, served from `/asciicity/og.png` on GitHub
+Pages). Regenerate it with:
+
+```sh
+node scripts/make-og.mjs
+```
+
+This boots a throwaway Vite server, screenshots the London default spawn at
+night (`?time=22:30`), and rewrites `public/og.png` — commit the result with
+the change.
+
 ## Credits / rebranding
 
 The footer author and repo URL live in [`src/credits.ts`](src/credits.ts) —
