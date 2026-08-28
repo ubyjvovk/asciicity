@@ -16,6 +16,7 @@ import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
+import { SUSPENSION_BRIDGES, bridgeAnchors, makeBridgesObject } from './world/bridge';
 import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
@@ -414,6 +415,7 @@ async function main(): Promise<void> {
   const treeField = city.trees?.length ? new TreeField(city.trees, groundAt) : undefined;
   if (treeField) scene.add(treeField.object);
   scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
+  scene.add(makeBridgesObject(cityId ?? 'synthetic', city, groundAt));
   if (city.water?.length) {
     scene.add(makeWaterObject(city.water, city.waterLevels));
   }
@@ -486,7 +488,12 @@ async function main(): Promise<void> {
   // `applyLandmarks` so extras (id ≤ −1000) are already in `city.buildings`.
   let tags: Tags | undefined;
   const anchors = opts.tags
-    ? landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt)
+    ? [
+        ...landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt),
+        ...(SUSPENSION_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
+          bridgeAnchors(spec, city, groundAt),
+        ),
+      ]
     : [];
   if (opts.tags) {
     const tagsRoot = document.createElement('div');
