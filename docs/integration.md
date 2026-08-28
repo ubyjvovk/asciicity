@@ -291,11 +291,8 @@ is converted as a `primary` bridge road carrying the buses, in addition to the
 `Golden Gate Bridge East Sidewalk` / `West Sidewalk` pedestrian corridors, so
 `ggb` snaps
 the configured point onto the nearest point of any East Sidewalk piece (a
-point 30 m off the deck is open water and the spawn breaks); the bridge-tower
-extras (`Golden Gate Bridge South/North Tower`) snap onto the East Sidewalk
-line and are offset 12 m perpendicular toward the West Sidewalk so they rise
-beside the walkway instead of blocking it. Named-building fallbacks keep
-their coordinates when an OSM name changes upstream.
+point 30 m off the deck is open water and the spawn breaks). Named-building
+fallbacks keep their coordinates when an OSM name changes upstream.
 
 | Key            | Kind        | Description                                                                 |
 |----------------|-------------|-----------------------------------------------------------------------------|
@@ -308,6 +305,23 @@ their coordinates when an OSM name changes upstream.
 | `lombard`      | coordinate  | Top of the Lombard crooked block, looking down.                            |
 | `pier39`       | coordinate  | Pier 39, out toward Alcatraz.                                              |
 | `unionsquare`  | coordinate  | Union Square, facing downtown.                                             |
+
+### Golden Gate Bridge structure
+
+Towers, portal arches, main cables, hangers, the truss deck box and the
+anchorages are synthesised in `src/world/bridge.ts` from a per-city spec
+table (`SUSPENSION_BRIDGES`, architecture.md §4.16). OSM only supplies the
+sidewalk (and roadway) polylines; nothing vertical is in the dataset.
+`main.ts` adds `makeBridgesObject(cityId, city, groundAt)` immediately after
+the buildings mesh and concatenates `bridgeAnchors` (South / North Tower
+tags at `topY + 4`) onto the landmark tag list. The structure is visual-only
+— walkers stay on the sidewalk corridors; posts are kept off the east
+sidewalk line and nothing is registered for collision.
+
+To add a bridge for another city, append a `SuspensionBridgeSpec` under that
+city's id in `SUSPENSION_BRIDGES` (east/west sidewalk names, WGS84 tower
+centres, `towerTopAboveDeck`, `sideSpan`, international-orange `color`). No
+data-file edits.
 
 ## City picker & pause menu
 
