@@ -225,6 +225,102 @@ describe('dem buildTerrain', () => {
     }
   });
 
+  it('regression: two disjoint (non-nested) rings still flatten independently, matching the pre-parity rule', () => {
+    // Two square rings that do not overlap: no grid node is inside both, so
+    // odd-parity flattening must reproduce the old "inside any ring wins"
+    // behaviour byte-for-byte (data-format.md "Coastline water" rule 6:
+    // "existing datasets have no nested rings, so ... terrain output is
+    // byte-identical").
+    const ringA: [number, number][] = [
+      [-400, -400],
+      [-200, -400],
+      [-200, -200],
+      [-400, -200],
+    ];
+    const ringB: [number, number][] = [
+      [200, 200],
+      [400, 200],
+      [400, 400],
+      [200, 400],
+    ];
+    const { terrain, waterLevels } = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: stub,
+      waterRings: [ringA, ringB],
+    });
+    expect(waterLevels).toHaveLength(2);
+
+    const nodeAt = (x: number, z: number) => {
+      const c = Math.round((x - terrain.x0) / terrain.step);
+      const r = Math.round((z - terrain.z0) / terrain.step);
+      return { c, r, idx: r * terrain.cols + c };
+    };
+
+    // Node strictly inside ring A — flattened to waterLevels[0].
+    const inA = nodeAt(-300, -300);
+    expect(terrain.heights[inA.idx]).toBeCloseTo(waterLevels[0], 5);
+    // Node strictly inside ring B — flattened to waterLevels[1].
+    const inB = nodeAt(300, 300);
+    expect(terrain.heights[inB.idx]).toBeCloseTo(waterLevels[1], 5);
+    // Node between rings — un-flattened, keeps its computed height.
+    const between = nodeAt(0, 0);
+    const [lonBetween, latBetween] = unproject(0, 0, KYIV_ORIGIN);
+    const expected =
+      Math.round((stub.elevationAt(latBetween, lonBetween) - terrain.datum) * 10) /
+      10;
+    expect(terrain.heights[between.idx]).toBeCloseTo(expected, 5);
+  });
+
+  it('parity: bay node flattened, island node NOT flattened (nested rings)', () => {
+    // Outer bay ring — water — and a smaller island ring nested inside it.
+    // Rule 6: a node inside an ODD number of rings is flattened; inside both
+    // (parity 2 = even) it keeps its raw terrain height.
+    const bay: [number, number][] = [
+      [-400, -400],
+      [400, -400],
+      [400, 400],
+      [-400, 400],
+    ];
+    const island: [number, number][] = [
+      [-100, -100],
+      [100, -100],
+      [100, 100],
+      [-100, 100],
+    ];
+    const { terrain, waterLevels } = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: stub,
+      waterRings: [bay, island],
+    });
+    expect(waterLevels).toHaveLength(2);
+    // The two rings sit at genuinely different heights (stub varies with lat),
+    // so the "old rule = flatten to last ring" and "new parity rule = leave
+    // alone" answers are distinguishable numerically.
+    expect(waterLevels[0]).not.toBeCloseTo(waterLevels[1], 3);
+
+    const nodeAt = (x: number, z: number) => {
+      const c = Math.round((x - terrain.x0) / terrain.step);
+      const r = Math.round((z - terrain.z0) / terrain.step);
+      return r * terrain.cols + c;
+    };
+
+    // Node inside the bay only — parity 1, flattened to the bay level.
+    const bayIdx = nodeAt(200, 200);
+    expect(terrain.heights[bayIdx]).toBeCloseTo(waterLevels[0], 5);
+
+    // Node inside BOTH bay and island — parity 2 (even), NOT flattened.
+    const islandIdx = nodeAt(0, 0);
+    const [lon, lat] = unproject(0, 0, KYIV_ORIGIN);
+    const expected =
+      Math.round((stub.elevationAt(lat, lon) - terrain.datum) * 10) / 10;
+    expect(terrain.heights[islandIdx]).toBeCloseTo(expected, 5);
+    // Distinct from either water level (island level, old rule; bay level).
+    expect(terrain.heights[islandIdx]).not.toBeCloseTo(waterLevels[0], 3);
+    expect(terrain.heights[islandIdx]).not.toBeCloseTo(waterLevels[1], 3);
+  });
+
   it('keeps waterLevels length equal to the number of rings', () => {
     const squares: [number, number][][] = [
       [

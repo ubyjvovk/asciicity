@@ -293,12 +293,27 @@ export function buildTerrain({ bbox, origin, dem, step = 20, waterRings = [] }) 
     const n = raw.length;
     const level = n > 0 ? raw[Math.floor(0.1 * (n - 1))] : 0;
     waterLevels[i] = round1(level);
+  }
+  // Flatten by odd-parity (data-format.md "Coastline water" rule 6, which
+  // amends Terrain step 4): a node is flattened only when it lies inside an
+  // ODD number of water rings, and its level is taken from the last ring —
+  // in `waterRings` order — that flipped the parity to odd. Non-nested
+  // datasets (every existing city) hit at most one ring per node, so this
+  // matches the previous "inside any ring → last ring wins" behaviour.
+  if (waterRings.length > 0) {
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        if (pointInPolygon([x0 + c * step, z0 + r * step], ring)) {
-          heights[idx] = waterLevels[i];
+        const x = x0 + c * step;
+        const z = z0 + r * step;
+        let parity = 0;
+        let lastOddLevel = 0;
+        for (let i = 0; i < waterRings.length; i++) {
+          if (pointInPolygon([x, z], waterRings[i])) {
+            parity ^= 1;
+            if (parity === 1) lastOddLevel = waterLevels[i];
+          }
         }
+        if (parity === 1) heights[r * cols + c] = lastOddLevel;
       }
     }
   }
