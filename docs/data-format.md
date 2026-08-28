@@ -184,8 +184,15 @@ collision, flattening, minimap) is unchanged:
    (reuse the existing clipping helpers where possible); keep the pieces
    in way order.
 3. **Stitch** pieces end-to-start on coinciding coordinates (the same
-   tolerance `assembleRings` uses). Results: open chains whose two
-   endpoints both lie on the bbox boundary, plus fully-closed rings.
+   tolerance `assembleRings` uses), **independent of array order**: a
+   piece may attach AFTER a chain (chain end = piece start) or BEFORE it
+   (piece end = chain start); repeat until no two chains share an
+   endpoint. Never reverse a piece — way direction carries the land/water
+   side. (Wave-8 field bug: the SF Embarcadero and Marina ways meet at an
+   interior node; append-only stitching orphaned the upstream piece and
+   `closeCoastline` threw "not on the bbox perimeter".) Results: open
+   chains whose two endpoints both lie on the bbox boundary, plus
+   fully-closed rings.
 4. **Boundary closure**: treat lon as x (east+) and lat as y (north+).
    From an open chain's END point, walk the bbox perimeter CLOCKWISE
    (down the east edge, west along the south edge, up the west edge, east
