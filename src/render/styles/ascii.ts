@@ -1,8 +1,8 @@
 /**
- * ASCII / gloom / solarized render styles (docs/architecture.md §4.8, §4.11).
- * Pure helpers (`DEFAULT_RAMP`, `glyphIndex`, `buildGlyphAtlas`, `themeMix`)
- * are safe to import from node — no top-level side effects touch DOM or WebGL.
- * GPU work lives in `makeUniforms` / `dispose`.
+ * ASCII / gloom / solarized / amber render styles (docs/architecture.md §4.8, §4.11).
+ * Pure helpers (`DEFAULT_RAMP`, `glyphIndex`, `buildGlyphAtlas`, `themeMix`,
+ * `amberDensity`, `amberMix`) are safe to import from node — no top-level
+ * side effects touch DOM or WebGL. GPU work lives in `makeUniforms` / `dispose`.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -89,6 +89,46 @@ export function themeMix(
 }
 
 /**
+ * Amber-theme density: black-point cut then a steeper gamma curve.
+ * Mirrors the fragment shader: `pow(clamp((v − 0.06) / 0.94, 0, 1), gamma · 1.5)`.
+ */
+export function amberDensity(v: number, gamma: number): number {
+  const aV = Math.min(1, Math.max(0, (v - 0.06) / 0.94));
+  return Math.pow(aV, gamma * 1.5);
+}
+
+/**
+ * Amber colour mixer mirroring the fragment shader term-for-term.
+ * `rawTint` is the hue at full brightness (before the ascii luminance fold);
+ * `v` is the exposed max-channel brightness (for density and the hot bloom);
+ * `mask` is the glyph atlas coverage. Pure, for tests.
+ */
+export function amberMix(
+  rawTint: [number, number, number],
+  v: number,
+  mask: number,
+  gamma: number,
+): [number, number, number] {
+  const aDens = amberDensity(v, gamma);
+  const gr = Math.min(1, Math.max(0, (rawTint[1] - 0.5 * (rawTint[0] + rawTint[2])) * 2));
+  const chroma: [number, number, number] = [
+    1.0 + (0.75 - 1.0) * gr,
+    0.62 + (0.85 - 0.62) * gr,
+    0.18 + (0.32 - 0.18) * gr,
+  ];
+  // smoothstep(0.82, 1.0, v) — hot cells (lamps, windows, sun/moon) bloom warm white.
+  const t = Math.min(1, Math.max(0, (v - 0.82) / 0.18));
+  const aHot = t * t * (3 - 2 * t);
+  const scale = 0.18 + 0.82 * aDens;
+  const glyphC: [number, number, number] = [
+    chroma[0] * scale + (1.0 - chroma[0] * scale) * aHot,
+    chroma[1] * scale + (0.88 - chroma[1] * scale) * aHot,
+    chroma[2] * scale + (0.58 - chroma[2] * scale) * aHot,
+  ];
+  return [glyphC[0] * mask, glyphC[1] * mask, glyphC[2] * mask];
+}
+
+/**
  * Rasterise the glyph atlas: one row of `ramp.length` tiles, each `tileW×tileH`,
  * white glyph on black. The caller supplies the canvas so the routine is
  * testable in node with a fake canvas/context.
@@ -117,9 +157,10 @@ export function buildGlyphAtlas(
 }
 
 /**
- * §4.8 fragment body. Prelude already declares tScene/grid/exposure/gamma/vUv
+ * §4.8 / §4.11 fragment body. Prelude already declares tScene/grid/exposure/gamma/vUv
  * (and the helpers); only tAtlas/glyphCount/theme are extra. Local density is
- * `dens` so it does not clash with the prelude's `shaped()` helper.
+ * `dens` so it does not clash with the prelude's `shaped()` helper. Themes 0–2
+ * stay pixel-identical; theme ≥ 2.5 is amber (black-point density + warm chroma).
  */
 const ASCII_FRAGMENT = `
 uniform sampler2D tAtlas;
@@ -130,10 +171,13 @@ void main() {
   vec3 c = texture2D(tScene, (cell + 0.5) / grid).rgb * exposure;
   float v = max(max(c.r, c.g), c.b);                 // hue-independent brightness
   float dens = clamp(pow(clamp(v, 0.0, 1.0), gamma), 0.0, 1.0);
-  float idx = floor(dens * (glyphCount - 1.0) + 0.5);
+  float aV = clamp((v - 0.06) / 0.94, 0.0, 1.0);
+  float aDens = pow(aV, gamma * 1.5);
+  float idx = floor((theme < 2.5 ? dens : aDens) * (glyphCount - 1.0) + 0.5);
   vec2 inCell = fract(vUv * grid);
   float mask = texture2D(tAtlas, vec2((idx + inCell.x) / glyphCount, inCell.y)).r;
   vec3 tint = c / max(v, 0.02);                      // hue at full brightness…
+  vec3 rawTint = tint;
   tint = tint * clamp(dens * 0.7 + 0.4, 0.0, 1.0);   // …density carries most of the luminance
   vec3 normalCol = tint * mask;
   float lumT = dot(tint, vec3(0.299, 0.587, 0.114));
@@ -144,14 +188,20 @@ void main() {
   vec3 sInk = mix(vec3(0.396, 0.482, 0.514), tint, 0.5) * 0.75; // solarized base00 ink
   vec3 sGlyph = mix(sInk, vec3(0.71, 0.54, 0.0), hot);          // hot → solarized yellow
   vec3 solCol = mix(vec3(0.992, 0.965, 0.890), sGlyph, mask);   // base3 paper
+  float gr = clamp((rawTint.g - 0.5 * (rawTint.r + rawTint.b)) * 2.0, 0.0, 1.0);
+  vec3 chroma = mix(vec3(1.00, 0.62, 0.18), vec3(0.75, 0.85, 0.32), gr);
+  float aHot = smoothstep(0.82, 1.0, v);
+  vec3 glyphC = mix(chroma * (0.18 + 0.82 * aDens), vec3(1.00, 0.88, 0.58), aHot);
+  vec3 amberCol = glyphC * mask;
   vec3 outCol = theme < 0.5 ? normalCol : (theme < 1.5 ? gloomCol : solCol);
+  outCol = theme < 2.5 ? outCol : amberCol;
   gl_FragColor = vec4(outCol, 1.0);
 }
 `;
 
 /**
- * Build one ASCII-family style (`ascii` / `gloom` / `solarized`, or a stub
- * that copies the cyber look). Cell 6×12, sub 1×1, no depth texture.
+ * Build one ASCII-family style (`ascii` / `gloom` / `solarized` / `amber`).
+ * Cell 6×12, sub 1×1, no depth texture.
  */
 export function asciiStyle(id: string, label: string, theme: number): RenderStyle {
   return {
@@ -184,7 +234,7 @@ export function asciiStyle(id: string, label: string, theme: number): RenderStyl
   };
 }
 
-/** The three former themes, now first-class styles. */
+/** The four ASCII-family looks (`theme` 0–3). */
 export const STYLES: readonly RenderStyle[] = [
   asciiStyle('ascii', 'ASCII', 0),
   asciiStyle('gloom', 'GLOOM', 1),

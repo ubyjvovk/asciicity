@@ -282,7 +282,7 @@ test('smoke: ?render= aliases and R / Shift+R cycle', async ({ page }) => {
   await page.waitForFunction(
     () =>
       (window as unknown as { __asciicity?: { render?: string } }).__asciicity
-        ?.render === 'braille',
+        ?.render === 'amber',
   );
 
   await page.keyboard.press('Shift+KeyR');
