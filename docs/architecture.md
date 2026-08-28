@@ -336,6 +336,19 @@ export function makeGroundAt(terrain: Terrain | undefined, decks: BridgeDecks | 
   — the walkable height: the player, the buses and the sky ride on this;
   boats ride on `terrain.heightAt` alone (the river bed is flattened to the
   water level, so a boat's `y = level + 1` falls out for free).
+- **Bridge chaining (wave 9, T-0082).** OSM splits long bridges into several
+  ways (the Golden Gate Bridge East Sidewalk is three `bridge: true` pieces
+  whose joints sit over open water), and profiling each piece between its
+  OWN endpoints put two-thirds of that deck on the sea bed. `BridgeDecks`
+  therefore first chains bridge roads that share the same non-empty `name`
+  and have coincident endpoints (≤ 0.5 m; a piece may be appended or
+  prepended, and REVERSED to fit — road direction is meaningless here;
+  loop to fixpoint, independent of array order, same idea as the coastline
+  stitcher) into one polyline, and runs `bridgeProfile` over the chain, so
+  the lerp spans the chain's true abutments. Unnamed pieces and pieces with
+  different names are never chained. Single-piece bridges (every London and
+  Kyiv bridge) are byte-identical. Export `chainBridgeRoads(roads: Road[]):
+  Road[]` (pure, unit-tested) so the collision corridors can reuse it later.
 
 ### 4.10 Cities, spawn fallback, overlay menu (wave 5)
 
