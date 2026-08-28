@@ -55,7 +55,12 @@ the coastline rules above; Alcatraz is an island ring (visible, not
 walkable). **Size budget 15 MB** (raised from 12 at T-0076: the bbox is
 2.5–6× London/Kyiv by area and holds 44 k footprints; coordinates are
 already 0.1 m and footprints < 20 m² are 1 % of the file — the size is
-fidelity, not waste). Counts/size: recorded here by the PM at accept.
+fidelity, not waste). Counts/size (fetched 2026-08-28, T-0076): 44 181
+buildings / 10 935 roads / 92 places / 45 water rings (43 `natural=water`
+polygons + the Bay and the Pacific from the coastline closure, Alcatraz an
+island ring) / 1 river / 34 466 trees (28 582 filled), terrain 461×396 @
+20 m (0 voids, datum 23.6 m), 14 638 126 bytes (13.96 MB). Stitch summary
+on the real data: 46 pieces → 5 closed + 3 open chains → 2 water rings.
 
 ## The real dataset: City of London to Westminster
 
