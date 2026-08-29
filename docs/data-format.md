@@ -76,7 +76,12 @@ Overpass counts at boarding: 52 126 `building` ways (33 025 with `height`),
 15 494 `building:part` ways (the setback geometry of the towers — see
 "Building parts" below), 8 `natural=water` relations. **Size budget 22 MB**
 (it is the densest bbox so far; the loading indicator of §4.18 covers the
-download). Counts/size: recorded here by the PM at accept.
+download). Counts/size (fetched 2026-08-29, T-0087): 41 152 buildings
+(3 162 of them `building:part` entries with `minH`; 11 k outlines were
+replaced by their parts) / 10 482 roads (586 bridge roads) / 187 places /
+97 water rings / 2 rivers / 27 424 trees (8 961 filled), terrain 287×430 @
+20 m (0 voids, tiles N40W074 + N40W075), max h 541 (One WTC spire),
+10 107 567 bytes (9.64 MB).
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
