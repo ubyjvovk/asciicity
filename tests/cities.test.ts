@@ -4,7 +4,7 @@
  * committed `public/data/<file>.bbox` so a picker choice always lands
  * inside its own city.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CITIES, cityById } from '../src/data/cities';
@@ -94,6 +94,17 @@ describe("every CITIES entry's defaultSpawn is a fixed-coordinate preset inside 
       expect(fixed.lon).toBeLessThanOrEqual(bbox[2]);
       expect(fixed.lat).toBeGreaterThanOrEqual(bbox[1]);
       expect(fixed.lat).toBeLessThanOrEqual(bbox[3]);
+    });
+  }
+});
+
+describe('every city sizeBytes matches the committed file within 1 %', () => {
+  for (const city of CITIES) {
+    it(`${city.id}.sizeBytes (${city.sizeBytes}) is within 1 % of stat(public/${city.file})`, () => {
+      const actual = statSync(resolve(__dirname, '..', 'public', city.file)).size;
+      expect(actual).toBeGreaterThan(0);
+      const tolerance = actual * 0.01;
+      expect(Math.abs(city.sizeBytes - actual)).toBeLessThanOrEqual(tolerance);
     });
   }
 });

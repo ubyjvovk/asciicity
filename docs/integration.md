@@ -541,12 +541,53 @@ interface Window {
     rows: number;      // StyleRenderer.rows after the last resize / style change
     travel(key: string): boolean; // fast-travel to a preset (T-0061); false on unknown key
     ships: { count: number; lightsOn: boolean }; // Bay shipping (T-0081); lightsOn is live
+    loading: LoadProgress; // live boot progress (T-0085; download → parse → build → ready)
   };
 }
 ```
 
 The `state` reference is stable: fields are mutated in place, so a test
 holding on to it always sees the latest pose without re-reading the property.
+The same holds for `loading`: `main.ts` mutates the object in place through
+the download, parse and per-builder build ticks and finally flips
+`loading.phase` to `ready`; polling `__asciicity.loading.phase` observes each
+transition.
+
+## Loading indicator (T-0085)
+
+`src/ui/loading.ts` (architecture.md §4.18) turns the SF and Manhattan
+downloads into visible progress instead of a blank start overlay. The pure
+`formatLoading(label, p)` renders the overlay `<p>` for each phase:
+
+- `download` — `LOADING SAN FRANCISCO\n[########............] 41% · 6.0 / 14.7 MB`
+  (20-cell ASCII bar, MB with one decimal).
+- `parse` — `PARSING SAN FRANCISCO`.
+- `build` — `BUILDING SAN FRANCISCO · <STEP>`, where `<STEP>` is the builder
+  running next: `TERRAIN`, `BUILDINGS`, `ROADS`, `TREES`, `WATER`, `BRIDGES`,
+  `TRAFFIC`, `SHIPS`.
+- `ready` — empty string; the overlay's usual prompt (`CLICK TO ENTER`) takes
+  over on the next `setOverlay` call.
+
+`loadCityJson(url, sizeHint, onProgress)` fetches, `body.getReader()`s and
+accumulates the JSON, calling `onProgress` on every chunk. The denominator
+`total` is the response `Content-Length` when the response has no
+`content-encoding` (typical case); when the server gzips the payload the
+compressed Content-Length would show the wrong percentage, so `sizeHint`
+(the `CityInfo.sizeBytes` for that dataset) is used instead. `received` is
+always clamped to `total`. Errors follow the same `city data: HTTP <status>`
+shape as `loadCity`.
+
+`main.ts` drives the phases: routes the fetch through `loadCityJson`,
+writes `formatLoading(label, loading)` into `#overlay p` on every tick, and
+`await`s `nextFrame()` between the major synchronous builders so the browser
+paints the new `step` before the next builder blocks. `?synthetic=1` skips
+the download and starts at `build`.
+
+**Keep `CityInfo.sizeBytes` current.** It is the byte size of the committed
+`public/<file>` (see `src/data/cities.ts`); after refetching a dataset
+(`npm run fetch-data:*`) update `sizeBytes` from `stat -c %s
+public/data/<file>` and commit both together. `tests/cities.test.ts` fails
+the build if the number drifts by more than 1 %.
 
 ## Adding a new world layer
 
