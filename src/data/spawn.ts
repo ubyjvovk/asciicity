@@ -367,19 +367,23 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     city: 'nyc',
   },
   dumbo: {
-    lon: -73.9906,
-    lat: 40.703,
-    bearingDeg: 250,
+    // Washington Street at Water Street, DUMBO — north up Washington St
+    // so the Manhattan Bridge tower fills the frame (T-0090 re-aim).
+    lon: -73.9896,
+    lat: 40.7033,
+    bearingDeg: 350,
     label: 'DUMBO, Manhattan Bridge framing the skyline',
     city: 'nyc',
   },
   empirestate: {
-    building: 'Empire State Building',
+    // Re-aimed (T-0090) as a fixed coordinate in the middle of 5th Avenue
+    // at 38th Street — on the avenue centre-line, facing down it (bearing
+    // 200°) toward the tower at the end of the canyon.
+    lon: -73.98284,
+    lat: 40.7508,
+    bearingDeg: 200,
     label: 'Facing the Empire State Building',
     city: 'nyc',
-    lon: -73.9857,
-    lat: 40.7484,
-    bearingDeg: 270,
   },
   chrysler: {
     building: 'Chrysler Building',

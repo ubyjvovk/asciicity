@@ -1183,7 +1183,8 @@ describe('Manhattan presets (wave 10)', () => {
   });
 
   it('the NYC building presets carry their verbatim OSM names', () => {
-    expect(SPAWN_PRESETS.empirestate).toMatchObject({ building: 'Empire State Building' });
+    // `empirestate` was re-aimed as a fixed coordinate preset in T-0090, so
+    // it is no longer a building preset and is excluded here.
     expect(SPAWN_PRESETS.chrysler).toMatchObject({ building: 'Chrysler Building' });
     expect(SPAWN_PRESETS.onewtc).toMatchObject({ building: 'One World Trade Center' });
     expect(SPAWN_PRESETS.flatiron).toMatchObject({ building: 'Flatiron Building' });
@@ -1290,5 +1291,61 @@ describe('Manhattan presets (wave 10)', () => {
       }
     }
     expect(best).toBeLessThan(3);
+  });
+});
+
+// T-0090: `dumbo` and `empirestate` were re-aimed as fixed coordinate
+// presets. `dumbo` sits on Washington Street at Water Street, DUMBO facing
+// north up the street (Manhattan Bridge framing the skyline); `empirestate`
+// sits in the middle of 5th Avenue at 38th Street facing down the avenue
+// toward the tower. Against the same CollisionGrid main.ts builds (with
+// water rings as fake footprints and bridge corridors — integration.md §5)
+// each must resolve to an unblocked point whose nearest named road is the
+// expected street (T-0090).
+describe('Manhattan preset polish (T-0090)', () => {
+  const NYC: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+  );
+  // Build the same Terrain + CollisionGrid main.ts builds. `Terrain` is
+  // constructed for parity with the boot path (the spec asks for it); the
+  // collision grid drives the blocked() checks below.
+  const terrain = new Terrain(NYC.terrain!);
+  expect(terrain).toBeDefined();
+  const collision = new CollisionGrid(
+    NYC.water?.length
+      ? [...NYC.buildings, ...NYC.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
+      : NYC.buildings,
+    25,
+    NYC.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+  );
+  const blocked = (p: Vec2, r?: number): boolean => collision.blocked(p, r);
+
+  it('dumbo and empirestate resolve to unblocked street points with the expected nearest road', () => {
+    const cases: { key: string; road: string }[] = [
+      { key: 'dumbo', road: 'Washington Street' },
+      { key: 'empirestate', road: '5th Avenue' },
+    ];
+    for (const { key, road } of cases) {
+      const spawn = resolveSpawn(key, NYC.origin, blocked, NYC, 'brooklynbridge');
+      // 1. The resolved point is not blocked (not inside a building/water).
+      expect(collision.blocked([spawn.x, spawn.z]), `spawn ${key}`).toBe(false);
+      // 2. The nearest named road is the expected street.
+      let best = Infinity;
+      let bestName: string | undefined;
+      for (const r of NYC.roads) {
+        if (!r.name) continue;
+        for (let i = 0; i < r.pts.length - 1; i++) {
+          const d = distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]);
+          if (d < best) {
+            best = d;
+            bestName = r.name;
+          }
+        }
+      }
+      expect(best, `nearest road distance for ${key}`).toBeLessThan(15);
+      expect(bestName, `nearest road for ${key}`).toBe(road);
+    }
   });
 });
