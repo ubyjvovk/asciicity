@@ -167,12 +167,13 @@ export function axesFromHeld(
 }
 
 /**
- * Thin DOM wrapper that turns keyboard + pointer-lock mouse motion into an
- * `InputState`. Registered listeners are removed by `dispose()`. No top-level
- * side effects — safe to import in node.
+ * Thin DOM wrapper that turns keyboard + pointer-lock (or unlocked
+ * drag-to-look) mouse motion into an `InputState`. Registered listeners are
+ * removed by `dispose()`. No top-level side effects — safe to import in node.
  */
 export class Controls {
   private readonly target: HTMLElement;
+  private readonly onLockError?: (reason: string) => void;
   private readonly held = new Set<string>();
   private forward = 0;
   private strafe = 0;
@@ -184,19 +185,33 @@ export class Controls {
   private lookDy = 0;
   /** Drop the first `mousemove` after pointer lock is acquired. */
   private skipNextMove = false;
+  /** Unlocked drag-to-look is active between mousedown and mouseup/mouseleave. */
+  private dragging = false;
+  private lastClientX = 0;
+  private lastClientY = 0;
 
   /**
    * Construct a Controls from keys/mouse targeting `target`; `target` is also
-   * the element locked by clicks (`requestPointerLock`).
+   * the element locked by clicks (`requestPointerLock`). A rejected lock
+   * request and `pointerlockerror` both call `onLockError` (architecture.md
+   * §4.7 wave-10).
    */
-  constructor(target: HTMLElement) {
+  constructor(target: HTMLElement, onLockError?: (reason: string) => void) {
     this.target = target;
+    this.onLockError = onLockError;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
     target.addEventListener('click', this.onClick);
+    target.addEventListener('mousedown', this.onMouseDown);
+    target.addEventListener('mouseup', this.onMouseUp);
+    target.addEventListener('mouseleave', this.onMouseUp);
+    document.addEventListener('mousedown', this.onMouseDown);
+    document.addEventListener('mouseup', this.onMouseUp);
+    document.addEventListener('mouseleave', this.onMouseUp);
     document.addEventListener('mousemove', this.onMouseMove);
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    document.addEventListener('pointerlockerror', this.onPointerLockError);
   }
 
   /** Return the current input and zero the accumulated look deltas. */
@@ -223,8 +238,15 @@ export class Controls {
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
     this.target.removeEventListener('click', this.onClick);
+    this.target.removeEventListener('mousedown', this.onMouseDown);
+    this.target.removeEventListener('mouseup', this.onMouseUp);
+    this.target.removeEventListener('mouseleave', this.onMouseUp);
+    document.removeEventListener('mousedown', this.onMouseDown);
+    document.removeEventListener('mouseup', this.onMouseUp);
+    document.removeEventListener('mouseleave', this.onMouseUp);
     document.removeEventListener('mousemove', this.onMouseMove);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this.onPointerLockError);
   }
 
   private recompute(): void {
@@ -257,23 +279,78 @@ export class Controls {
   };
 
   private onClick = (): void => {
-    this.target.requestPointerLock();
+    try {
+      // `Promise.resolve` so a void `requestPointerLock()` still settles.
+      // Headless Chrome fulfills without locking and never fires
+      // `pointerlockerror` — treat that as a failure too.
+      void Promise.resolve(this.target.requestPointerLock()).then(
+        () => {
+          if (document.pointerLockElement !== this.target) {
+            this.reportLockError('pointer lock not acquired');
+          }
+        },
+        (err: unknown) => {
+          this.reportLockError(err);
+        },
+      );
+    } catch (err: unknown) {
+      this.reportLockError(err);
+    }
   };
 
   private onPointerLockChange = (): void => {
     if (document.pointerLockElement === this.target) {
       this.skipNextMove = true;
+      this.dragging = false;
     }
   };
 
+  private onPointerLockError = (): void => {
+    this.reportLockError('pointerlockerror');
+  };
+
+  private onMouseDown = (e: MouseEvent): void => {
+    if (document.pointerLockElement === this.target) return;
+    // Left button only; synthetic events may omit `button` (treat as 0).
+    if (e.button) return;
+    this.dragging = true;
+    this.lastClientX = e.clientX;
+    this.lastClientY = e.clientY;
+  };
+
+  private onMouseUp = (): void => {
+    this.dragging = false;
+  };
+
   private onMouseMove = (e: MouseEvent): void => {
-    if (document.pointerLockElement !== this.target) return;
-    if (this.skipNextMove) {
-      this.skipNextMove = false;
+    if (document.pointerLockElement === this.target) {
+      if (this.skipNextMove) {
+        this.skipNextMove = false;
+        return;
+      }
+      if (isMouseSpike(e.movementX, e.movementY)) return;
+      this.lookDx += e.movementX;
+      this.lookDy += e.movementY;
       return;
     }
-    if (isMouseSpike(e.movementX, e.movementY)) return;
-    this.lookDx += e.movementX;
-    this.lookDy += e.movementY;
+    if (!this.dragging) return;
+    const dx = e.clientX - this.lastClientX;
+    const dy = e.clientY - this.lastClientY;
+    this.lastClientX = e.clientX;
+    this.lastClientY = e.clientY;
+    if (isMouseSpike(dx, dy)) return;
+    this.lookDx += dx;
+    this.lookDy += dy;
   };
+
+  private reportLockError(err: unknown): void {
+    if (!this.onLockError) return;
+    const reason =
+      typeof err === 'string' && err.length > 0
+        ? err
+        : err instanceof Error && err.message
+          ? err.message
+          : 'pointerlockerror';
+    this.onLockError(reason);
+  }
 }

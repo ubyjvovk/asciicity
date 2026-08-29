@@ -1,13 +1,13 @@
 /**
- * Unit tests for `src/player/controls.ts` (T-0008, T-0013, T-0019, T-0048):
- * the pure
- * `stepPlayer` integration, `yawToBearingDeg`, `axesFromHeld`, and
- * `isMouseSpike`. The DOM `Controls` class is browser-only and covered by
- * the e2e smoke + PM review.
+ * Unit tests for `src/player/controls.ts` (T-0008, T-0013, T-0019, T-0048,
+ * T-0091): the pure `stepPlayer` integration, `yawToBearingDeg`,
+ * `axesFromHeld`, `isMouseSpike`, and the DOM `Controls` drag-to-look /
+ * lock-error path (stubbed `window`/`document` in node).
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { Vec2 } from '../src/data/types';
 import {
+  Controls,
   EYE_HEIGHT,
   FALL_SPEED,
   FLY_SPEED,
@@ -407,5 +407,141 @@ describe('isMouseSpike', () => {
     expect(isMouseSpike(50, 0, 40)).toBe(true);
     expect(isMouseSpike(40, 0, 40)).toBe(false);
     expect(isMouseSpike(0, -41, 40)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DOM `Controls` (T-0091) — stub window/document so the class can construct
+// in node. Listeners are stored and fired by name; nothing touches a real DOM.
+// ---------------------------------------------------------------------------
+
+type Handler = (ev: unknown) => void;
+
+function makeBus(): {
+  on: (type: string, fn: Handler) => void;
+  off: (type: string, fn: Handler) => void;
+  emit: (type: string, ev?: unknown) => void;
+} {
+  const map = new Map<string, Set<Handler>>();
+  return {
+    on(type, fn) {
+      let set = map.get(type);
+      if (!set) {
+        set = new Set();
+        map.set(type, set);
+      }
+      set.add(fn);
+    },
+    off(type, fn) {
+      map.get(type)?.delete(fn);
+    },
+    emit(type, ev) {
+      for (const fn of [...(map.get(type) ?? [])]) fn(ev);
+    },
+  };
+}
+
+interface FakeTarget {
+  addEventListener: (type: string, fn: Handler) => void;
+  removeEventListener: (type: string, fn: Handler) => void;
+  requestPointerLock: () => Promise<void> | undefined;
+  emit: (type: string, ev?: unknown) => void;
+}
+
+interface FakeDocument {
+  pointerLockElement: unknown;
+  addEventListener: (type: string, fn: Handler) => void;
+  removeEventListener: (type: string, fn: Handler) => void;
+  emit: (type: string, ev?: unknown) => void;
+}
+
+function installDom(): { target: FakeTarget; doc: FakeDocument; restore: () => void } {
+  const winBus = makeBus();
+  const docBus = makeBus();
+  const targetBus = makeBus();
+  const win = {
+    addEventListener: winBus.on,
+    removeEventListener: winBus.off,
+  };
+  const doc: FakeDocument = {
+    pointerLockElement: null,
+    addEventListener: docBus.on,
+    removeEventListener: docBus.off,
+    emit: docBus.emit,
+  };
+  const target: FakeTarget = {
+    addEventListener: targetBus.on,
+    removeEventListener: targetBus.off,
+    requestPointerLock: () => undefined,
+    emit: targetBus.emit,
+  };
+  const g = globalThis as unknown as { window: unknown; document: unknown };
+  const prevWindow = g.window;
+  const prevDocument = g.document;
+  g.window = win;
+  g.document = doc;
+  return {
+    target,
+    doc,
+    restore() {
+      g.window = prevWindow;
+      g.document = prevDocument;
+    },
+  };
+}
+
+describe('Controls drag-to-look (T-0091)', () => {
+  const stubs: { target: FakeTarget; doc: FakeDocument; restore: () => void }[] = [];
+  let live: Controls | undefined;
+
+  afterEach(() => {
+    live?.dispose();
+    live = undefined;
+    while (stubs.length > 0) stubs.pop()?.restore();
+  });
+
+  function setup(): { target: FakeTarget; doc: FakeDocument } {
+    const env = installDom();
+    stubs.push(env);
+    return env;
+  }
+
+  it('drag-to-look feeds lookDx/lookDy from clientX/Y deltas while unlocked', () => {
+    const { target, doc } = setup();
+    live = new Controls(target as unknown as HTMLElement);
+    target.emit('mousedown', { button: 0, clientX: 100, clientY: 40 });
+    doc.emit('mousemove', { clientX: 130, clientY: 55 });
+    const input = live.readInput();
+    expect(input.lookDx).toBe(30);
+    expect(input.lookDy).toBe(15);
+  });
+
+  it('drag-to-look ignores mousemove without a button down', () => {
+    const { target, doc } = setup();
+    live = new Controls(target as unknown as HTMLElement);
+    doc.emit('mousemove', { clientX: 400, clientY: 200 });
+    const input = live.readInput();
+    expect(input.lookDx).toBe(0);
+    expect(input.lookDy).toBe(0);
+    // And after a drag ends, further movement does not accumulate.
+    target.emit('mousedown', { button: 0, clientX: 10, clientY: 10 });
+    target.emit('mouseup', {});
+    doc.emit('mousemove', { clientX: 80, clientY: 80 });
+    const after = live.readInput();
+    expect(after.lookDx).toBe(0);
+    expect(after.lookDy).toBe(0);
+  });
+
+  it('a rejected requestPointerLock reports through onLockError', async () => {
+    const { target } = setup();
+    const reasons: string[] = [];
+    target.requestPointerLock = () => Promise.reject(new Error('denied'));
+    live = new Controls(target as unknown as HTMLElement, (reason) => {
+      reasons.push(reason);
+    });
+    target.emit('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(reasons).toEqual(['denied']);
   });
 });

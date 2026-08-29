@@ -99,6 +99,16 @@ declare global {
        * ending at `ready`.
        */
       loading: LoadProgress;
+      /**
+       * Pointer-lock status (T-0091). Same reference every frame — mutated in
+       * place so the e2e can poll `failures` / `dragLook` without re-reading.
+       */
+      pointer: {
+        locked: boolean;
+        dragLook: boolean;
+        failures: number;
+        lastError: string;
+      };
     };
   }
 }
@@ -555,7 +565,20 @@ async function main(): Promise<void> {
     city.water ?? [],
   );
   const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
-  const controls = new Controls(canvas);
+  // Live pointer-lock debug object (T-0091). `reportLockError` is a stub
+  // until the overlay helpers below reassign it to the full lock-failure
+  // state machine; canvas clicks before that are swallowed by `#overlay`.
+  const pointer = {
+    locked: false,
+    dragLook: false,
+    failures: 0,
+    lastError: '',
+  };
+  let reportLockError = (reason: string): void => {
+    pointer.lastError = reason;
+    pointer.failures += 1;
+  };
+  const controls = new Controls(canvas, (reason) => reportLockError(reason));
   const touch =
     'ontouchstart' in window || navigator.maxTouchPoints > 0
       ? new TouchControls(hit)
@@ -682,6 +705,7 @@ async function main(): Promise<void> {
           ? postcard.recordGif(false)
           : Promise.reject(new Error(`unknown postcard kind: ${kind}`)),
     loading,
+    pointer,
   };
   window.__asciicity = api;
   // Every builder ran successfully — flip the loading phase to `ready` so the
@@ -796,6 +820,31 @@ async function main(): Promise<void> {
   const isTouch = (): boolean =>
     'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
+  const lockCanvas: HTMLCanvasElement = canvas;
+  const requestCanvasLock = (): void => {
+    try {
+      // Headless Chromium often fulfills with `undefined` and never fires
+      // `pointerlockerror`; a settled promise that left the canvas unlocked
+      // is still a failure (T-0091).
+      void Promise.resolve(lockCanvas.requestPointerLock()).then(
+        () => {
+          if (document.pointerLockElement !== lockCanvas) {
+            reportLockError('pointer lock not acquired');
+          }
+        },
+        (err: unknown) => {
+          const reason =
+            err instanceof Error && err.message ? err.message : String(err);
+          reportLockError(reason);
+        },
+      );
+    } catch (err: unknown) {
+      const reason =
+        err instanceof Error && err.message ? err.message : String(err);
+      reportLockError(reason);
+    }
+  };
+
   /**
    * Teleport to a spawn preset (T-0061, architecture.md §4.13). Resolves the
    * key via `resolveSpawn` (same path as `?at=`), rewrites the pose in place,
@@ -841,13 +890,7 @@ async function main(): Promise<void> {
       // ignore replaceState failures
     }
     setOverlay(false, false);
-    if (!isTouch()) {
-      try {
-        void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
-      } catch {
-        // Pointer lock is unavailable.
-      }
-    }
+    if (!isTouch()) requestCanvasLock();
     relabelMenu();
     return true;
   };
@@ -969,19 +1012,64 @@ async function main(): Promise<void> {
   };
   api.travel = travel;
   setOverlay(false, true);
+
+  /** True after a successful lock so `pointerlockchange` only opens the pause menu on a real lock-loss. */
+  let hadPointerLock = false;
+  /** Coalesce `requestPointerLock` rejection + `pointerlockerror` from one attempt. */
+  let lockErrorBurst = false;
+
+  const enterDragLook = (): void => {
+    pointer.dragLook = true;
+    hud.setDragLook(true);
+    setOverlay(false, false);
+  };
+
+  reportLockError = (reason: string): void => {
+    pointer.lastError = reason;
+    if (lockErrorBurst) return;
+    lockErrorBurst = true;
+    window.setTimeout(() => {
+      lockErrorBurst = false;
+    }, 50);
+    pointer.failures += 1;
+    if (pointer.dragLook) {
+      setOverlay(false, false);
+      return;
+    }
+    if (pointer.failures === 1) {
+      // First failure: re-show the resume overlay with the drag-to-look prompt.
+      setOverlay(true, true);
+      if (overlayPrompt instanceof HTMLElement) {
+        overlayPrompt.textContent = 'POINTER LOCK UNAVAILABLE · DRAG TO LOOK';
+      }
+      return;
+    }
+    enterDragLook();
+  };
+
   overlayEl.addEventListener('click', () => {
     setOverlay(false, false);
     // Pointer lock is unavailable on touch and a rejected request can fire
     // `pointerlockchange` (which would re-show the overlay). Skip it.
     if ('ontouchstart' in window || navigator.maxTouchPoints > 0) return;
-    try {
-      void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
-    } catch {
-      // Pointer lock is unavailable.
-    }
+    requestCanvasLock();
   });
   document.addEventListener('pointerlockchange', () => {
-    if (document.pointerLockElement !== canvas) setOverlay(true, true);
+    const locked = document.pointerLockElement === canvas;
+    pointer.locked = locked;
+    if (locked) {
+      hadPointerLock = true;
+      pointer.dragLook = false;
+      pointer.failures = 0;
+      pointer.lastError = '';
+      hud.setDragLook(false);
+      return;
+    }
+    pointer.locked = false;
+    if (hadPointerLock) {
+      hadPointerLock = false;
+      setOverlay(true, true);
+    }
   });
 
   const openSettings = (): void => {
@@ -1022,6 +1110,21 @@ async function main(): Promise<void> {
       menuRoot.classList.contains('landmarks')
     ) {
       setMenu('pause');
+      ev.preventDefault();
+      return;
+    }
+    if (ev.code === 'Escape') {
+      // Under lock the browser exits the lock and `pointerlockchange` shows
+      // the menu. When unlocked, Escape itself toggles pause / resume.
+      if (document.pointerLockElement === canvas) return;
+      if (pickerOpen) return;
+      const visible = overlayEl.style.display !== 'none';
+      const isResume = overlayEl.classList.contains('resume');
+      if (visible && isResume) {
+        setOverlay(false, false);
+      } else if (!visible) {
+        openSettings();
+      }
       ev.preventDefault();
       return;
     }

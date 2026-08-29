@@ -21,6 +21,9 @@ export interface HudValues {
 /** Renders title, the dotted rows, and the help line. */
 export class Hud {
   private readonly rows: HTMLElement;
+  private readonly root: HTMLElement;
+  /** Original help line passed to the constructor (desktop or touch). */
+  private readonly help: string;
 
   constructor(root: HTMLElement, help = 'WASD MOVE · MOUSE LOOK · SHIFT RUN · F FLY · R STYLE · P POSTCARD · ESC MENU') {
     const doc = root.ownerDocument;
@@ -32,8 +35,26 @@ export class Hud {
     const rows = doc.createElement('pre');
     rows.className = 'hud-rows';
 
+    // Third argument is the bare help string so existing tests (and the
+    // compact-panel CSS that styles a following text node) keep working.
     root.append(title, rows, help);
     this.rows = rows;
+    this.root = root;
+    this.help = help;
+  }
+
+  /**
+   * Swap `MOUSE LOOK` for `DRAG LOOK` on the desktop help line while
+   * pointer-lock is unavailable (T-0091). The touch variant has neither
+   * phrase and is left unchanged.
+   */
+  setDragLook(on: boolean): void {
+    if (!this.help.includes('MOUSE LOOK')) return;
+    const text = on
+      ? this.help.replace('MOUSE LOOK', 'DRAG LOOK')
+      : this.help;
+    const node = this.root.childNodes[2];
+    if (node) node.textContent = text;
   }
 
   /** Rewrite the row lines from `v`. Touches only `textContent`. */
