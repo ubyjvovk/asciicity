@@ -340,6 +340,21 @@ export function makeGroundAt(terrain: Terrain | undefined, decks: BridgeDecks | 
   — the walkable height: the player, the buses and the sky ride on this;
   boats ride on `terrain.heightAt` alone (the river bed is flattened to the
   water level, so a boat's `y = level + 1` falls out for free).
+- **Deck humps (wave 10, T-0088).** Long bridges whose abutments sit at
+  street level (Brooklyn / Manhattan / Williamsburg) lerp to a deck a few
+  metres over the river; the real decks climb to ~41 m at mid-span. A
+  `DeckHump { names: string[]; apexY: number }` names the chained roads
+  (walkways + roadway) that share one hump; `bridgeProfile(pts, heightAt,
+  apexY?)` then uses the quadratic through `(0, ya)`, `(0.5, apexY)`,
+  `(1, yb)` (t = normalised arc length) instead of the straight lerp, still
+  floored by the terrain. `BridgeDecks(roads, heightAt, cell = 25, humps:
+  DeckHump[] = [])` and `buildRoadsMesh(roads, heightAt, humps = [])` apply
+  the same lookup after chaining (match on the chained road's `name`), so
+  the walkable deck, the ribbons and the §4.16 structure (which samples
+  `heightAt`) agree. Humps come from `deckHumps(cityId, city)` in
+  `bridge.ts` (§4.16): `apexY = spec.deckApexASL − city.terrain.datum`
+  (flat cities: `apexY = spec.deckApexASL`). Roads not named in any hump
+  keep the straight lerp — London / Kyiv byte-identical.
 - **Bridge chaining (wave 9, T-0082).** OSM splits long bridges into several
   ways (the Golden Gate Bridge East Sidewalk is three `bridge: true` pieces
   whose joints sit over open water), and profiling each piece between its
@@ -807,6 +822,8 @@ export interface SuspensionBridgeSpec {
   sidewalks: [string, string] | [string]; // exact road names of the deck-edge walkway polylines (bridge: true);
                                       // ONE name (wave 10: Brooklyn Bridge promenade) = the walkway is the deck axis
   deckWidth?: number;                 // required with one walkway: full deck width in metres (cables/legs at ±(deckWidth/2 + 1.4))
+  deckApexASL: number;                // deck height at mid-span, metres above sea level (GGB 67, Brooklyn 41, Manhattan 41, Williamsburg 41)
+  deckRoads: string[];                // exact names of the roadway/walkway roads that ride this deck (the sidewalks are implied)
   towers: [[number, number], [number, number]]; // WGS84 [lon, lat] tower centres (OSM pier centroids)
   towerTopAboveDeck: number;          // 160 (227 m above water − 67 m deck)
   sideSpan: number;                   // 343 — tower → anchorage along the axis
@@ -816,9 +833,14 @@ export const SUSPENSION_BRIDGES: Readonly<Record<string, readonly SuspensionBrid
 export function buildSuspensionBridge(spec, city: CityData, heightAt: HeightFn): MeshData; // pure (MeshBuilder), unit-testable
 export function bridgeAnchors(spec, city, heightAt): TagAnchor[];    // '<name> South Tower' / '<name> North Tower' at tower tops (+4 m)
 export function makeBridgesObject(cityId, city, heightAt): THREE.Object3D; // all specs for the city → one Mesh (toGeometry + MeshLambertMaterial vertexColors)
+export function deckHumps(cityId, city): DeckHump[];                         // §4.9 humps: one per spec, names = sidewalks ∪ deckRoads, apexY = deckApexASL − datum
 ```
 
+`main.ts` builds `BridgeDecks` and the road ribbons with `deckHumps(cityId,
+city)` (§4.9) BEFORE anything samples `groundAt`.
+
 SF spec: towers south `[-122.4779, 37.8140]`, north `[-122.47923, 37.8255]`
+(`deckApexASL` 67, `deckRoads: ['Golden Gate Bridge']`)
 (OSM ways 1329971884 / 1330832681, the pylon centroids; legs 27 m apart in
 OSM). Measured from `sf.json`: sidewalk separation median 24.8 m, the OSM
 tower centroids lie 12.4–12.6 m from the east sidewalk, i.e. ON the deck

@@ -92,9 +92,16 @@ Building is one flat 380 m slab. Rules:
    `min_height` else `building:min_level × 3.3` (absent → 0; `minH` is
    omitted when 0 and must satisfy `0 <= minH < h − 1`).
 3. **Outline replacement**: an outline that CONTAINS the centroid of at least
-   one part is dropped — the parts represent it. Its `name` (and only its
-   name) is transferred to the tallest of its parts so landmark fixes,
-   presets and floating tags keep resolving by OSM name. Outlines with no
+   one part is dropped — the parts represent it. A part BELONGS to the
+   SMALLEST (by area) outline containing its centroid (T-0089: a large
+   station/complex outline must not claim the parts of a tower that has its
+   own outline). An outline's `name` (and only its name) is transferred to
+   the tallest part that belongs to it and has no `name` of its own; an
+   outline whose parts all belong to smaller outlines is simply dropped (its
+   named building, if any, exists as a separate way). This keeps landmark
+   fixes, presets and floating tags resolving by OSM name without
+   mislabelling neighbours (Grand Central Terminal's name landed on One
+   Vanderbilt's 423 m part in the first Manhattan fetch). Outlines with no
    parts are unchanged. Parts whose centroid lies in no outline are kept as
    ordinary buildings.
 4. **Heights**: the clamp is now `[3, 600]` (converter and validator; One
