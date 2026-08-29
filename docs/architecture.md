@@ -369,6 +369,37 @@ export function makeGroundAt(terrain: Terrain | undefined, decks: BridgeDecks | 
   Kyiv bridge) are byte-identical. Export `chainBridgeRoads(roads: Road[]):
   Road[]` (pure, unit-tested) so the collision corridors can reuse it later.
 
+**Wave 10 amendment (T-0091) — pointer lock is a nicety, not a
+requirement.** Losing the lock in a way the page cannot regain (macOS
+screenshot shortcuts, some OS dialogs) must never strand the player:
+
+- `Controls` gains **drag-to-look**: whenever `document.pointerLockElement
+  !== target`, `mousedown` on the target starts a drag and `mousemove`
+  deltas (clientX/Y differences, same sensitivity as locked look, spike
+  filter applied) feed `lookDx/lookDy` until `mouseup`/`mouseleave`. Under
+  lock the existing `movementX/Y` path is unchanged. The canvas click still
+  requests the lock, but every `requestPointerLock()` call site (controls
+  and main.ts) awaits the returned promise and reports a rejection through
+  a single `onLockError(reason)` callback; a `pointerlockerror` event goes
+  the same way.
+- `main.ts` **lock-failure state**: `onLockError` re-shows the resume
+  overlay (`CLICK TO RESUME` heading line) with the prompt `POINTER LOCK
+  UNAVAILABLE · DRAG TO LOOK` and keeps the pause menu; the next overlay
+  click hides the overlay and retries the lock once; on a second failure
+  the overlay stays hidden and the game runs in drag-to-look (the HUD help
+  line reads `DRAG LOOK` instead of `MOUSE LOOK` while unlocked). A
+  successful `pointerlockchange` to the canvas clears the state.
+- **Escape always works**: when the canvas is not locked, `Escape` toggles
+  the pause overlay (`openSettings()` / resume) instead of relying on the
+  browser's own lock-exit event; under lock the browser exits the lock and
+  the existing `pointerlockchange` path shows the menu.
+- `window.__asciicity.pointer = { locked: boolean; dragLook: boolean;
+  failures: number; lastError: string }` (live) for the e2e, which runs
+  without pointer lock (headless): after the first overlay click the
+  overlay must come back with the DRAG TO LOOK prompt, a drag across the
+  canvas must change `state.yaw`, and `Escape` must show/hide the pause
+  menu.
+
 ### 4.10 Cities, spawn fallback, overlay menu (wave 5)
 
 ```ts
