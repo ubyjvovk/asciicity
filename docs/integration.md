@@ -118,7 +118,9 @@ The app runs a single asynchronous `main()` when the module executes.
 pinned `?time=` if present, else the real clock). A `setInterval` fires every
 **10 s** and calls `updateSky(sky, opts.time ?? new Date(), city.origin)` —
 advancing the sun/moon/stars with the real clock, or holding them fixed at the
-pinned instant when `?time=` is set. The sky group rides with the camera:
+pinned instant when `?time=` is set — plus `ships.setNight(sunPosition(date,
+lat, lon).altitudeDeg < -6)` (once at boot as well) so Bay running lights
+follow the same night threshold as the stars. The sky group rides with the camera:
 each frame, after the camera update, `sky.position.set(state.x, EYE_HEIGHT,
 state.z)` so the discs stay 1200 m from the player (children keep
 `dir·radius` relative to the group).
@@ -145,6 +147,7 @@ state.z)` so the discs stay 1200 m from the player (children keep
 - `fleet.update(dt)` — each frame, before the ASCII render, the bus
   ambience (`BusFleet`, docs/world.md §Traffic) advances every walker by
   `dt · 7` m and writes its instance matrices via a single reused dummy.
+  Then `boats?.update(dt)` and `ships.update(dt)` (Bay shipping, T-0081).
 - `post.render(scene, camera)` — the active render-style post-process.
 - Rolling FPS — accumulate frame count and elapsed seconds; when the window
   exceeds 1 s, publish `api.fps = frames / elapsed` and reset the window.
@@ -331,6 +334,40 @@ city's id in `SUSPENSION_BRIDGES` (east/west sidewalk names, WGS84 tower
 centres, `towerTopAboveDeck`, `sideSpan`, international-orange `color`). No
 data-file edits.
 
+### Bay shipping
+
+SF has no river centre-lines, so cargo ships and sailboats follow PM-curated
+lanes in `SHIP_LANES` (`src/world/ships.ts`, architecture.md §4.17) instead of
+`BoatFleet`. Three lanes, WGS84 `[lon, lat]` polylines walked with
+`PathWalker` (`reverseAtEnds = true`):
+
+| Lane               | Kind  | Count | Speed | Notes                                              |
+|--------------------|-------|------:|------:|----------------------------------------------------|
+| Shipping channel   | cargo |     3 | 6 m/s | Under the GGB main span, north of Alcatraz; ends at the bbox so reversals happen in fog. |
+| Marina reach       | sail  |     6 | 3 m/s | Between the Marina and Alcatraz.                   |
+| Alcatraz reach     | sail  |     6 | 3 m/s | Last vertex ~420 m from `pier39`.                  |
+
+`main.ts` constructs `new ShipFleet(cityId ?? 'synthetic', city, terrain ? terrain.heightAt : FLAT_HEIGHT)`
+next to the Thames boats, `scene.add(ships.object)`, and calls `ships.update(dt)`
+every frame. Hull geometry is authored with the waterline at local y = 0, so
+instance y is `heightAt(x, z)` (the flattened Bay, same sampler as `BoatFleet`).
+Cities without a `SHIP_LANES` entry (London, Kyiv, synthetic) get `count 0`,
+an empty Group, and a no-op `update`.
+
+To add a lane, append a `ShipLane` (`name`, `kind: 'cargo' | 'sail'`, WGS84
+`pts`, `count`) under that city's id in `SHIP_LANES`. Every vertex must lie on
+water (odd-parity over the city's water rings — the unit test uses
+`pointInPolygon`). No data-file edits. Budget is ≤ 20 instances, 4 draw calls.
+
+**Night.** Running lights are a second unlit `InstancedMesh` per class
+(`MeshBasicMaterial`, vertex colours) sharing the hulls' instance matrices.
+They are `visible` iff `sunPosition(date, lat, lon).altitudeDeg < -6` — the
+same threshold as the stars. `main.ts` calls `ships.setNight(...)` inside the
+existing 10 s sky interval and once at boot, so `?time=` pins the lights.
+`window.__asciicity.ships` exposes `{ count, lightsOn }` (getter; `lightsOn` is
+live). Probe from `?city=sf&at=pier39&time=22:30` (lit sailboats) or
+`?city=sf&at=ggb&time=22:30` (a container ship under the span).
+
 ## City picker & pause menu
 
 Both the start picker and the pause menu render into the `#menu` div in the
@@ -503,6 +540,7 @@ interface Window {
     cols: number;      // StyleRenderer.cols after the last resize / style change
     rows: number;      // StyleRenderer.rows after the last resize / style change
     travel(key: string): boolean; // fast-travel to a preset (T-0061); false on unknown key
+    ships: { count: number; lightsOn: boolean }; // Bay shipping (T-0081); lightsOn is live
   };
 }
 ```

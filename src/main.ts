@@ -22,7 +22,8 @@ import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
-import { makeSky, updateSky } from './world/sky';
+import { makeSky, updateSky, sunPosition } from './world/sky';
+import { ShipFleet } from './world/ships';
 import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/terrain';
 import { BoatFleet, BusFleet } from './world/traffic';
 import {
@@ -81,6 +82,11 @@ declare global {
       travel(key: string): boolean;
       /** Number of trees in the loaded city's TreeField (0 when absent, T-0066). */
       trees: number;
+      /**
+       * Bay shipping (T-0081): total ships and whether running lights are on.
+       * `lightsOn` is live (`setNight` from the sky interval).
+       */
+      ships: { count: number; lightsOn: boolean };
       /**
        * Test hook (T-0072/T-0073): capture a PNG of the next frame or a 3 s
        * GIF without downloading. `'png'` / `'gif'` each resolve to a `Blob`.
@@ -433,13 +439,30 @@ async function main(): Promise<void> {
     : undefined;
   if (boats) scene.add(boats.object);
 
+  // Bay shipping (architecture.md §4.17): cargo + sail on curated lanes.
+  // Cities without SHIP_LANES (London / Kyiv / synthetic) are inert.
+  const ships = new ShipFleet(
+    cityId ?? 'synthetic',
+    city,
+    terrain ? terrain.heightAt : FLAT_HEIGHT,
+  );
+  scene.add(ships.object);
+
   // Sky is the fixed time if `?time=` pins it, otherwise the real clock; the
-  // 10 s interval advances it (re-computing positions if unpinned).
+  // 10 s interval advances it (re-computing positions if unpinned). Night
+  // running lights use the same altitude threshold as the stars (−6°).
   const sky = makeSky(opts.time ?? new Date(), city.origin);
   scene.add(sky);
+  const applyShipNight = (): void => {
+    ships.setNight(
+      sunPosition(opts.time ?? new Date(), city.origin.lat, city.origin.lon).altitudeDeg < -6,
+    );
+  };
   setInterval(() => {
     updateSky(sky, opts.time ?? new Date(), city.origin);
+    applyShipNight();
   }, 10000);
+  applyShipNight();
 
   // Water rings are passed as their own arg so an island ring nested in a Bay
   // ring is walkable land (odd-parity test, architecture.md §4.6 wave-9);
@@ -567,6 +590,9 @@ async function main(): Promise<void> {
     styles: STYLES.map((s) => s.id),
     settings,
     trees: treeField?.count ?? 0,
+    get ships(): { count: number; lightsOn: boolean } {
+      return { count: ships.count, lightsOn: ships.lightsOn };
+    },
     cols: 0,
     rows: 0,
     // Overridden below once `travel` is in scope.
@@ -978,6 +1004,7 @@ async function main(): Promise<void> {
 
     fleet.update(dt);
     boats?.update(dt);
+    ships.update(dt);
 
     post.render(scene, camera);
     // Copy the freshly rendered frame out (T-0072) — the canvas is not
