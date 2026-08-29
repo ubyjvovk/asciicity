@@ -50,6 +50,14 @@ export const CITIES: readonly CityInfo[] = [
     blurb: 'Downtown to the Golden Gate · hills & bay',
     sizeBytes: 14691673,
   },
+  {
+    id: 'nyc',
+    label: 'MANHATTAN',
+    file: 'data/nyc.json',
+    defaultSpawn: 'brooklynbridge',
+    blurb: 'Battery to Central Park · skyscrapers & bridges',
+    sizeBytes: 10107567,
+  },
 ];
 
 /**

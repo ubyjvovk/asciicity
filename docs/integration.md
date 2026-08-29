@@ -175,7 +175,7 @@ per-frame allocations are made inside `main.ts`.
 
 | Name        | Example        | Effect                                                     |
 |-------------|----------------|------------------------------------------------------------|
-| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`, `sf`). Trimmed + case-insensitive. Absent or invalid (`no picker for ?synthetic=1`) → the city picker (T-0046); a valid id boots that city directly. Ignored when `?synthetic=1`. |
+| `city`      | `?city=kyiv`   | Load a specific dataset from the [CITIES](../src/data/cities.ts) registry (`london`, `kyiv`, `sf`, `nyc`). Trimmed + case-insensitive. Absent or invalid (`no picker for ?synthetic=1`) → the city picker (T-0046); a valid id boots that city directly. Ignored when `?synthetic=1`. |
 | `synthetic` | `?synthetic=1` | Skip the fetch and use `syntheticCity()` unconditionally.  |
 | `hills`     | `?hills=1`     | Only meaningful with `?synthetic=1`: switch the deterministic city to `syntheticCity(seed, 12, true)` so the heightfield code paths run without a real dataset. |
 | `seed`      | `?seed=42`     | Passed to `syntheticCity(seed)` — deterministic output.    |
@@ -316,6 +316,69 @@ the lighthouse instead (architecture.md §4.13 (a)).
 | `lombard`      | coordinate  | Top of the Lombard crooked block, looking down.                            |
 | `pier39`       | coordinate  | Pier 39, out toward Alcatraz.                                              |
 | `unionsquare`  | coordinate  | Union Square, facing downtown.                                             |
+
+### Manhattan presets
+
+Available with `?city=nyc&at=<name>`. Coordinate presets are fixed WGS84
+points; building presets resolve against `applyLandmarks(nyc.json)` via
+`landmarkSpawn` and keep their own fallback coordinate when a name goes
+missing upstream. The default spawn `brooklynbridge` is a snapped
+coordinate on the "Brooklyn Bridge Promenade" pedestrian walkway at
+mid-span, facing Manhattan (NW). Since the SF preset key `unionsquare` was
+already taken, the Manhattan version is `unionsquarenyc`. The named landmarks
+inherit their real setback massing from T-0086's `building:part` support (One
+WTC 541 m to the spire, Empire State 443 m, Central Park Tower 472 m, etc.);
+Woolworth (OSM 120 → 241 m) and Saint Patrick’s Cathedral (OSM 42 → 101 m)
+are the only heights the fix table rewrites, plus every landmark's
+spire/tower/dome cap and its stone/glass colour (`docs/architecture.md`
+§4.13 wave-10 table).
+
+| Key                | Kind        | Description                                                                 |
+|--------------------|-------------|-----------------------------------------------------------------------------|
+| `brooklynbridge`   | coordinate  | Brooklyn Bridge Promenade, facing Manhattan (default). Snapped to the Brooklyn-side approach ramp where terrain lifts the walker onto the deck — the arches are T-0088; without them `bridgeProfile` lerps mid-span down to the river bed. |
+| `manhattanbridge`  | coordinate  | Manhattan Bridge south walkway, facing Manhattan.                           |
+| `timessquare`      | coordinate  | Times Square, facing north up Broadway.                                     |
+| `unionsquarenyc`   | coordinate  | Union Square (nyc.json origin). SF's `unionsquare` still targets SF.        |
+| `batterypark`      | coordinate  | Battery Park, facing the Downtown skyline.                                  |
+| `dumbo`            | coordinate  | DUMBO, Manhattan Bridge framing the skyline (the postcard).                 |
+| `empirestate`      | building    | Facing the Empire State Building.                                           |
+| `chrysler`         | building    | Facing the Chrysler Building.                                               |
+| `onewtc`           | building    | Facing One World Trade Center.                                              |
+| `flatiron`         | building    | Facing the Flatiron Building.                                               |
+| `woolworth`        | building    | Facing the Woolworth Building.                                              |
+| `rockefeller`      | building    | Facing 30 Rockefeller Plaza.                                                |
+| `stpatricks`       | building    | Facing St. Patrick's Cathedral (verbatim OSM "Saint Patrick’s Cathedral"). |
+| `grandcentral`     | building    | Facing Grand Central Terminal.                                              |
+| `centralpark`      | coordinate  | Grand Army Plaza, facing Central Park Tower.                                |
+| `wallstreet`       | coordinate  | Wall Street, facing Trinity Church.                                         |
+| `washingtonsquare` | building    | Washington Square Park, facing the Arch (synthetic 8×8 m ivory extra).      |
+
+The wave-10 landmark table (`src/world/landmarks.ts` `LANDMARK_FIXES.nyc`)
+applied here — heights are fixed only where the OSM value is under 60 % of
+the real value; every other row is shape + colour only:
+
+| # | OSM name                              | OSM h | Fix                              |
+|---|---------------------------------------|-------|----------------------------------|
+| 1 | Empire State Building                 | 443.2 | shape spire, 0xd9cfbf            |
+| 2 | Chrysler Building                     | 282   | shape spire, 0xc9c9c9            |
+| 3 | One World Trade Center                | 541   | shape spire, 0xbfd6e6            |
+| 4 | Flatiron Building                     | 88    | 0xd9cfbf                         |
+| 5 | Woolworth Building                    | 120   | h 241 (stub), shape spire, 0xe8e0c8 |
+| 6 | 30 Rockefeller Plaza                  | 260   | 0xd9cfbf                         |
+| 7 | Saint Patrick’s Cathedral             | 42    | h 101 (stub), shape spire, 0xe8e0c8 |
+| 8 | Grand Central Terminal                | 45.8  | 0xd9cfbf                         |
+| 9 | Bank of America Tower                 | 366   | shape spire, 0xbfd6e6            |
+|10 | One Vanderbilt                        | 427   | shape tower, 0xbfd6e6            |
+|11 | 432 Park Avenue                       | 425.5 | shape tower, 0xe6e6e6            |
+|12 | Central Park Tower                    | 472   | shape tower, 0xbfd6e6            |
+|13 | Trinity Church                        | 55    | shape spire, 0xa89f91            |
+|14 | Federal Hall National Memorial        | 19.3  | 0xe8e0c8                         |
+|15 | New York Stock Exchange               | 104.8 | 0xe8e0c8                         |
+|16 | MetLife Building                      | 246   | 0xd9cfbf                         |
+|17 | Brooklyn Bridge                       | —     | (bridge structure — T-0088)      |
+|18 | Manhattan Bridge                      | —     | (bridge structure — T-0088)      |
+|19 | Washington Square Arch                | 20.5  | +extra 0xe8e0c8, 8×8 m at −73.99734, 40.73100 (h 23) |
+|20 | Madison Square Garden                 | 45    | shape dome, 0xd9cfbf             |
 
 ### Golden Gate Bridge structure
 

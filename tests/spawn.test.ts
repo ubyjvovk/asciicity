@@ -296,7 +296,8 @@ describe('resolveSpawn', () => {
   });
 
   it('exposes presets with lower-case keys and labels', () => {
-    // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8).
+    // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8)
+    // + Manhattan (wave 10, T-0087).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
       'alcatraz',
       'andriyivskyy',
@@ -304,16 +305,24 @@ describe('resolveSpawn', () => {
       'arsenalna',
       'bank',
       'barbican',
+      'batterypark',
       'bessarabka',
       'bigben',
+      'brooklynbridge',
+      'centralpark',
+      'chrysler',
       'coittower',
+      'dumbo',
       'embankment',
+      'empirestate',
       'ferrybuilding',
+      'flatiron',
       'funicular',
       'ggb',
       'gherkin',
       'glassbridge',
       'goldengate',
+      'grandcentral',
       'hydropark',
       'lavra',
       'leadenhall',
@@ -321,27 +330,36 @@ describe('resolveSpawn', () => {
       'lloyds',
       'lombard',
       'maidan',
+      'manhattanbridge',
       'metrobridge',
       'michael',
       'monument',
       'motherland',
       'nicholas',
       'olimpiyskiy',
+      'onewtc',
       'paintedladies',
       'parkbridge',
       'parliament',
       'pier39',
       'podil',
       'rada',
+      'rockefeller',
       'salesforce',
       'sophia',
+      'stpatricks',
       'stpauls',
+      'timessquare',
       'tower',
       'trafalgar',
       'transamerica',
       'unionsquare',
+      'unionsquarenyc',
       'volodymyr',
       'walkietalkie',
+      'wallstreet',
+      'washingtonsquare',
+      'woolworth',
     ]);
     expect(SPAWN_PRESETS.gherkin.label).toBe('Facing the Gherkin');
     expect(SPAWN_PRESETS.bigben.label).toBe(
@@ -374,9 +392,9 @@ describe('presetsFor', () => {
 
   it('every preset carries a city and every city id occurs in its presets', () => {
     for (const [, p] of Object.entries(SPAWN_PRESETS)) {
-      expect(['london', 'kyiv', 'sf']).toContain(p.city);
+      expect(['london', 'kyiv', 'sf', 'nyc']).toContain(p.city);
     }
-    for (const cityId of ['london', 'kyiv', 'sf']) {
+    for (const cityId of ['london', 'kyiv', 'sf', 'nyc']) {
       const all = new Set(presetsFor(cityId).map(([k]) => k));
       for (const [k, p] of Object.entries(SPAWN_PRESETS)) {
         if (p.city === cityId) expect(all.has(k)).toBe(true);
@@ -388,7 +406,7 @@ describe('presetsFor', () => {
     // The fast-travel submenu (architecture.md §4.13) shows one row per
     // preset labelled from `preset.label`; empty/duplicate labels would make
     // rows ambiguous. Same for London and San Francisco.
-    for (const cityId of ['kyiv', 'london', 'sf']) {
+    for (const cityId of ['kyiv', 'london', 'sf', 'nyc']) {
       const labels = presetsFor(cityId).map(([, p]) => p.label);
       expect(labels.length).toBeGreaterThan(0);
       for (const label of labels) {
@@ -1083,5 +1101,154 @@ describe('San Francisco wave-9 presets (T-0079)', () => {
 
     // Bearing 355° (normalized to −5° by the resolver).
     expect(spawn.yaw).toBeCloseTo(normalizeAngle((355 * Math.PI) / 180), 6);
+  });
+});
+
+// Wave 10 Manhattan presets (T-0087): every new preset key parses, all are
+// returned by `presetsFor('nyc')`, none collides with London/Kyiv/SF, and
+// the default `brooklynbridge` coordinate lands on the Brooklyn Bridge
+// Promenade pedestrian walkway line.
+describe('Manhattan presets (wave 10)', () => {
+  const NYC_KEYS = [
+    'brooklynbridge',
+    'manhattanbridge',
+    'timessquare',
+    'unionsquarenyc',
+    'batterypark',
+    'dumbo',
+    'empirestate',
+    'chrysler',
+    'onewtc',
+    'flatiron',
+    'woolworth',
+    'rockefeller',
+    'stpatricks',
+    'grandcentral',
+    'centralpark',
+    'wallstreet',
+    'washingtonsquare',
+  ];
+
+  it('every new NYC preset key parses to its preset', () => {
+    for (const key of NYC_KEYS) {
+      expect(parseAt(key), key).toEqual({ preset: key });
+      expect(parseAt(key.toUpperCase()), key).toEqual({ preset: key });
+      expect(SPAWN_PRESETS[key], key).toBeDefined();
+      expect(SPAWN_PRESETS[key].city, key).toBe('nyc');
+      expect(SPAWN_PRESETS[key].label.trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it("presetsFor('nyc') returns every NYC preset and no foreign keys", () => {
+    const keys = presetsFor('nyc').map(([k]) => k);
+    for (const key of NYC_KEYS) expect(keys).toContain(key);
+    expect(keys.length).toBe(NYC_KEYS.length);
+    expect(keys).not.toContain('bank');
+    expect(keys).not.toContain('maidan');
+    expect(keys).not.toContain('ggb');
+    expect(keys).not.toContain('unionsquare');
+  });
+
+  it('no NYC preset key collides with a London / Kyiv / SF preset key', () => {
+    const foreign = new Set([
+      ...presetsFor('london').map(([k]) => k),
+      ...presetsFor('kyiv').map(([k]) => k),
+      ...presetsFor('sf').map(([k]) => k),
+    ]);
+    for (const key of NYC_KEYS) {
+      expect(foreign.has(key), `${key} collides with london/kyiv/sf`).toBe(false);
+    }
+  });
+
+  it('brooklynbridge is the default spawn: coordinate preset facing Manhattan', () => {
+    expect('building' in SPAWN_PRESETS.brooklynbridge).toBe(false);
+    expect(SPAWN_PRESETS.brooklynbridge).toMatchObject({
+      city: 'nyc',
+      lon: -73.989857,
+      lat: 40.700537,
+      bearingDeg: 316,
+    });
+  });
+
+  it("timessquare is a coordinate preset (bearing 20° up Broadway)", () => {
+    expect('building' in SPAWN_PRESETS.timessquare).toBe(false);
+    expect(SPAWN_PRESETS.timessquare).toMatchObject({
+      city: 'nyc',
+      lon: -73.9855,
+      lat: 40.758,
+      bearingDeg: 20,
+    });
+  });
+
+  it('the NYC building presets carry their verbatim OSM names', () => {
+    expect(SPAWN_PRESETS.empirestate).toMatchObject({ building: 'Empire State Building' });
+    expect(SPAWN_PRESETS.chrysler).toMatchObject({ building: 'Chrysler Building' });
+    expect(SPAWN_PRESETS.onewtc).toMatchObject({ building: 'One World Trade Center' });
+    expect(SPAWN_PRESETS.flatiron).toMatchObject({ building: 'Flatiron Building' });
+    expect(SPAWN_PRESETS.woolworth).toMatchObject({ building: 'Woolworth Building' });
+    expect(SPAWN_PRESETS.rockefeller).toMatchObject({ building: '30 Rockefeller Plaza' });
+    expect(SPAWN_PRESETS.stpatricks).toMatchObject({ building: 'Saint Patrick’s Cathedral' });
+    expect(SPAWN_PRESETS.grandcentral).toMatchObject({ building: 'Grand Central Terminal' });
+    expect(SPAWN_PRESETS.washingtonsquare).toMatchObject({ building: 'Washington Square Arch' });
+  });
+
+  it('every NYC preset coordinate falls inside the nyc.json bbox', () => {
+    const NYC: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+    );
+    for (const [, preset] of presetsFor('nyc')) {
+      const p = preset as { lon?: number; lat?: number };
+      expect(p.lon).toBeDefined();
+      expect(p.lat).toBeDefined();
+      expect(p.lon!, preset.label).toBeGreaterThanOrEqual(NYC.bbox[0]);
+      expect(p.lon!, preset.label).toBeLessThanOrEqual(NYC.bbox[2]);
+      expect(p.lat!, preset.label).toBeGreaterThanOrEqual(NYC.bbox[1]);
+      expect(p.lat!, preset.label).toBeLessThanOrEqual(NYC.bbox[3]);
+    }
+  });
+
+  it('brooklynbridge sits on the "Brooklyn Bridge Promenade" walkway line (≤ 3 m)', () => {
+    const NYC: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+    );
+    const preset = SPAWN_PRESETS.brooklynbridge as { lon: number; lat: number };
+    const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
+    const walkway = NYC.roads.filter(
+      (r) =>
+        r.name === 'Brooklyn Bridge Promenade' &&
+        r.cls === 'pedestrian' &&
+        r.bridge === true,
+    );
+    expect(walkway.length).toBeGreaterThan(0);
+    let best = Infinity;
+    for (const r of walkway) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        best = Math.min(best, distToSegment([px, pz], r.pts[i], r.pts[i + 1]));
+      }
+      // Single-vertex piece protection (unlikely, but the walkway has ≥ 2
+      // vertices per piece so the segment loop above covers everything).
+    }
+    expect(best).toBeLessThan(3);
+  });
+
+  it('manhattanbridge sits on the "Manhattan Bridge Pedestrian Path" south walkway (≤ 3 m)', () => {
+    const NYC: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+    );
+    const preset = SPAWN_PRESETS.manhattanbridge as { lon: number; lat: number };
+    const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
+    const walkway = NYC.roads.filter(
+      (r) =>
+        r.name === 'Manhattan Bridge Pedestrian Path' &&
+        r.bridge === true,
+    );
+    expect(walkway.length).toBeGreaterThan(0);
+    let best = Infinity;
+    for (const r of walkway) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        best = Math.min(best, distToSegment([px, pz], r.pts[i], r.pts[i + 1]));
+      }
+    }
+    expect(best).toBeLessThan(3);
   });
 });
