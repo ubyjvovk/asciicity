@@ -16,6 +16,12 @@ export interface CityInfo {
   defaultSpawn: string;
   /** One-line description shown next to the label on the picker. */
   blurb: string;
+  /**
+   * Committed size of `public/<file>` in bytes — the fallback denominator for
+   * the loading bar when Content-Length is absent (gzip). Update after a
+   * re-fetch (`stat -c %s`).
+   */
+  sizeBytes: number;
 }
 
 /** Datasets shipped in `public/data/`. Order = picker order. */
@@ -26,6 +32,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/city.json',
     defaultSpawn: 'bigben',
     blurb: 'City of London & Westminster · flat',
+    sizeBytes: 3229747,
   },
   {
     id: 'kyiv',
@@ -33,6 +40,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/kyiv.json',
     defaultSpawn: 'maidan',
     blurb: 'Central Kyiv · Dnipro hills, 120 m of relief',
+    sizeBytes: 3449700,
   },
   {
     id: 'sf',
@@ -40,6 +48,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/sf.json',
     defaultSpawn: 'ggb',
     blurb: 'Downtown to the Golden Gate · hills & bay',
+    sizeBytes: 14691673,
   },
 ];
 

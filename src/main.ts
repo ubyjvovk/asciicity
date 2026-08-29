@@ -8,9 +8,10 @@
 import './style.css';
 import * as THREE from 'three';
 import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/types';
-import { loadCity } from './data/load';
+import { validateCity } from './data/validate';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
+import { formatLoading, loadCityJson, type LoadProgress } from './ui/loading';
 import { createPostcard } from './export/postcard';
 import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
@@ -92,6 +93,12 @@ declare global {
        * GIF without downloading. `'png'` / `'gif'` each resolve to a `Blob`.
        */
       postcard(kind: string): Promise<Blob>;
+      /**
+       * Live loading progress (T-0085, architecture.md §4.18). Same reference
+       * every frame — mutated in place through the download/parse/build phases,
+       * ending at `ready`.
+       */
+      loading: LoadProgress;
     };
   }
 }
@@ -214,26 +221,30 @@ function parseTimeParam(raw: string | null): Date | null {
 }
 
 /**
- * Return the resolved `CityData` plus the id string reported on
- * `window.__asciicity.city`. `?synthetic=1` → `syntheticCity(seed, 12, hills)`
- * with id `'synthetic'`; otherwise pick `cityById(opts.city) ?? CITIES[0]`
- * and `loadCity(BASE_URL + info.file)`, falling back to `syntheticCity(seed)`
- * on a fetch failure (log a console warning).
+ * `requestAnimationFrame` promise so the boot sequence can `await` a paint
+ * between the major builders (docs/architecture.md §4.18). Resolves on the
+ * next frame.
  */
-async function chooseCity(
-  opts: UrlOptions,
-): Promise<{ city: CityData; id: string; info?: CityInfo }> {
-  if (opts.synthetic) {
-    return { city: syntheticCity(opts.seed, 12, opts.hills), id: 'synthetic' };
-  }
-  const info = cityById(opts.city) ?? CITIES[0];
-  try {
-    const city = await loadCity(import.meta.env.BASE_URL + info.file);
-    return { city, id: info.id, info };
-  } catch (err) {
-    console.warn(`${info.file} load failed, using synthetic city:`, err);
-    return { city: syntheticCity(opts.seed), id: 'synthetic' };
-  }
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+/**
+ * Fetch, stream-report progress on, and validate the city JSON for `info` —
+ * the streaming path used by the loading indicator (T-0085, architecture.md
+ * §4.18). Calls `onProgress` on every download tick, then `parse`, then
+ * returns the validated `CityData`. On any failure the caller falls back to
+ * `syntheticCity(seed)` (same behaviour as the pre-T-0085 `chooseCity`).
+ */
+async function fetchCity(
+  info: CityInfo,
+  onProgress: (p: LoadProgress) => void,
+): Promise<CityData> {
+  const url = import.meta.env.BASE_URL + info.file;
+  const raw = await loadCityJson(url, info.sizeBytes, onProgress);
+  return validateCity(raw);
 }
 
 /**
@@ -382,11 +393,62 @@ async function main(): Promise<void> {
     persist();
   }
 
-  let { city, id: cityId, info: cityInfo } = await chooseCity(opts);
+  // Loading indicator (T-0085, architecture.md §4.18). `loading` is a live
+  // reference mutated through the download → parse → build → ready phases;
+  // window.__asciicity.loading exposes it so the e2e can poll the phase.
+  // `?synthetic=1` skips the download phase and starts at `build`.
+  const initialInfo = cityById(opts.city) ?? CITIES[0];
+  const loadingLabel = opts.synthetic ? 'SYNTHETIC' : initialInfo.label;
+  const loading: LoadProgress = opts.synthetic
+    ? { phase: 'build', received: 0, total: 0, step: 'TERRAIN' }
+    : { phase: 'download', received: 0, total: initialInfo.sizeBytes };
+  const overlayPromptEl = overlay.querySelector('p');
+  const paintLoading = (): void => {
+    if (!(overlayPromptEl instanceof HTMLElement)) return;
+    // `ready` restores the default prompt so the e2e assertion (`#overlay p`
+    // contains neither `LOADING` nor `BUILDING`) is guaranteed after the flip.
+    // `setOverlay` will later swap in `CLICK TO ENTER` / `CLICK TO RESUME`.
+    if (loading.phase === 'ready') {
+      overlayPromptEl.textContent = '';
+      return;
+    }
+    overlayPromptEl.textContent = formatLoading(loadingLabel, loading);
+  };
+  // Stub `window.__asciicity` early so the e2e can read `.loading.phase` from
+  // the very first tick; the full `api` object replaces it below, sharing the
+  // same `loading` reference so external polls stay live across the swap.
+  window.__asciicity = { ready: false, loading } as unknown as Window['__asciicity'];
+  paintLoading();
+
+  let city: CityData;
+  let cityId: string;
+  let cityInfo: CityInfo | undefined;
+  if (opts.synthetic) {
+    city = syntheticCity(opts.seed, 12, opts.hills);
+    cityId = 'synthetic';
+    cityInfo = undefined;
+  } else {
+    try {
+      city = await fetchCity(initialInfo, (p) => {
+        loading.phase = p.phase;
+        loading.received = p.received;
+        loading.total = p.total;
+        loading.step = undefined;
+        paintLoading();
+      });
+      cityId = initialInfo.id;
+      cityInfo = initialInfo;
+    } catch (err) {
+      console.warn(`${initialInfo.file} load failed, using synthetic city:`, err);
+      city = syntheticCity(opts.seed);
+      cityId = 'synthetic';
+      cityInfo = undefined;
+    }
+  }
 
   // Landmark fixes (architecture.md §4.13): apply the curated height/colour
   // table and any extra synthetic buildings. Synthetic/unknown ids are no-ops.
-  city = applyLandmarks(city, cityId ?? 'synthetic');
+  city = applyLandmarks(city, cityId);
   if (cityById(cityId)) {
     settings.city = cityId;
     persist();
@@ -399,9 +461,19 @@ async function main(): Promise<void> {
   );
   camera.rotation.order = 'YXZ';
 
-  // Terrain (wave 5): builders and fleets get a `groundAt` HeightFn that
-  // combines the heightfield with any bridge decks. Without terrain the
-  // sampler is `FLAT_HEIGHT` and every call site behaves as before.
+  // Yields between the major builders so the overlay repaints the current
+  // step (architecture.md §4.18). Each label is set BEFORE the corresponding
+  // scene.add, giving the browser a paint frame to update the `<p>`.
+  const buildStep = async (step: string): Promise<void> => {
+    loading.phase = 'build';
+    loading.step = step;
+    paintLoading();
+    await nextFrame();
+  };
+
+  // TERRAIN — heightfield + ground filler + terrain mesh. Without
+  // `city.terrain` the sampler stays `FLAT_HEIGHT` (London behaviour).
+  await buildStep('TERRAIN');
   let terrain: Terrain | undefined;
   let decks: BridgeDecks | undefined;
   let groundAt: HeightFn = FLAT_HEIGHT;
@@ -410,30 +482,34 @@ async function main(): Promise<void> {
     decks = new BridgeDecks(city.roads, terrain.heightAt);
     groundAt = makeGroundAt(terrain, decks);
   }
-
   const groundMesh = makeGround();
   if (terrain) groundMesh.position.y = terrain.min - 0.5;
   scene.add(groundMesh);
   if (terrain) scene.add(makeTerrainObject(terrain.data));
+
+  await buildStep('BUILDINGS');
+  scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
+
+  await buildStep('ROADS');
   scene.add(makeRoadsObject(city.roads, groundAt));
-  // Trees (architecture.md §4.14): two instanced meshes seated on the terrain,
-  // added before the buildings so canopies sit behind low structures. Static.
+
+  // Trees (architecture.md §4.14): two instanced meshes seated on the terrain.
+  await buildStep('TREES');
   const treeField = city.trees?.length ? new TreeField(city.trees, groundAt) : undefined;
   if (treeField) scene.add(treeField.object);
-  scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
-  scene.add(makeBridgesObject(cityId ?? 'synthetic', city, groundAt));
+
+  await buildStep('WATER');
   if (city.water?.length) {
     scene.add(makeWaterObject(city.water, city.waterLevels));
   }
 
-  // Red double-deckers cruising the primary/secondary roads — pure ambience
-  // (pass-through, no collision). Works on both the real and synthetic city.
+  await buildStep('BRIDGES');
+  scene.add(makeBridgesObject(cityId, city, groundAt));
+
+  // TRAFFIC — red buses on the primaries + grey Thames boats. Pure ambience.
+  await buildStep('TRAFFIC');
   const fleet = new BusFleet(city.roads, 12, 9, groundAt);
   scene.add(fleet.object);
-
-  // A few grey boats gliding along the river centre-lines (T-0036), when the
-  // dataset carries them — pure ambience, no collision. Boats ride on the
-  // terrain sampler (flattened river bed) so they float at water level.
   const boats = city.rivers?.length
     ? new BoatFleet(city.rivers, 4, 17, terrain ? terrain.heightAt : FLAT_HEIGHT)
     : undefined;
@@ -441,8 +517,9 @@ async function main(): Promise<void> {
 
   // Bay shipping (architecture.md §4.17): cargo + sail on curated lanes.
   // Cities without SHIP_LANES (London / Kyiv / synthetic) are inert.
+  await buildStep('SHIPS');
   const ships = new ShipFleet(
-    cityId ?? 'synthetic',
+    cityId,
     city,
     terrain ? terrain.heightAt : FLAT_HEIGHT,
   );
@@ -603,8 +680,14 @@ async function main(): Promise<void> {
         : kind === 'gif'
           ? postcard.recordGif(false)
           : Promise.reject(new Error(`unknown postcard kind: ${kind}`)),
+    loading,
   };
   window.__asciicity = api;
+  // Every builder ran successfully — flip the loading phase to `ready` so the
+  // overlay's usual prompt takes over on the very next paintLoading call.
+  loading.phase = 'ready';
+  loading.step = undefined;
+  paintLoading();
 
   let viewW = Math.max(1, window.innerWidth);
   let viewH = Math.max(1, window.innerHeight);
