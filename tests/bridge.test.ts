@@ -15,6 +15,7 @@ import {
   makeBridgesObject,
 } from '../src/world/bridge';
 import type { MeshData } from '../src/world/mesh';
+import { BridgeDecks, Terrain, chainBridgeRoads, makeGroundAt } from '../src/world/terrain';
 
 const SF: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
@@ -387,6 +388,148 @@ describe('src/world/bridge.ts', () => {
         bridgeAnchors(s, city, FLAT_HEIGHT),
       );
       expect(anchors).toHaveLength(0);
+    }
+  });
+
+  it('deck box top tracks the deck profile within 0.1 m every 25 m along the east sidewalk', () => {
+    // Wire up terrain + bridge decks + groundAt exactly as src/main.ts does
+    // so the ribbons see the same walking surface (chainBridgeRoads lives
+    // inside BridgeDecks; the East Sidewalk is a chained polyline).
+    if (!SF.terrain) throw new Error('sf.json has no terrain');
+    const terrain = new Terrain(SF.terrain);
+    const decks = new BridgeDecks(SF.roads, terrain.heightAt);
+    const groundAt = makeGroundAt(terrain, decks);
+    const mesh = buildSuspensionBridge(SPEC, SF, groundAt);
+    const frame = ggbFrame(SF);
+
+    // Chained east sidewalk polyline, joint-deduped just like BridgeDecks does;
+    // take the LONGEST chained road with that name.
+    const eastChains = chainBridgeRoads(SF.roads).filter(
+      (r) => r.name === SPEC.sidewalks[0] && r.bridge === true,
+    );
+    expect(eastChains.length, 'east sidewalk chain missing').toBeGreaterThan(0);
+    const polylineLength = (pts: Vec2[]): number => {
+      let sum = 0;
+      for (let i = 1; i < pts.length; i++)
+        sum += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+      return sum;
+    };
+    const poly = eastChains
+      .slice()
+      .sort((a, b) => polylineLength(b.pts) - polylineLength(a.pts))[0]!.pts;
+    expect(poly.length).toBeGreaterThan(1);
+
+    // Cumulative arc-length along the chain.
+    const cum: number[] = [0];
+    for (let i = 1; i < poly.length; i++) {
+      cum.push(
+        cum[i - 1]! + Math.hypot(poly[i]![0] - poly[i - 1]![0], poly[i]![1] - poly[i - 1]![1]),
+      );
+    }
+    const total = cum[cum.length - 1]!;
+    expect(total, 'east sidewalk chain shorter than main span').toBeGreaterThan(500);
+
+    // Extract deck-box prisms (the WIDE boxes = 2·halfW across, ~7.6 m deep).
+    // Each prism carries y at minS and y at maxS separately because the top
+    // is sloped. Rebuild those per-end tops from the raw vertices.
+    const targetAcross = 2 * (frame.sep / 2 + 2);
+    interface Prism {
+      minS: number;
+      maxS: number;
+      minA: number;
+      maxA: number;
+      yAtMinS: number;
+      yAtMaxS: number;
+    }
+    const prisms: Prism[] = [];
+    const p3d = mesh.positions;
+    const BOX = 36;
+    for (let i = 0; i + BOX <= p3d.length / 3; i += BOX) {
+      const svals: number[] = [];
+      const avals: number[] = [];
+      const yvals: number[] = [];
+      for (let j = 0; j < BOX; j++) {
+        const x = p3d[(i + j) * 3]!;
+        const y = p3d[(i + j) * 3 + 1]!;
+        const z = p3d[(i + j) * 3 + 2]!;
+        svals.push(
+          (x - frame.origin[0]) * frame.along[0] + (z - frame.origin[1]) * frame.along[1],
+        );
+        avals.push(
+          (x - frame.origin[0]) * frame.across[0] + (z - frame.origin[1]) * frame.across[1],
+        );
+        yvals.push(y);
+      }
+      const minS = Math.min(...svals);
+      const maxS = Math.max(...svals);
+      const minA = Math.min(...avals);
+      const maxA = Math.max(...avals);
+      const dy = Math.max(...yvals) - Math.min(...yvals);
+      if (Math.abs(maxA - minA - targetAcross) > 0.5 || Math.abs(dy - 7.6) > 0.6) continue;
+      // Top vertices are the highest y at each S end.
+      let yAtMinS = -Infinity;
+      let yAtMaxS = -Infinity;
+      for (let j = 0; j < BOX; j++) {
+        if (Math.abs(svals[j]! - minS) < 1e-3 && yvals[j]! > yAtMinS) yAtMinS = yvals[j]!;
+        if (Math.abs(svals[j]! - maxS) < 1e-3 && yvals[j]! > yAtMaxS) yAtMaxS = yvals[j]!;
+      }
+      prisms.push({ minS, maxS, minA, maxA, yAtMinS, yAtMaxS });
+    }
+    expect(prisms.length, 'expected many deck-box prisms').toBeGreaterThan(20);
+
+    // Walk the chained sidewalk every 25 m. At each sample, find the deck-box
+    // prism whose deck-frame footprint contains the sample point (in axis
+    // frame) and interpolate the top y at that s. Skip samples where no
+    // prism covers them (approach ramps whose sidewalks curve away from the
+    // straight deck axis) — those are outside the box's footprint by design.
+    let checked = 0;
+    for (let s = 25; s < total - 25; s += 25) {
+      let seg = 0;
+      while (seg < poly.length - 2 && cum[seg + 1]! < s) seg++;
+      const t = (s - cum[seg]!) / (cum[seg + 1]! - cum[seg]!);
+      const px = poly[seg]![0] + t * (poly[seg + 1]![0] - poly[seg]![0]);
+      const pz = poly[seg]![1] + t * (poly[seg + 1]![1] - poly[seg]![1]);
+      const sAxis =
+        (px - frame.origin[0]) * frame.along[0] + (pz - frame.origin[1]) * frame.along[1];
+      const aAxis =
+        (px - frame.origin[0]) * frame.across[0] + (pz - frame.origin[1]) * frame.across[1];
+      const prism = prisms.find(
+        (b) =>
+          sAxis >= b.minS - 1e-3 &&
+          sAxis <= b.maxS + 1e-3 &&
+          aAxis >= b.minA - 0.5 &&
+          aAxis <= b.maxA + 0.5,
+      );
+      if (!prism) continue;
+      const walking = groundAt(px, pz);
+      const alpha =
+        prism.maxS > prism.minS ? (sAxis - prism.minS) / (prism.maxS - prism.minS) : 0;
+      const topY = prism.yAtMinS + alpha * (prism.yAtMaxS - prism.yAtMinS);
+      expect(
+        Math.abs(topY - (walking - 0.4)),
+        `s=${s.toFixed(1)}: top=${topY.toFixed(3)} walking=${walking.toFixed(3)}`,
+      ).toBeLessThanOrEqual(0.1);
+      checked++;
+    }
+    // Enough samples in the main-span region to catch the sMid regression.
+    expect(checked, 'expected many prism-covered samples').toBeGreaterThan(30);
+  });
+
+  it('no deck-box piece is longer than 50 m', () => {
+    const frame = ggbFrame(SF);
+    const mesh = buildSuspensionBridge(SPEC, SF, FLAT_HEIGHT);
+    // Deck-box prisms are emitted first (appendSuspensionBridge order) and
+    // are the wide boxes: `2·halfW` across, ~7.6 m deep. Their along extent
+    // is the piece length under test.
+    const targetAcross = 2 * (frame.sep / 2 + 2);
+    const deckPieces = eachBox(mesh, frame).filter((b) => {
+      const da = b.maxA - b.minA;
+      const dy = b.maxY - b.minY;
+      return Math.abs(da - targetAcross) < 0.5 && Math.abs(dy - 7.6) < 0.5;
+    });
+    expect(deckPieces.length).toBeGreaterThan(0);
+    for (const b of deckPieces) {
+      expect(b.maxS - b.minS).toBeLessThanOrEqual(50 + 1e-6);
     }
   });
 

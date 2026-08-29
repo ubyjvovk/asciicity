@@ -35,6 +35,14 @@ const PORTAL_ABOVE = 7;
 const STRUT_LEVELS = [30, 70, 110, 150] as const;
 const STRUT_H = 8;
 const STRUT_ALONG = 10;
+/**
+ * Max deck-box piece length before sloped subdivision (m, T-0084). Ticket
+ * caps at ≤ 50 m; 25 m keeps every top-edge vertex within 12.5 m along of
+ * any 25 m sample point, so the ribbon (deck + 0.15) stays > 0.4 m above
+ * the piecewise-linear box top everywhere the profile rises ≥ 3 %/m — well
+ * under the tests' 0.1 m tolerance for the actual GGB profile.
+ */
+const DECK_BOX_MAX_PIECE = 25;
 /** Anchorage block. */
 const ANCH_ALONG = 25;
 const ANCH_H = 14;
@@ -347,6 +355,75 @@ function box(
 }
 
 /**
+ * Sloped deck-box prism from `s0` to `s1` in the deck frame: rectangular
+ * cross-section `[a0, a1] × [yTop − depth, yTop]` at each end, but with
+ * per-end top heights `y0` (at `s0`) and `y1` (at `s1`); six faces with
+ * outward normals. Used by the deck-box loop (T-0084) so the top follows
+ * the deck profile within each ≤ 50 m piece and the road ribbons stay
+ * above the box.
+ */
+function prism(
+  mesh: MeshBuilder,
+  frame: Frame,
+  s0: number,
+  s1: number,
+  a0: number,
+  a1: number,
+  y0: number,
+  y1: number,
+  depth: number,
+  color: Vec3,
+): void {
+  let ss0 = s0;
+  let ss1 = s1;
+  let yy0 = y0;
+  let yy1 = y1;
+  if (ss0 > ss1) {
+    const ts = ss0;
+    ss0 = ss1;
+    ss1 = ts;
+    const ty = yy0;
+    yy0 = yy1;
+    yy1 = ty;
+  }
+  let aa0 = a0;
+  let aa1 = a1;
+  if (aa0 > aa1) {
+    const t = aa0;
+    aa0 = aa1;
+    aa1 = t;
+  }
+  if (ss1 - ss0 < 1e-6 || aa1 - aa0 < 1e-6 || depth < 1e-6) return;
+  const p = (s: number, a: number, y: number): Vec3 => [
+    frame.origin[0] + frame.along[0] * s + frame.across[0] * a,
+    y,
+    frame.origin[1] + frame.along[1] * s + frame.across[1] * a,
+  ];
+  const bot0 = yy0 - depth;
+  const bot1 = yy1 - depth;
+  const p000 = p(ss0, aa0, bot0);
+  const p100 = p(ss1, aa0, bot1);
+  const p110 = p(ss1, aa1, bot1);
+  const p010 = p(ss0, aa1, bot0);
+  const p001 = p(ss0, aa0, yy0);
+  const p101 = p(ss1, aa0, yy1);
+  const p111 = p(ss1, aa1, yy1);
+  const p011 = p(ss0, aa1, yy0);
+  const alongP: Vec3 = [frame.along[0], 0, frame.along[1]];
+  const alongM: Vec3 = [-frame.along[0], 0, -frame.along[1]];
+  const acrossP: Vec3 = [frame.across[0], 0, frame.across[1]];
+  const acrossM: Vec3 = [-frame.across[0], 0, -frame.across[1]];
+  const up: Vec3 = [0, 1, 0];
+  const down: Vec3 = [0, -1, 0];
+  faceToward(mesh, p100, p110, p111, p101, alongP, color);
+  faceToward(mesh, p010, p000, p001, p011, alongM, color);
+  faceToward(mesh, p110, p010, p011, p111, acrossP, color);
+  faceToward(mesh, p000, p100, p101, p001, acrossM, color);
+  faceToward(mesh, p001, p101, p111, p011, up, color);
+  faceToward(mesh, p000, p010, p110, p100, down, color);
+}
+
+/**
  * Oriented square-section beam from `a` to `b`. `lateral` is one cross-section
  * axis (Gram-Schmidt'd against the beam); four sides + two caps.
  */
@@ -543,16 +620,25 @@ function appendSuspensionBridge(
   const color = linearRgb(spec.color);
   const lateral: Vec3 = [frame.across[0], 0, frame.across[1]];
 
-  // Truss deck: one box per east-sidewalk segment, full viaduct extent.
+  // Truss deck: sloped prisms whose top tracks the deck profile within each
+  // east-sidewalk segment (T-0084). Long OSM segments are subdivided into
+  // pieces ≤ DECK_BOX_MAX_PIECE so the top stays within a few cm of the
+  // ribbon over the whole span.
   for (let i = 0; i < frame.eastLine.length - 1; i++) {
     const a = frame.eastLine[i]!;
     const b = frame.eastLine[i + 1]!;
     const s0 = alongOf(a, frame.origin, frame.along);
     const s1 = alongOf(b, frame.origin, frame.along);
-    if (Math.abs(s1 - s0) < 1e-3) continue;
-    const sMid = (s0 + s1) / 2;
-    const top = deckY(frame, sMid, heightAt) - TRUSS_TOP_BELOW_DECK;
-    box(mesh, frame, s0, s1, -frame.halfW, frame.halfW, top - TRUSS_DEPTH, top, color);
+    const dsSeg = s1 - s0;
+    if (Math.abs(dsSeg) < 1e-3) continue;
+    const nPieces = Math.max(1, Math.ceil(Math.abs(dsSeg) / DECK_BOX_MAX_PIECE));
+    for (let k = 0; k < nPieces; k++) {
+      const ps0 = s0 + (dsSeg * k) / nPieces;
+      const ps1 = s0 + (dsSeg * (k + 1)) / nPieces;
+      const y0 = deckY(frame, ps0, heightAt) - TRUSS_TOP_BELOW_DECK;
+      const y1 = deckY(frame, ps1, heightAt) - TRUSS_TOP_BELOW_DECK;
+      prism(mesh, frame, ps0, ps1, -frame.halfW, frame.halfW, y0, y1, TRUSS_DEPTH, color);
+    }
   }
 
   emitTower(mesh, frame, spec, 0, heightAt, color);
