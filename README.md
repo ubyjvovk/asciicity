@@ -69,6 +69,12 @@ This boots a throwaway Vite server, screenshots the London default spawn at
 night (`?time=22:30`), and rewrites `public/og.png` — commit the result with
 the change.
 
+## Analytics
+
+The page loads the Cloudflare Web Analytics beacon
+(`static.cloudflareinsights.com/beacon.min.js`, cookieless, client-side only)
+from `index.html`. Removing that one `<script>` line disables it.
+
 ## Credits / rebranding
 
 The footer author and repo URL live in [`src/credits.ts`](src/credits.ts) —
