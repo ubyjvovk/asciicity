@@ -96,7 +96,7 @@ exactly per `docs/data-format.md`:
 
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
-  dropped, heights clamped to `[3, 320]`.
+  dropped, heights clamped to `[3, 600]`.
 - **Roads** — `highway` → `cls` via the mapping table; `footway`, `cycleway`
   and other unmapped values (e.g. `steps`) are dropped; ways with < 2
   distinct points are dropped. A road whose way carries a `bridge` tag with a

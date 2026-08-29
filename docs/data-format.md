@@ -141,7 +141,7 @@ Rules every producer must follow and `validateCity` must enforce:
 
 - `buildings[].poly`: ≥ 3 points, first point not repeated last, no NaN.
   Degenerate rings (|area| < 1 m²) are dropped by producers.
-- `buildings[].h`: finite, clamped to `[3, 320]`.
+- `buildings[].h`: finite, clamped to `[3, 600]`.
 - `roads[].pts`: ≥ 2 points. `cls` ∈ `RoadClass`.
 - `places[]`: finite `x`/`z`, non-empty `name`.
 - `id` unique within each array.
@@ -196,7 +196,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
      when present).
   3. default by `building` value: `cathedral|church` 30, `office|commercial`
      20, `apartments|residential` 15, `retail` 10, anything else 14.
-  Clamp to `[3, 320]`.
+  Clamp to `[3, 600]`.
 - `name` copied when present (trimmed).
 
 **Roads** — `highway` mapping to `cls` (wave 9: `motorway`/`motorway_link`
@@ -385,7 +385,7 @@ field, e.g. `buildings[3].poly`, `roads[0].cls`. Checks performed, in order:
 - Top level is an object with `v === 1` (else `v`).
 - `origin.lat`/`origin.lon` are finite numbers (`origin.lat`, `origin.lon`).
 - `bbox` is a length-4 array of finite numbers (`bbox`, `bbox[i]`).
-- `buildings`: `h` finite and in `[3, 320]` (`buildings[i].h`); optional
+- `buildings`: `h` finite and in `[3, 600]` (`buildings[i].h`); optional
   `name` is a string (`buildings[i].name`); `poly` is a closed ring with
   ≥ 3 finite `[x, z]` points and first point not repeated last
   (`buildings[i].poly`); `id` finite and unique per array (`buildings[i].id`).
