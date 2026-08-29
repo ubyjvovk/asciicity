@@ -292,11 +292,13 @@ export class ShipFleet {
         new THREE.MeshLambertMaterial({ vertexColors: true }),
         nCargo,
       );
+      this.cargoHull.frustumCulled = false;
       this.cargoLights = new THREE.InstancedMesh(
         toGeometry(buildCargoLights()),
         new THREE.MeshBasicMaterial({ vertexColors: true }),
         nCargo,
       );
+      this.cargoLights.frustumCulled = false;
       this.cargoLights.visible = false;
       group.add(this.cargoHull);
       group.add(this.cargoLights);
@@ -307,11 +309,13 @@ export class ShipFleet {
         new THREE.MeshLambertMaterial({ vertexColors: true }),
         nSail,
       );
+      this.sailHull.frustumCulled = false;
       this.sailLights = new THREE.InstancedMesh(
         toGeometry(buildSailLights()),
         new THREE.MeshBasicMaterial({ vertexColors: true }),
         nSail,
       );
+      this.sailLights.frustumCulled = false;
       this.sailLights.visible = false;
       group.add(this.sailHull);
       group.add(this.sailLights);

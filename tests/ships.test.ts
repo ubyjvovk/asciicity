@@ -113,6 +113,18 @@ describe('ShipFleet', () => {
     expect(bb.max.y).toBeGreaterThan(0);
   });
 
+  it('every fleet mesh disables frustum culling (lanes outrun the initial bounding sphere)', () => {
+    const fleet = new ShipFleet('sf', SF, FLAT_HEIGHT);
+    const meshes: THREE.InstancedMesh[] = [];
+    for (const child of fleet.object.children) {
+      expect(child).toBeInstanceOf(THREE.InstancedMesh);
+      const mesh = child as THREE.InstancedMesh;
+      expect(mesh.frustumCulled).toBe(false);
+      meshes.push(mesh);
+    }
+    expect(meshes.length).toBe(4);
+  });
+
   it('update advances ships without allocating per frame', () => {
     const fleet = new ShipFleet('sf', SF, FLAT_HEIGHT);
     const hulls = instances(fleet).filter(isLambert);
