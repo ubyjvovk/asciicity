@@ -232,10 +232,31 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
   // presets). Building presets resolve against `applyLandmarks(sf.json)` and
   // keep their fallback coordinates when a name goes missing upstream.
   ggb: {
-    lon: -122.4784,
-    lat: 37.817,
-    bearingDeg: 160,
-    label: 'Golden Gate Bridge deck, facing the city',
+    // Wave 9 (architecture.md §4.13 (c)): re-aimed at the east sidewalk
+    // 260 m south of the south tower (snapped onto the East Sidewalk line,
+    // as the previous mid-span preset was), facing north along the deck at
+    // the south tower.
+    lon: -122.477472,
+    lat: 37.811672,
+    bearingDeg: 355,
+    label: 'Golden Gate Bridge deck, facing the south tower',
+    city: 'sf',
+  },
+  alcatraz: {
+    // Fixed-coordinate preset ON the island beside the lighthouse (parity
+    // rule, §4.6 makes the island walkable), bearing 150° toward the city.
+    // NOTE (T-0079 reconciliation): the PM's spec was a *building* preset
+    // on 'Alcatraz Island Lighthouse'. On this data that resolves via
+    // `landmarkSpawn` to the island's low shore road (the lighthouse's
+    // view-corridor rule rejects high ground near it, leaving only low
+    // road vertices), giving y ≈ −2.4 — below the mandated e2e y > 5.
+    // The PM's own fallback coordinate (below) resolves to y ≈ 16.9 (≈ the
+    // PM's "lighthouse ~40 m ASL → y ≈ 15"), so we use it as a fixed
+    // coordinate preset. See the Worker report.
+    lon: -122.4222,
+    lat: 37.8262,
+    bearingDeg: 150,
+    label: 'Alcatraz Island, by the lighthouse',
     city: 'sf',
   },
   transamerica: {

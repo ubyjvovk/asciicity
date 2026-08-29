@@ -69,6 +69,9 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
     // Transamerica 260 and Salesforce 320 already match the real heights,
     // so only Coit Tower (h 64 right, wrong colour) needs a fix.
     'Coit Tower': { color: 0xf5f0e6 },
+    // Alcatraz light: the island's landmark (OSM h 26). The `label` makes
+    // the floating tag read "Alcatraz" (architecture.md §4.13 wave 9 (a)).
+    'Alcatraz Island Lighthouse': { color: 0xf5f0e6, label: 'Alcatraz' },
   },
 };
 

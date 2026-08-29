@@ -9,6 +9,7 @@ import type { Building, CityData } from '../src/data/types';
 import { project } from '../src/geo';
 import { applyLandmarks, LANDMARK_FIXES } from '../src/world/landmarks';
 import { colorFor } from '../src/world/palette';
+import { landmarkAnchors } from '../src/hud/tags';
 
 const KYIV: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
@@ -203,7 +204,10 @@ describe('applyLandmarks (London / synthetic)', () => {
 describe('applyLandmarks (San Francisco)', () => {
   it('fixes only the Coit Tower colour (h 64 already right) and leaves other heights untouched', () => {
     const city = applyLandmarks(SF, 'sf');
-    expect(LANDMARK_FIXES.sf).toEqual({ 'Coit Tower': { color: 0xf5f0e6 } });
+    expect(LANDMARK_FIXES.sf).toEqual({
+      'Coit Tower': { color: 0xf5f0e6 },
+      'Alcatraz Island Lighthouse': { color: 0xf5f0e6, label: 'Alcatraz' },
+    });
     const names = byName(city.buildings);
     // The colour-only fix reaches colourFor but not height/shape.
     expect(colorFor(names['Coit Tower'])).toBe(0xf5f0e6);
@@ -232,6 +236,16 @@ describe('applyLandmarks (San Francisco)', () => {
     expect(extraNames).toEqual(['Ferry Building Clock Tower']);
     const clock = city.buildings.find((b) => b.name === 'Ferry Building Clock Tower')!;
     expect(clock.shape).toBe('tower');
+  });
+
+  it('sf fixes tag the Alcatraz lighthouse as Alcatraz', () => {
+    // The fix's `label: 'Alcatraz'` makes `landmarkAnchors` produce a tag
+    // reading "Alcatraz" above the lighthouse instead of the long OSM name.
+    const city = applyLandmarks(SF, 'sf');
+    const anchors = landmarkAnchors(city, LANDMARK_FIXES.sf);
+    const alcatraz = anchors.find((a) => a.name === 'Alcatraz Island Lighthouse');
+    expect(alcatraz).toBeDefined();
+    expect(alcatraz!.label).toBe('Alcatraz');
   });
 
   it('the Ferry Building Clock Tower is a 14×14 square centred on the OSM building centroid', () => {

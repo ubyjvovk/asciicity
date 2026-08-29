@@ -13,7 +13,11 @@ import {
 } from '../src/data/spawn';
 import type { CityData, Vec2 } from '../src/data/types';
 import { project } from '../src/geo';
-import { CollisionGrid, distToSegment } from '../src/world/collision';
+import {
+  CollisionGrid,
+  distToSegment,
+  pointInPolygon,
+} from '../src/world/collision';
 import { applyLandmarks } from '../src/world/landmarks';
 import { ROAD_WIDTH } from '../src/world/roads';
 
@@ -294,6 +298,7 @@ describe('resolveSpawn', () => {
   it('exposes presets with lower-case keys and labels', () => {
     // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
+      'alcatraz',
       'andriyivskyy',
       'arch',
       'arsenalna',
@@ -398,6 +403,7 @@ describe('presetsFor', () => {
 // returned by `presetsFor('sf')`, and none collides with London/Kyiv.
 describe('San Francisco presets (wave 8)', () => {
   const SF_KEYS = [
+    'alcatraz',
     'ggb',
     'transamerica',
     'salesforce',
@@ -444,9 +450,20 @@ describe('San Francisco presets (wave 8)', () => {
     expect(SPAWN_PRESETS.ferrybuilding).toMatchObject({ building: 'San Francisco Ferry Building' });
   });
 
-  it("ggb is a fixed-coordinate preset (sf's default spawn) bearing 160", () => {
+  it("ggb is a fixed-coordinate preset (sf's default spawn) bearing 355", () => {
     expect('building' in SPAWN_PRESETS.ggb).toBe(false);
-    expect(SPAWN_PRESETS.ggb).toMatchObject({ city: 'sf', bearingDeg: 160 });
+    expect(SPAWN_PRESETS.ggb).toMatchObject({ city: 'sf', bearingDeg: 355 });
+  });
+
+  it('alcatraz is a fixed-coordinate preset on the island beside the lighthouse', () => {
+    expect('building' in SPAWN_PRESETS.alcatraz).toBe(false);
+    expect(SPAWN_PRESETS.alcatraz).toMatchObject({
+      city: 'sf',
+      lon: -122.4222,
+      lat: 37.8262,
+      bearingDeg: 150,
+      label: 'Alcatraz Island, by the lighthouse',
+    });
   });
 
   it('every SF preset coordinate falls inside the sf.json bbox', () => {
@@ -961,5 +978,110 @@ describe('London trafalgar preset (T-0069)', () => {
     const expectedYaw = Math.atan2(cx - spawn.x, -(cz - spawn.z));
     const delta = Math.abs(normalizeAngle(spawn.yaw - expectedYaw));
     expect(delta).toBeLessThan((10 * Math.PI) / 180);
+  });
+});
+
+// Wave 9 (T-0079): the alcatraz building preset must resolve to a walkable
+// point on the island (parity rule, architecture.md §4.6), and the re-aimed
+// ggb preset must sit on the East Sidewalk 260 ± 15 m south of the south
+// tower, facing north along the deck (architecture.md §4.13 (c)).
+describe('San Francisco wave-9 presets (T-0079)', () => {
+  const SF: CityData = JSON.parse(
+    readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+  );
+  // The same CollisionGrid main.ts builds (integration.md §5): bridge roads
+  // as corridors, and water rings passed for the odd-parity island test.
+  const city = applyLandmarks(SF, 'sf');
+  const collision = new CollisionGrid(
+    city.buildings,
+    25,
+    city.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+    city.water ?? [],
+  );
+  const blocked = (p: Vec2, r?: number): boolean => collision.blocked(p, r);
+
+  /** Shoelace area of a polygon ring (m²) — to pick the smallest island ring. */
+  function ringArea(poly: Vec2[]): number {
+    let a = 0;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+    }
+    return Math.abs(a) / 2;
+  }
+
+  it('alcatraz resolves to a walkable point on the island', () => {
+    const lb = city.buildings.find(
+      (b) => b.name === 'Alcatraz Island Lighthouse',
+    );
+    expect(lb).toBeDefined();
+    let cx = 0;
+    let cz = 0;
+    for (const [x, z] of lb!.poly) {
+      cx += x;
+      cz += z;
+    }
+    cx /= lb!.poly.length;
+    cz /= lb!.poly.length;
+
+    // The island ring is the water ring containing the lighthouse with the
+    // smallest area (the tiny Alcatraz ring inside the huge Bay ring).
+    const containing = (city.water ?? [])
+      .map((poly) => ({ poly, area: ringArea(poly) }))
+      .filter(({ poly }) => pointInPolygon([cx, cz], poly))
+      .sort((a, b) => a.area - b.area);
+    expect(containing.length).toBeGreaterThan(0);
+    const island = containing[0]!.poly;
+
+    const spawn = resolveSpawn(
+      'alcatraz',
+      city.origin,
+      blocked,
+      city,
+      'unionsquare',
+    );
+    // Walkable: not blocked (inside the island ring, not on the shore).
+    expect(collision.blocked([spawn.x, spawn.z])).toBe(false);
+    // And it lies inside the island ring (parity land, not the open Bay).
+    expect(pointInPolygon([spawn.x, spawn.z], island)).toBe(true);
+  });
+
+  it('ggb sits on the East Sidewalk 260 ± 15 m south of the south tower, bearing 355', () => {
+    const southTower = project(-122.4779, 37.814, city.origin);
+    const east = city.roads.filter(
+      (r) => r.name === 'Golden Gate Bridge East Sidewalk',
+    );
+    expect(east.length).toBeGreaterThan(0);
+
+    // ggb is a fixed-coordinate preset: `() => false` pinned to the snapped
+    // point (on the deck it is never blocked, so no +x walk occurs).
+    const spawn = resolveSpawn(
+      'ggb',
+      city.origin,
+      () => false,
+      city,
+      'unionsquare',
+    );
+
+    // On the East Sidewalk line (within the pedestrian half-width + margin).
+    let best = Infinity;
+    for (const r of east) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        best = Math.min(
+          best,
+          distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]),
+        );
+      }
+    }
+    expect(best).toBeLessThan(ROAD_WIDTH.pedestrian / 2 + 1);
+
+    // 260 m south of the south tower, within ± 15 m.
+    const dist = Math.hypot(spawn.x - southTower[0], spawn.z - southTower[1]);
+    expect(dist).toBeGreaterThanOrEqual(245);
+    expect(dist).toBeLessThanOrEqual(275);
+
+    // Bearing 355° (normalized to −5° by the resolver).
+    expect(spawn.yaw).toBeCloseTo(normalizeAngle((355 * Math.PI) / 180), 6);
   });
 });

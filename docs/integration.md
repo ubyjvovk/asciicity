@@ -291,12 +291,20 @@ is converted as a `primary` bridge road carrying the buses, in addition to the
 `Golden Gate Bridge East Sidewalk` / `West Sidewalk` pedestrian corridors, so
 `ggb` snaps
 the configured point onto the nearest point of any East Sidewalk piece (a
-point 30 m off the deck is open water and the spawn breaks). Named-building
-fallbacks keep their coordinates when an OSM name changes upstream.
+point 30 m off the deck is open water and the spawn breaks). Since wave 9 it
+sits on the East Sidewalk 260 m south of the south tower, facing north along
+the deck (architecture.md §4.13 (c)). Named-building
+fallbacks keep their coordinates when an OSM name changes upstream. `alcatraz`
+is a fixed-coordinate preset: resolving it as a *building* preset on the
+lighthouse sends `landmarkSpawn` onto the island's low shore roads (the
+lighthouse's view-corridor rule rejects the high ground beside it), below sea
+level at the spawn — so it is pinned to the high, walkable promenade beside
+the lighthouse instead (architecture.md §4.13 (a)).
 
 | Key            | Kind        | Description                                                                 |
 |----------------|-------------|-----------------------------------------------------------------------------|
-| `ggb`          | coordinate  | Golden Gate Bridge deck mid-span, facing the city (default).                |
+| `ggb`          | coordinate  | East Sidewalk 260 m south of the south tower, facing it (default).          |
+| `alcatraz`     | coordinate  | Alcatraz Island, by the lighthouse (walkable island; tag reads Alcatraz).   |
 | `transamerica` | building    | Facing the Transamerica Pyramid.                                           |
 | `salesforce`   | building    | Facing Salesforce Tower.                                                   |
 | `coittower`    | building    | Facing Coit Tower.                                                         |
