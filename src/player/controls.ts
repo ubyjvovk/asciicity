@@ -185,6 +185,10 @@ export class Controls {
   private lookDy = 0;
   /** Drop the first `mousemove` after pointer lock is acquired. */
   private skipNextMove = false;
+  /** Per-attempt coalescing (T-0091 rework): a rejected `requestPointerLock`
+   *  and a `pointerlockerror` from the same attempt report once; each new
+   *  click creates a fresh attempt so two rapid failures both report. */
+  private currentAttempt: { settled: boolean } | null = null;
   /** Unlocked drag-to-look is active between mousedown and mouseup/mouseleave. */
   private dragging = false;
   private lastClientX = 0;
@@ -279,6 +283,13 @@ export class Controls {
   };
 
   private onClick = (): void => {
+    const attempt: { settled: boolean } = { settled: false };
+    this.currentAttempt = attempt;
+    const fail = (err: unknown): void => {
+      if (attempt.settled) return;
+      attempt.settled = true;
+      this.reportLockError(err);
+    };
     try {
       // `Promise.resolve` so a void `requestPointerLock()` still settles.
       // Headless Chrome fulfills without locking and never fires
@@ -286,15 +297,13 @@ export class Controls {
       void Promise.resolve(this.target.requestPointerLock()).then(
         () => {
           if (document.pointerLockElement !== this.target) {
-            this.reportLockError('pointer lock not acquired');
+            fail('pointer lock not acquired');
           }
         },
-        (err: unknown) => {
-          this.reportLockError(err);
-        },
+        (err: unknown) => fail(err),
       );
     } catch (err: unknown) {
-      this.reportLockError(err);
+      fail(err);
     }
   };
 
@@ -306,6 +315,11 @@ export class Controls {
   };
 
   private onPointerLockError = (): void => {
+    const attempt = this.currentAttempt;
+    if (attempt) {
+      if (attempt.settled) return;
+      attempt.settled = true;
+    }
     this.reportLockError('pointerlockerror');
   };
 

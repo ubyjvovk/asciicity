@@ -544,4 +544,22 @@ describe('Controls drag-to-look (T-0091)', () => {
     await Promise.resolve();
     expect(reasons).toEqual(['denied']);
   });
+
+  it('two rapid failed lock attempts count as two failures', async () => {
+    // Per-attempt coalescing (T-0091 rework): each click is a fresh attempt,
+    // so a fast second click is not dropped as a duplicate of the first.
+    const { target } = setup();
+    const reasons: string[] = [];
+    target.requestPointerLock = () => Promise.reject(new Error('denied'));
+    live = new Controls(target as unknown as HTMLElement, (reason) => {
+      reasons.push(reason);
+    });
+    target.emit('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    target.emit('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(reasons).toEqual(['denied', 'denied']);
+  });
 });

@@ -676,7 +676,11 @@ Escape key and no overlay.
 
 Every `requestPointerLock()` site in `main.ts` (overlay click, fast-travel)
 goes through the same error path as `Controls`' constructor-provided
-`onLockError`.
+`onLockError`. Failures are coalesced **per attempt**, not per wall-clock
+window: a rejected promise and a `pointerlockerror` for the same attempt
+report once, but two rapid failed clicks each create a fresh attempt and
+count as two failures (so a fast double-click on the overlay commits
+drag-look instead of stranding the player).
 
 ## Keyboard
 

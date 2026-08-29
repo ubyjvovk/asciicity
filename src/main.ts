@@ -822,26 +822,26 @@ async function main(): Promise<void> {
 
   const lockCanvas: HTMLCanvasElement = canvas;
   const requestCanvasLock = (): void => {
+    const attempt: { settled: boolean } = { settled: false };
+    currentAttempt = attempt;
+    const fail = (reason: string): void => settleAttempt(false, reason);
     try {
       // Headless Chromium often fulfills with `undefined` and never fires
       // `pointerlockerror`; a settled promise that left the canvas unlocked
-      // is still a failure (T-0091).
+      // is still a failure (T-0091). The promise and the `pointerlockerror`
+      // event are per-attempt coalesced by `settleAttempt`.
       void Promise.resolve(lockCanvas.requestPointerLock()).then(
         () => {
           if (document.pointerLockElement !== lockCanvas) {
-            reportLockError('pointer lock not acquired');
+            fail('pointer lock not acquired');
           }
         },
         (err: unknown) => {
-          const reason =
-            err instanceof Error && err.message ? err.message : String(err);
-          reportLockError(reason);
+          fail(err instanceof Error && err.message ? err.message : String(err));
         },
       );
     } catch (err: unknown) {
-      const reason =
-        err instanceof Error && err.message ? err.message : String(err);
-      reportLockError(reason);
+      fail(err instanceof Error && err.message ? err.message : String(err));
     }
   };
 
@@ -1015,8 +1015,11 @@ async function main(): Promise<void> {
 
   /** True after a successful lock so `pointerlockchange` only opens the pause menu on a real lock-loss. */
   let hadPointerLock = false;
-  /** Coalesce `requestPointerLock` rejection + `pointerlockerror` from one attempt. */
-  let lockErrorBurst = false;
+  /** Per-attempt coalescing (T-0091 rework): each `requestCanvasLock()` stores a
+   *  fresh `{ settled: false }` token, so a rejected promise and a
+   *  `pointerlockerror` for the same attempt report once, while two rapid
+   *  failed clicks each get their own attempt (failures += 1 each). */
+  let currentAttempt: { settled: boolean } | null = null;
 
   const enterDragLook = (): void => {
     pointer.dragLook = true;
@@ -1024,13 +1027,20 @@ async function main(): Promise<void> {
     setOverlay(false, false);
   };
 
-  reportLockError = (reason: string): void => {
+  /**
+   * Settle the current lock attempt and run the failure state. A duplicate
+   * report from an already-settled attempt is dropped; a report that arrives
+   * with no pending attempt (e.g. from `Controls.onClick`) is a NEW single
+   * failure, never dropped. `ok === true` settles the attempt (lock granted
+   * via `pointerlockchange`) without reporting a failure.
+   */
+  const settleAttempt = (ok: boolean, reason = ''): void => {
+    if (currentAttempt) {
+      if (currentAttempt.settled) return; // duplicate within this attempt
+      currentAttempt.settled = true;
+    }
+    if (ok) return;
     pointer.lastError = reason;
-    if (lockErrorBurst) return;
-    lockErrorBurst = true;
-    window.setTimeout(() => {
-      lockErrorBurst = false;
-    }, 50);
     pointer.failures += 1;
     if (pointer.dragLook) {
       setOverlay(false, false);
@@ -1047,6 +1057,10 @@ async function main(): Promise<void> {
     enterDragLook();
   };
 
+  reportLockError = (reason: string): void => {
+    settleAttempt(false, reason);
+  };
+
   overlayEl.addEventListener('click', () => {
     setOverlay(false, false);
     // Pointer lock is unavailable on touch and a rejected request can fire
@@ -1059,6 +1073,7 @@ async function main(): Promise<void> {
     pointer.locked = locked;
     if (locked) {
       hadPointerLock = true;
+      settleAttempt(true); // the pending attempt succeeded (T-0091 rework)
       pointer.dragLook = false;
       pointer.failures = 0;
       pointer.lastError = '';
