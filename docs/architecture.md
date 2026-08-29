@@ -672,9 +672,11 @@ and pointer lock re-requested on desktop. `history.replaceState` sets
 **Wave 9 amendments to §4.13.** (a) `LANDMARK_FIXES.sf['Alcatraz Island
 Lighthouse'] = { color: 0xf5f0e6, label: 'Alcatraz' }` makes the island a
 landmark: the lighthouse (OSM h 26) wears the tag **Alcatraz**, and the
-`alcatraz` preset (building `'Alcatraz Island Lighthouse'`, fallback
-−122.4222, 37.8262, bearing 150 — on the island, facing the city) joins
-`presetsFor('sf')` and therefore the fast-travel list. It is walkable only
+`alcatraz` preset (fixed coordinate −122.4222, 37.8262, bearing 150 — on
+the island beside the lighthouse, facing the city; T-0079 found that a
+building preset on the lighthouse resolves through the view-corridor rule
+to the low shore road at y ≈ −2, so the coordinate form is the contract)
+joins `presetsFor('sf')` and therefore the fast-travel list. It is walkable only
 because of the §4.6 parity rule. (b) The two `kind: 'bridge-tower'` extras
 and `ggbTowerPoly` from T-0076 are REMOVED — they sat at the anchorage and at
 mid-span (spec coordinates from memory); the real towers are built by
