@@ -310,6 +310,33 @@ describe('buildBuildingsMesh', () => {
     expect(minY).toBeCloseTo(5);
   });
 
+  it('walls of a building with minH start at minH and a bottom cap is emitted', () => {
+    const mesh = buildBuildingsMesh([squareBuilding({ h: 20, minH: 8 })]);
+    // 4 walls × 6 verts = 24; roof 6; downward cap 6.
+    expect(mesh.positions.length / 3).toBe(36);
+    expect(mesh.groups).toEqual([
+      { start: 0, count: 24, materialIndex: 0 },
+      { start: 24, count: 12, materialIndex: 1 },
+    ]);
+    const wallYs: number[] = [];
+    for (let v = 0; v < 24; v++) {
+      wallYs.push(mesh.positions[v * 3 + 1]!);
+    }
+    expect(Math.min(...wallYs)).toBeCloseTo(8);
+    expect(Math.max(...wallYs)).toBeCloseTo(20);
+    // Roof (first 6 group-1 verts) at h, upward; remaining 6 are the cap at minH, downward.
+    for (let v = 24; v < 30; v++) {
+      expect(mesh.positions[v * 3 + 1]).toBeCloseTo(20);
+      expect(mesh.normals[v * 3 + 1]).toBeCloseTo(1);
+    }
+    for (let v = 30; v < 36; v++) {
+      expect(mesh.positions[v * 3 + 1]).toBeCloseTo(8);
+      expect(mesh.normals[v * 3]).toBeCloseTo(0);
+      expect(mesh.normals[v * 3 + 1]).toBeCloseTo(-1);
+      expect(mesh.normals[v * 3 + 2]).toBeCloseTo(0);
+    }
+  });
+
   it('no shape → identical output to a building whose shape key is absent (compare arrays)', () => {
     const a = buildBuildingsMesh([squareBuilding()]);
     const b = buildBuildingsMesh([squareBuilding({ shape: undefined })]);

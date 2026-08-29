@@ -32,7 +32,8 @@ function isFiniteVec2(v: unknown): v is Vec2 {
 
 /**
  * Validate an unknown value as `CityData`, returning the same object (typed)
- * when valid and throwing otherwise.
+ * when valid and throwing otherwise. `h` is in `[3, 600]`; optional `minH`
+ * is a finite number in `[0, h - 1)`.
  */
 export function validateCity(raw: unknown): CityData {
   if (typeof raw !== 'object' || raw === null) {
@@ -75,8 +76,17 @@ export function validateCity(raw: unknown): CityData {
   const buildingIds = new Set<number>();
   city.buildings.forEach((b, i) => {
     const building = b as Record<string, unknown>;
-    if (!isFiniteNum(building.h) || building.h < 3 || building.h > 320) {
-      throw new Error(`buildings[${i}].h: height must be in [3, 320]`);
+    if (!isFiniteNum(building.h) || building.h < 3 || building.h > 600) {
+      throw new Error(`buildings[${i}].h: height must be in [3, 600]`);
+    }
+    if (building.minH !== undefined) {
+      if (
+        !isFiniteNum(building.minH) ||
+        building.minH < 0 ||
+        building.minH >= (building.h as number) - 1
+      ) {
+        throw new Error(`buildings[${i}].minH: must be a finite number in [0, h - 1)`);
+      }
     }
     if (building.name !== undefined && typeof building.name !== 'string') {
       throw new Error(`buildings[${i}].name: must be a string`);

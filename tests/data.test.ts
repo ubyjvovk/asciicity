@@ -61,7 +61,8 @@ describe('validateCity', () => {
 
   it('rejects a building height of 400, naming buildings[i].h', () => {
     const c = base();
-    c.buildings[0].h = 400;
+    // Wave 10: clamp is [3, 600] (was 320). 400 is valid; 700 still overflows.
+    c.buildings[0].h = 700;
     expect(() => validateCity(c)).toThrow(/buildings\[0\]\.h/);
   });
 

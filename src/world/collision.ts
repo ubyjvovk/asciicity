@@ -105,10 +105,12 @@ export class CollisionGrid {
 
   /**
    * Bucket footprints, corridor segments, and water ring edges into the grid.
-   * Water rings are additionally kept whole (with their bbox) for the odd-parity
-   * point-in-polygon test used by `blocked` — a point is "on water" only when
-   * it lies inside an ODD number of rings (an island ring nested inside a Bay
-   * ring is walkable land). Mirrors data-format.md "Coastline water" rule 6.
+   * Footprints with `minH >= 2.5` are skipped (elevated building parts — the
+   * player walks under them; architecture.md §4.6). Water rings are kept
+   * whole (with their bbox) for the odd-parity point-in-polygon test used by
+   * `blocked` — a point is "on water" only when it lies inside an ODD number
+   * of rings (an island ring nested inside a Bay ring is walkable land).
+   * Mirrors data-format.md "Coastline water" rule 6.
    */
   constructor(
     buildings: Building[],
@@ -118,6 +120,8 @@ export class CollisionGrid {
   ) {
     this.cell = cell;
     for (const b of buildings) {
+      // Elevated parts (minH >= 2.5 m) are walkable — architecture.md §4.6.
+      if ((b.minH ?? 0) >= 2.5) continue;
       if (b.poly.length < 3) continue;
       let minX = Infinity;
       let maxX = -Infinity;
