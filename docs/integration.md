@@ -94,8 +94,10 @@ The app runs a single asynchronous `main()` when the module executes.
 9. **Overlay + pointer lock.** The overlay starts visible with the title +
    `CLICK TO ENTER` (or, before a city is chosen, the picker showing
    `CHOOSE A CITY`); a click (or tap) hides it and requests pointer lock on
-   the canvas inside try/catch, because pointer lock rejects on touch
-   devices. On `pointerlockchange` losing the lock (Escape), the overlay
+   the canvas (the returned promise is awaited; rejection and
+   `pointerlockerror` share one `onLockError` path — see
+   [Pointer lock and drag-to-look](#pointer-lock-and-drag-to-look)). On
+   `pointerlockchange` losing a previously held lock (Escape), the overlay
    reappears with class `resume`, text `CLICK TO RESUME`, and the **pause /
    settings menu** populated into `#menu` (HUD / MINIMAP / CRT / STYLE / FLY
    / LANDMARKS stub / COPY LINK TO HERE / SWITCH CITY — see
@@ -631,6 +633,55 @@ No collision while airborne (noclip); `Space`/`C` climb/descend, `Shift` is
 `FLY_SPRINT_SPEED`; leaving fly mode falls at constant `FALL_SPEED` until the
 ground catches the player.
 
+## Pointer lock and drag-to-look
+
+Pointer lock is a nicety, not a requirement (architecture.md §4.7 wave-10).
+A rejected `requestPointerLock()` — headless Chromium, macOS screenshot
+shortcuts, some OS dialogs — must never strand the player with a dead
+Escape key and no overlay.
+
+**States**
+
+1. **Idle.** Overlay shows `CLICK TO ENTER`. A click hides it and requests
+   the lock on `#view`.
+2. **First failure.** `onLockError` re-shows the resume overlay (pause
+   menu) with `#overlay p` = `POINTER LOCK UNAVAILABLE · DRAG TO LOOK`.
+   `pointer.failures` is at least 1. The next overlay click hides the
+   overlay and retries the lock once.
+3. **Drag-look.** A second failure leaves the overlay hidden and sets
+   `pointer.dragLook = true`. The HUD help line reads `DRAG LOOK` instead
+   of `MOUSE LOOK` (touch help is unchanged). Look is a press-and-drag on
+   the viewport (`clientX/Y` deltas, same `MOUSE_SENS` / `isMouseSpike`
+   filter as the locked `movementX/Y` path).
+4. **Locked.** A successful `pointerlockchange` onto the canvas clears the
+   failure state (`dragLook = false`, `failures = 0`, help restored).
+
+**Escape**
+
+- Landmarks submenu first: `Escape` returns to the pause menu (unchanged).
+- Under lock the browser exits the lock; the existing `pointerlockchange`
+  path shows the pause overlay.
+- When the canvas is **not** locked, `Escape` toggles the pause overlay
+  (`openSettings()` / resume). The start `CLICK TO ENTER` overlay is left
+  alone so boot still goes through the click-to-enter path.
+
+**`window.__asciicity.pointer`** (live object, mutated in place):
+
+| Field       | Meaning                                              |
+|-------------|------------------------------------------------------|
+| `locked`    | `document.pointerLockElement` is the canvas          |
+| `dragLook`  | committed to unlocked drag-to-look after two failures |
+| `failures`  | unique lock-error count (promise + event coalesced)  |
+| `lastError` | reason string from the most recent failure           |
+
+Every `requestPointerLock()` site in `main.ts` (overlay click, fast-travel)
+goes through the same error path as `Controls`' constructor-provided
+`onLockError`. Failures are coalesced **per attempt**, not per wall-clock
+window: a rejected promise and a `pointerlockerror` for the same attempt
+report once, but two rapid failed clicks each create a fresh attempt and
+count as two failures (so a fast double-click on the overlay commits
+drag-look instead of stranding the player).
+
 ## Keyboard
 
 | Key | Effect                                   |
@@ -665,6 +716,7 @@ interface Window {
     travel(key: string): boolean; // fast-travel to a preset (T-0061); false on unknown key
     ships: { count: number; lightsOn: boolean }; // Bay shipping (T-0081); lightsOn is live
     loading: LoadProgress; // live boot progress (T-0085; download → parse → build → ready)
+    pointer: { locked: boolean; dragLook: boolean; failures: number; lastError: string }; // T-0091; live
   };
 }
 ```
