@@ -93,7 +93,7 @@ const HEIGHT_BY_BUILDING = {
 /**
  * Compute a building's height in metres from OSM tags per data-format rules:
  * `height` tag (ft honored) → `building:levels` (×3.3 + 2, plus roof levels)
- * → default by `building` value. Always clamped to [3, 320].
+ * → default by `building` value. Always clamped to [3, 600].
  * @param {Record<string, string>} tags OSM way/relation tags
  * @returns {number} height in metres
  */
@@ -125,7 +125,40 @@ export function heightOf(tags) {
     const b = (tags.building || '').toLowerCase();
     h = HEIGHT_BY_BUILDING[b] ?? 14;
   }
-  return Math.min(320, Math.max(3, h));
+  return Math.min(600, Math.max(3, h));
+}
+
+/**
+ * Base height in metres for a `building:part` (`min_height` ft-aware like
+ * `height`, else `building:min_level × 3.3`). Absent / unparseable → 0.
+ * @param {Record<string, string>} tags OSM way/relation tags
+ * @returns {number} metres above ground (0 when grounded)
+ */
+function minHeightOf(tags) {
+  let h;
+  const minHeight = tags.min_height;
+  if (minHeight !== undefined && minHeight !== null && minHeight !== '') {
+    const m = /^\s*([0-9]+(?:\.[0-9]+)?)/.exec(minHeight);
+    if (m) {
+      h = parseFloat(m[1]);
+      if (/ft\s*$/.test(String(minHeight).trim())) h *= 0.3048;
+    }
+  }
+  if (h === undefined) {
+    const levels = tags['building:min_level'];
+    if (levels !== undefined && levels !== null && levels !== '') {
+      const L = parseFloat(levels);
+      if (Number.isFinite(L) && L > 0) h = L * 3.3;
+    }
+  }
+  if (h === undefined || !Number.isFinite(h) || h <= 0) return 0;
+  return h;
+}
+
+/** True when tags mark an OSM `building:part` (any value other than `no`). */
+function isBuildingPart(tags) {
+  const v = tags['building:part'];
+  return v !== undefined && v !== null && v !== '' && v !== 'no';
 }
 
 /** Signed ring area (shoelace) in m²; used to drop degenerate footprints. */
@@ -713,6 +746,97 @@ function distToSegment(p, a, b) {
   return Math.sqrt(ex * ex + ey * ey);
 }
 
+/** Vertex-average centroid of a ring of `[x, z]` points. */
+function ringCentroid(ring) {
+  let x = 0;
+  let z = 0;
+  const n = ring.length;
+  if (n === 0) return [0, 0];
+  for (const p of ring) {
+    x += p[0];
+    z += p[1];
+  }
+  return [x / n, z / n];
+}
+
+/**
+ * Outline replacement (data-format.md "Building parts" rule 3): drop any
+ * outline that contains at least one part centroid; move the outline `name`
+ * onto the tallest of those parts. Parts whose centroid lies in no outline
+ * are kept. Outlines are bucketed by bbox so 52 k × 15 k stays linear.
+ * When `parts` is empty the outlines array is returned unchanged (byte-
+ * identical London / Kyiv / SF conversion).
+ * @param {Array<Object>} outlines `building=*` entries
+ * @param {Array<Object>} parts `building:part` entries
+ * @returns {Array<Object>} surviving outlines followed by every part
+ */
+function applyBuildingParts(outlines, parts) {
+  if (parts.length === 0) return outlines;
+  const CELL = 50;
+  const buckets = new Map();
+  const push = (key, item) => {
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(key, bucket);
+    }
+    bucket.push(item);
+  };
+  for (const o of outlines) {
+    const bb = ringBBox(o.poly);
+    const item = { o, bb };
+    const cxMin = Math.floor(bb.minX / CELL);
+    const cxMax = Math.floor(bb.maxX / CELL);
+    const czMin = Math.floor(bb.minZ / CELL);
+    const czMax = Math.floor(bb.maxZ / CELL);
+    for (let cx = cxMin; cx <= cxMax; cx++) {
+      for (let cz = czMin; cz <= czMax; cz++) {
+        push(`${cx},${cz}`, item);
+      }
+    }
+  }
+  const contained = new Map();
+  for (const part of parts) {
+    const c = ringCentroid(part.poly);
+    const key = `${Math.floor(c[0] / CELL)},${Math.floor(c[1] / CELL)}`;
+    const candidates = buckets.get(key);
+    if (!candidates) continue;
+    for (const { o, bb } of candidates) {
+      if (
+        c[0] < bb.minX ||
+        c[0] > bb.maxX ||
+        c[1] < bb.minZ ||
+        c[1] > bb.maxZ
+      ) {
+        continue;
+      }
+      if (!pointInPolygon(c, o.poly)) continue;
+      let list = contained.get(o);
+      if (!list) {
+        list = [];
+        contained.set(o, list);
+      }
+      list.push(part);
+    }
+  }
+  const kept = [];
+  for (const o of outlines) {
+    const inside = contained.get(o);
+    if (!inside || inside.length === 0) {
+      kept.push(o);
+      continue;
+    }
+    if (o.name) {
+      let tallest = inside[0];
+      for (let i = 1; i < inside.length; i++) {
+        if (inside[i].h > tallest.h) tallest = inside[i];
+      }
+      tallest.name = o.name;
+    }
+  }
+  return kept.concat(parts);
+}
+
 /** Axis-aligned bbox of a ring of `[x, z]` points. */
 function ringBBox(ring) {
   let minX = Infinity;
@@ -983,7 +1107,8 @@ export function convertOverpass(json, opts) {
   const bbox = opts.bbox ?? DEFAULT_BBOX;
   const { lang, dem, step } = opts;
   const treeCap = opts.treeCap !== undefined ? opts.treeCap : TREE_CAP;
-  const buildings = [];
+  const outlines = [];
+  const parts = [];
   const roads = [];
   const places = [];
   const rivers = [];
@@ -1143,15 +1268,26 @@ export function convertOverpass(json, opts) {
     };
   };
 
+  /** Outline entry plus `minH` when the part starts above ground. */
+  const buildPartEntry = (id, tags, poly) => {
+    const entry = buildEntry(id, tags, poly);
+    const minH = minHeightOf(tags);
+    if (minH > 0 && minH < entry.h - 1) entry.minH = minH;
+    return entry;
+  };
+
   for (const el of elements) {
     if (!el || typeof el !== 'object') continue;
     const tags = el.tags || {};
 
     if (el.type === 'way') {
-      if (tags.building !== undefined) {
+      if (isBuildingPart(tags)) {
+        const poly = toRing(el.geometry, origin);
+        if (poly) parts.push(buildPartEntry(el.id, tags, poly));
+      } else if (tags.building !== undefined) {
         if (tags.building === 'no' || tags.building === 'part') continue;
         const poly = toRing(el.geometry, origin);
-        if (poly) buildings.push(buildEntry(el.id, tags, poly));
+        if (poly) outlines.push(buildEntry(el.id, tags, poly));
       } else if (tags.highway !== undefined) {
         let cls = roadClassOf(tags.highway);
         // Wave-5 exception: a `footway` or `cycleway` with a `bridge` tag ≠
@@ -1199,7 +1335,20 @@ export function convertOverpass(json, opts) {
         treeRows.push(el);
       }
     } else if (el.type === 'relation') {
-      if (tags.building !== undefined && tags['type'] === 'multipolygon') {
+      if (isBuildingPart(tags) && tags['type'] === 'multipolygon') {
+        let emitted = 0;
+        for (const m of el.members || []) {
+          if (m.role === 'outer') {
+            const poly = toRing(m.geometry, origin);
+            if (poly) {
+              const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
+              parts.push(buildPartEntry(id, tags, poly));
+              emitted++;
+            }
+          }
+        }
+        if (emitted === 0) skippedRelations++;
+      } else if (tags.building !== undefined && tags['type'] === 'multipolygon') {
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
@@ -1209,7 +1358,7 @@ export function convertOverpass(json, opts) {
               // unique id (the first keeps the relation id) so all emitted
               // rings pass `validateCity`'s per-array id-uniqueness rule.
               const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
-              buildings.push(buildEntry(id, tags, poly));
+              outlines.push(buildEntry(id, tags, poly));
               emitted++;
             }
           }
@@ -1261,6 +1410,7 @@ export function convertOverpass(json, opts) {
       mappedTrees.push(emitTree(x, z, h));
     }
   }
+  const buildings = applyBuildingParts(outlines, parts);
   const blocked = makeFillBlocked(buildings, roads, water);
   const fillTrees = [];
   for (const ring of woodRings) {

@@ -123,6 +123,18 @@ describe('CollisionGrid.blocked', () => {
     expect(grid.blocked([500, 500])).toBe(false);
     expect(grid.blocked([-1000, 0])).toBe(false);
   });
+
+  it('footprints with minH >= 2.5 do not block', () => {
+    const grounded = { ...rectBuilding(1, 0, 0, 5, 5), minH: 0 };
+    const low = { ...rectBuilding(2, 20, 0, 5, 5), minH: 2.4 };
+    const elevated = { ...rectBuilding(3, 40, 0, 5, 5), minH: 2.5 };
+    const high = { ...rectBuilding(4, 60, 0, 5, 5), minH: 10 };
+    const g = new CollisionGrid([grounded, low, elevated, high], 25);
+    expect(g.blocked([0, 0])).toBe(true);
+    expect(g.blocked([20, 0])).toBe(true);
+    expect(g.blocked([40, 0])).toBe(false);
+    expect(g.blocked([60, 0])).toBe(false);
+  });
 });
 
 describe('CollisionGrid cell coverage', () => {

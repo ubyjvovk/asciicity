@@ -130,6 +130,161 @@ describe('osm-convert building selection', () => {
   });
 });
 
+describe('osm-convert building parts', () => {
+  const DEG = Math.PI / 180;
+  const COS = Math.cos(ORIGIN.lat * DEG);
+
+  function xzToLonLat(x: number, z: number): { lon: number; lat: number } {
+    return {
+      lon: ORIGIN.lon + x / (COS * 111320),
+      lat: ORIGIN.lat - z / 110574,
+    };
+  }
+
+  /** Closed Overpass way whose footprint is a local-metre axis-aligned rect. */
+  function closedRect(
+    id: number,
+    tags: Record<string, string>,
+    x: number,
+    z: number,
+    w: number,
+    d: number,
+  ) {
+    const corners = [
+      xzToLonLat(x, z),
+      xzToLonLat(x + w, z),
+      xzToLonLat(x + w, z + d),
+      xzToLonLat(x, z + d),
+    ];
+    return {
+      type: 'way' as const,
+      id,
+      tags,
+      geometry: [...corners, corners[0]],
+    };
+  }
+
+  function convertElements(elements: unknown[]) {
+    return convertOverpass({ elements }, { origin: ORIGIN });
+  }
+
+  it('building:part with height and min_height converts to h and minH', () => {
+    const city = convertElements([
+      closedRect(1, { 'building:part': 'yes', height: '80', min_height: '20' }, 0, 0, 10, 10),
+    ]);
+    const b = city.buildings.find((bd) => bd.id === 1);
+    expect(b).toBeDefined();
+    expect(b!.h).toBeCloseTo(80, 5);
+    expect(b!.minH).toBeCloseTo(20, 5);
+  });
+
+  it('building:part from levels uses ×3.3 (+2 for h, +0 for minH)', () => {
+    const city = convertElements([
+      closedRect(
+        1,
+        {
+          'building:part': 'yes',
+          'building:levels': '5',
+          'building:min_level': '2',
+        },
+        0,
+        0,
+        10,
+        10,
+      ),
+    ]);
+    const b = city.buildings.find((bd) => bd.id === 1);
+    expect(b).toBeDefined();
+    expect(b!.h).toBeCloseTo(5 * 3.3 + 2, 5);
+    expect(b!.minH).toBeCloseTo(2 * 3.3, 5);
+  });
+
+  it('an outline containing parts is dropped and its name moves to the tallest part', () => {
+    const city = convertElements([
+      closedRect(
+        1,
+        { building: 'yes', name: 'Empire State Building', height: '50' },
+        0,
+        0,
+        40,
+        40,
+      ),
+      closedRect(
+        2,
+        { 'building:part': 'yes', height: '80' },
+        5,
+        5,
+        10,
+        10,
+      ),
+      closedRect(
+        3,
+        { 'building:part': 'yes', height: '380', min_height: '50' },
+        20,
+        5,
+        10,
+        10,
+      ),
+    ]);
+    expect(city.buildings.some((b) => b.id === 1)).toBe(false);
+    const short = city.buildings.find((b) => b.id === 2);
+    const tall = city.buildings.find((b) => b.id === 3);
+    expect(short).toBeDefined();
+    expect(tall).toBeDefined();
+    expect(tall!.name).toBe('Empire State Building');
+    expect(short!.name).toBeUndefined();
+    expect(tall!.h).toBeCloseTo(380, 5);
+    expect(tall!.minH).toBeCloseTo(50, 5);
+  });
+
+  it('an outline without parts and a part outside every outline are kept unchanged', () => {
+    const city = convertElements([
+      closedRect(10, { building: 'yes', name: 'Ordinary', height: '14' }, 0, 0, 10, 10),
+      closedRect(
+        11,
+        { 'building:part': 'yes', height: '20', min_height: '5' },
+        100,
+        100,
+        10,
+        10,
+      ),
+    ]);
+    const outline = city.buildings.find((b) => b.id === 10);
+    const part = city.buildings.find((b) => b.id === 11);
+    expect(outline).toBeDefined();
+    expect(outline!.name).toBe('Ordinary');
+    expect(outline!.minH).toBeUndefined();
+    expect(part).toBeDefined();
+    expect(part!.h).toBeCloseTo(20, 5);
+    expect(part!.minH).toBeCloseTo(5, 5);
+    expect(part!.name).toBeUndefined();
+  });
+
+  it('heights clamp to [3, 600]', () => {
+    expect(heightOf({ height: '1' })).toBe(3);
+    expect(heightOf({ height: '600' })).toBe(600);
+    expect(heightOf({ height: '601' })).toBe(600);
+    expect(heightOf({ height: '1000' })).toBe(600);
+    const city = convertElements([
+      closedRect(1, { building: 'yes', height: '1' }, 0, 0, 10, 10),
+      closedRect(2, { building: 'yes', height: '1000' }, 20, 0, 10, 10),
+      closedRect(
+        3,
+        { 'building:part': 'yes', height: '900', min_height: '100' },
+        40,
+        0,
+        10,
+        10,
+      ),
+    ]);
+    expect(city.buildings.find((b) => b.id === 1)?.h).toBe(3);
+    expect(city.buildings.find((b) => b.id === 2)?.h).toBe(600);
+    const part = city.buildings.find((b) => b.id === 3);
+    expect(part?.h).toBe(600);
+    expect(part?.minH).toBeCloseTo(100, 5);
+  });
+});
+
 describe('osm-convert roadClassOf mapping table + steps', () => {
   const rows: Array<[string, string | null]> = [
     ['trunk', 'primary'],

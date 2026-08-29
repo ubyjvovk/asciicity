@@ -42,6 +42,8 @@ function buildQuery(bbox, timeoutSec = 180) {
 (
   way["building"](${minLat},${minLon},${maxLat},${maxLon});
   relation["building"]["type"="multipolygon"](${minLat},${minLon},${maxLat},${maxLon});
+  way["building:part"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["building:part"]["type"="multipolygon"](${minLat},${minLon},${maxLat},${maxLon});
   way["highway"~"^(trunk|motorway|motorway_link|primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|cycleway|primary_link|secondary_link|trunk_link)$"](${minLat},${minLon},${maxLat},${maxLon});
   node["place"](${minLat},${minLon},${maxLat},${maxLon});
   node["railway"="station"](${minLat},${minLon},${maxLat},${maxLon});

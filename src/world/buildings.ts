@@ -70,6 +70,34 @@ function emitWall(
   mesh.quad(pa, pb, pc, pd, n, [u0, v0], [u0, v1], [u1, v1], [u1, v0], color);
 }
 
+/** Emit a downward-facing underside cap at `y` (visible from the street when minH > 0). */
+function emitBottomCap(mesh: MeshBuilder, ring: Vec2[], y: number, color: Vec3): void {
+  const faces = THREE.ShapeUtils.triangulateShape(asContour(ring), []);
+  const n: Vec3 = [0, -1, 0];
+  const uv: UV = [0, 0];
+  for (const face of faces) {
+    const ia = face[0];
+    const ib = face[1];
+    const ic = face[2];
+    if (ia === undefined || ib === undefined || ic === undefined) continue;
+    const ra = ring[ia];
+    const rb = ring[ib];
+    const rc = ring[ic];
+    if (!ra || !rb || !rc) continue;
+    const a: Vec3 = [ra[0], y, ra[1]];
+    const b: Vec3 = [rb[0], y, rb[1]];
+    const c: Vec3 = [rc[0], y, rc[1]];
+    const e1x = b[0] - a[0];
+    const e1z = b[2] - a[2];
+    const e2x = c[0] - a[0];
+    const e2z = c[2] - a[2];
+    const crossY = e1z * e2x - e1x * e2z;
+    // Geometric ny has the sign of crossY; we want ny < 0 so the face looks down.
+    if (crossY <= 0) mesh.triangle(a, b, c, n, uv, uv, uv, color);
+    else mesh.triangle(a, c, b, n, uv, uv, uv, color);
+  }
+}
+
 /** Emit roof triangles for a normalised ring; flip so `cross.y > 0`. */
 function emitRoof(mesh: MeshBuilder, ring: Vec2[], roofY: number, color: Vec3): void {
   const faces = THREE.ShapeUtils.triangulateShape(asContour(ring), []);
@@ -292,36 +320,56 @@ function emitCap(
   else if (shape === 'spire') emitSpire(mesh, cx, cz, roofY, 0.3 * s, 0.6 * building.h, color);
   else if (shape === 'tower') emitTower(mesh, cx, cz, roofY, maxX - minX, maxZ - minZ, building.h, color);
 }
+
+/**
+ * Build wall/roof mesh data: walls run from `minH` (default 0) to `h` above
+ * terrain; a downward-facing bottom cap is emitted when `minH > 0`.
+ */
 export function buildBuildingsMesh(
   buildings: Building[],
   heightAt: HeightFn = FLAT_HEIGHT,
 ): MeshData {
   const mesh = new MeshBuilder();
-  const usable: { ring: Vec2[]; building: Building; base: number; roofY: number }[] = [];
+  const usable: {
+    ring: Vec2[];
+    building: Building;
+    base: number;
+    roofY: number;
+    minH: number;
+  }[] = [];
   for (const building of buildings) {
     const ring = normalizeRing(building.poly);
     if (Math.abs(ringArea(ring)) < AREA_EPS) continue;
     const { base, top } = ringHeights(ring, heightAt);
-    usable.push({ ring, building, base, roofY: top + building.h });
+    usable.push({
+      ring,
+      building,
+      base,
+      roofY: top + building.h,
+      minH: building.minH ?? 0,
+    });
   }
 
-  for (const { ring, building, base, roofY } of usable) {
+  for (const { ring, building, base, roofY, minH } of usable) {
     const color = vertexColor(building);
+    const wallBase = base + minH;
     let dist = 0;
     const n = ring.length;
     for (let i = 0; i < n; i++) {
       const a = ring[i]!;
       const b = ring[(i + 1) % n]!;
       const edge = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      emitWall(mesh, a, b, base, roofY, dist / TILE_M, (dist + edge) / TILE_M, color);
+      emitWall(mesh, a, b, wallBase, roofY, dist / TILE_M, (dist + edge) / TILE_M, color);
       dist += edge;
     }
     emitCap(mesh, ring, building, roofY, color);
   }
   mesh.endGroup(0);
 
-  for (const { ring, building, roofY } of usable) {
-    emitRoof(mesh, ring, roofY, vertexColor(building));
+  for (const { ring, building, roofY, minH, base } of usable) {
+    const color = vertexColor(building);
+    emitRoof(mesh, ring, roofY, color);
+    if (minH > 0) emitBottomCap(mesh, ring, base + minH, color);
   }
   mesh.endGroup(1);
 

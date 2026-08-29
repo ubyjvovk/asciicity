@@ -368,6 +368,32 @@ existing 10 s sky interval and once at boot, so `?time=` pins the lights.
 live). Probe from `?city=sf&at=pier39&time=22:30` (lit sailboats) or
 `?city=sf&at=ggb&time=22:30` (a container ship under the span).
 
+## Building parts (wave 10)
+
+Manhattan towers are mapped as an OSM `building=*` outline plus
+`building:part` ways with `height` / `min_height` (or `building:levels` /
+`building:min_level`). On the next `fetch-data` / `fetch-data:nyc` the
+converter:
+
+- fetches `way["building:part"]` and
+  `relation["building:part"]["type"="multipolygon"]` in the bbox
+- emits each part as a `buildings[]` entry with `h` and optional `minH`
+  (`minH` is omitted when 0 or not strictly below `h − 1`)
+- drops any outline whose polygon contains at least one part centroid, moving
+  the outline `name` onto the tallest of those parts so landmark presets and
+  floating tags still resolve by OSM name
+- clamps `h` to `[3, 600]` (was 320) so One WTC / ESB / 432 Park keep their
+  real roof height
+
+Consumers: walls run from `minH` (default 0) to `h`, with a downward-facing
+bottom cap when `minH > 0` (the underside is visible from the street);
+collision skips footprints with `minH >= 2.5` (you walk under setbacks);
+tags use `roofY = ground + h` unchanged; the minimap ignores `minH`.
+
+**London, Kyiv and San Francisco are not re-fetched here** — their committed
+JSON has no `minH` and stays byte-identical. A later `fetch-data:sf` would
+pick up Transamerica's parts automatically.
+
 ## City picker & pause menu
 
 Both the start picker and the pause menu render into the `#menu` div in the
