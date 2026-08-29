@@ -222,3 +222,5 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 4. `git worktree list` — tigerteam/* entries are unmerged ticket branches.
 5. Supervisor is normally already up in the cockpit; `tigerteam check` confirms. Re-arm `tigerteam events --wait` (exactly one for this root: `for p in $(pgrep -f 'tigerteam events --wait'); do readlink /proc/$p/cwd; done`).
 6. Continue from Next actions.
+
+- 2026-08-29 22:00 — **T-0092 Cloudflare Web Analytics ACCEPTED (ds-1, $0.009, 5m45s, first pass): 92/92 done, board empty.** User-supplied beacon snippet inserted verbatim as the last element before `</body>` in `index.html` (token `810b…` lives only there; README `## Analytics` explains the one-line removal). Verified byte-for-byte against the user's snippet, `npm run build` carries the tag into `dist/index.html`, merged-main host gate green (723 unit + e2e). Pinned `assignee: ds` — right call for a C1: the opus lane would have billed $1–2 for the same diff. Pushed → Pages; analytics start counting once the deploy finishes (dev-server hits on localhost also report to the token — filter by hostname in the Cloudflare dashboard if that matters).
