@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { CityData, HeightFn, Road, RoadClass } from '../src/data/types';
 import { buildRoadsMesh, ROAD_LIFT, ROAD_WIDTH } from '../src/world/roads';
-import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
+import { BridgeDecks, Terrain, makeGroundAt, type DeckHump } from '../src/world/terrain';
 import type { MeshData } from '../src/world/mesh';
 
 function road(cls: RoadClass, pts: [number, number][], id = 1): Road {
@@ -223,6 +223,42 @@ describe('buildRoadsMesh', () => {
     // And no ribbon vertex sits at the underwater lerp (−24 + 0.15).
     for (let i = 1; i < m.positions.length; i += 3) {
       expect(m.positions[i]!).toBeGreaterThan(0);
+    }
+  });
+
+  it('bridge ribbons follow the hump', () => {
+    const heightAt: HeightFn = () => 1;
+    const pts: [number, number][] = [
+      [0, 0],
+      [50, 0],
+      [100, 0],
+    ];
+    const humps: DeckHump[] = [{ names: ['Hump Span'], apexY: 11 }];
+    const m = buildRoadsMesh(
+      [{ id: 1, cls: 'primary', name: 'Hump Span', pts, bridge: true }],
+      heightAt,
+      humps,
+    );
+    const midYs: number[] = [];
+    const endYs: number[] = [];
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const x = m.positions[i]!;
+      const y = m.positions[i + 1]!;
+      if (Math.abs(x - 50) < 1e-9) midYs.push(y);
+      if (Math.abs(x) < 1e-9 || Math.abs(x - 100) < 1e-9) endYs.push(y);
+    }
+    expect(midYs.length).toBeGreaterThan(0);
+    expect(endYs.length).toBeGreaterThan(0);
+    for (const y of midYs) expect(y).toBeCloseTo(11 + ROAD_LIFT, 5);
+    for (const y of endYs) expect(y).toBeCloseTo(1 + ROAD_LIFT, 5);
+    // A same-shape road not named in the hump stays on the straight lerp.
+    const other = buildRoadsMesh(
+      [{ id: 2, cls: 'primary', name: 'Other Span', pts, bridge: true }],
+      heightAt,
+      humps,
+    );
+    for (let i = 1; i < other.positions.length; i += 3) {
+      expect(other.positions[i]!).toBeCloseTo(1 + ROAD_LIFT, 5);
     }
   });
 

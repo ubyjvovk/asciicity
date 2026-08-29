@@ -38,14 +38,17 @@ The app runs a single asynchronous `main()` when the module executes.
    `makeCamera(aspect)`; set `camera.rotation.order = 'YXZ'` (architecture §5).
    Compute the walkable `HeightFn` (`groundAt`): with `city.terrain`
    present, `terrain = new Terrain(city.terrain)`,
-   `decks = new BridgeDecks(city.roads, terrain.heightAt)`, and
+   `humps = deckHumps(cityId ?? 'synthetic', city)`,
+   `decks = new BridgeDecks(city.roads, terrain.heightAt, 25, humps)`, and
    `groundAt = makeGroundAt(terrain, decks)`; otherwise `groundAt = FLAT_HEIGHT`
-   (London / synthetic-without-`hills` behaviour is byte-identical). Add
+   (London / synthetic-without-`hills` behaviour is byte-identical; humps
+   still flow into `makeRoadsObject` so a named deck is raised even on a
+   flat city). Add
    the world meshes, passing `groundAt` to every draped builder:
    - `makeGround()` — with terrain, `.position.y = terrain.min − 0.5` (void
      filler under the heightfield)
    - `makeTerrainObject(terrain.data)` — only when terrain is present
-   - `makeRoadsObject(city.roads, groundAt)`
+   - `makeRoadsObject(city.roads, groundAt, humps)`
    - `makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt)`
    - `makeWaterObject(city.water, city.waterLevels)` when `city.water?.length` is truthy
    - `makeSky(opts.time ?? new Date(), city.origin)` — the sun/moon/stars sky (docs/world.md §Sky)
@@ -324,7 +327,7 @@ points; building presets resolve against `applyLandmarks(nyc.json)` via
 `landmarkSpawn` and keep their own fallback coordinate when a name goes
 missing upstream. The default spawn `brooklynbridge` is a snapped
 coordinate on the "Brooklyn Bridge Promenade" pedestrian walkway at
-mid-span, facing Manhattan (NW). Since the SF preset key `unionsquare` was
+mid-span between the two towers, facing Manhattan (NW). Since the SF preset key `unionsquare` was
 already taken, the Manhattan version is `unionsquarenyc`. The named landmarks
 inherit their real setback massing from T-0086's `building:part` support (One
 WTC 541 m to the spire, Empire State 443 m, Central Park Tower 472 m, etc.);
@@ -335,7 +338,7 @@ spire/tower/dome cap and its stone/glass colour (`docs/architecture.md`
 
 | Key                | Kind        | Description                                                                 |
 |--------------------|-------------|-----------------------------------------------------------------------------|
-| `brooklynbridge`   | coordinate  | Brooklyn Bridge Promenade, facing Manhattan (default). Snapped to the Brooklyn-side approach ramp where terrain lifts the walker onto the deck — the arches are T-0088; without them `bridgeProfile` lerps mid-span down to the river bed. |
+| `brooklynbridge`   | coordinate  | Brooklyn Bridge Promenade at mid-span between the pylons, facing Manhattan (default). Deck humps put the walkway at ~41 m ASL. |
 | `manhattanbridge`  | coordinate  | Manhattan Bridge south walkway, facing Manhattan.                           |
 | `timessquare`      | coordinate  | Times Square, facing north up Broadway.                                     |
 | `unionsquarenyc`   | coordinate  | Union Square (nyc.json origin). SF's `unionsquare` still targets SF.        |
@@ -393,9 +396,35 @@ tags at `topY + 4`) onto the landmark tag list. The structure is visual-only
 sidewalk line and nothing is registered for collision.
 
 To add a bridge for another city, append a `SuspensionBridgeSpec` under that
-city's id in `SUSPENSION_BRIDGES` (east/west sidewalk names, WGS84 tower
-centres, `towerTopAboveDeck`, `sideSpan`, international-orange `color`). No
+city's id in `SUSPENSION_BRIDGES` (east/west sidewalk names or one walkway
+plus `deckWidth`, WGS84 tower centres from OSM pier/pylon ways,
+`towerTopAboveDeck`, `sideSpan`, `deckApexASL`, `deckRoads`, colour). No
 data-file edits.
+
+### NYC bridges and deck humps
+
+Manhattan's East River bridges start at street level, so a straight
+abutment-to-abutment lerp puts the deck a few metres over the river. Specs
+carry `deckApexASL` (41 m for all three, 67 m for the Golden Gate) and
+`deckRoads`; `deckHumps(cityId, city)` turns those into `DeckHump`s
+(`apexY = deckApexASL − datum`) that `BridgeDecks` and `buildRoadsMesh`
+apply after chaining, so the walkable deck, the ribbons and the synthesised
+structure agree. Roads not named in any hump keep the straight lerp —
+London / Kyiv byte-identical.
+
+| Bridge | Walkway(s) | `deckWidth` | Towers (OSM `bridge:support=pylon`) | `towerTopAboveDeck` | `sideSpan` | Colour |
+|--------|------------|------------:|-------------------------------------|--------------------:|-----------:|--------|
+| Brooklyn Bridge | `Brooklyn Bridge Promenade` (one walkway) | 26 | south way 317352708 (−73.994355, 40.704103); north way 1255363983 (−73.998335, 40.707268) | 43 | 284 | `0x8f857a` granite |
+| Manhattan Bridge | `Manhattan Bridge Pedestrian Path` + `Manhattan Bridge Bike Path` | 37 | south way 317352033 (−73.989436, 40.705115); north way 1255353996 (−73.991489, 40.708812) | 61 | 221 | `0x6f7f8f` |
+| Williamsburg Bridge | `Williamsburg Bridge Footpath` + `Williamsburg Bridge Bike Path` | 36 | south way 1016434035 (−73.969458, 40.712758); north way 1016434034 (−73.974820, 40.714395) | 54 | 180 | `0x7a6f66` |
+
+One-walkway bridges (Brooklyn) take the promenade as the deck axis and
+place cables/legs at `±(deckWidth/2 + 1.4)`. Two-walkway specs that also
+set `deckWidth` (Manhattan, Williamsburg) use that width as `sep` rather
+than the OSM walkway separation — Williamsburg's pair sit ~13 m apart on a
+36 m deck. `deckRoads` for the hump are the named roadway(s) on each span
+(`Brooklyn Bridge` + bicycle path; `Manhattan Bridge` + lower level;
+`Williamsburg Bridge`).
 
 ### Bay shipping
 

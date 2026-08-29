@@ -12,13 +12,18 @@ import {
   SUSPENSION_BRIDGES,
   bridgeAnchors,
   buildSuspensionBridge,
+  deckHumps,
   makeBridgesObject,
+  type SuspensionBridgeSpec,
 } from '../src/world/bridge';
 import type { MeshData } from '../src/world/mesh';
 import { BridgeDecks, Terrain, chainBridgeRoads, makeGroundAt } from '../src/world/terrain';
 
 const SF: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
+);
+const NYC: CityData = JSON.parse(
+  readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
 );
 
 const SPEC = SUSPENSION_BRIDGES.sf[0]!;
@@ -39,8 +44,9 @@ interface Frame {
   west: Seg[];
 }
 
-function namedSegs(city: CityData, name: string): Seg[] {
+function namedSegs(city: CityData, name: string | undefined): Seg[] {
   const segs: Seg[] = [];
+  if (name === undefined) return segs;
   for (const r of city.roads) {
     if (r.name !== name || !r.bridge) continue;
     for (let i = 0; i < r.pts.length - 1; i++) segs.push({ a: r.pts[i]!, b: r.pts[i + 1]! });
@@ -73,6 +79,35 @@ function alongOf(p: Vec2, origin: Vec2, along: Vec2): number {
 
 function acrossOf(p: Vec2, origin: Vec2, across: Vec2): number {
   return (p[0] - origin[0]) * across[0] + (p[1] - origin[1]) * across[1];
+}
+
+/** Mean of walkway stations at along `s` (wraps on both sides cancel). */
+function meanStation(segs: readonly Seg[], frame: Frame, s: number): Vec2 | null {
+  const hits: Vec2[] = [];
+  for (const seg of segs) {
+    const s0 = alongOf(seg.a, frame.origin, frame.along);
+    const s1 = alongOf(seg.b, frame.origin, frame.along);
+    const lo = Math.min(s0, s1);
+    const hi = Math.max(s0, s1);
+    if (s < lo - 2 || s > hi + 2) continue;
+    const t = Math.abs(s1 - s0) < 1e-9 ? 0 : (s - s0) / (s1 - s0);
+    const tt = Math.max(0, Math.min(1, t));
+    hits.push([
+      seg.a[0] + tt * (seg.b[0] - seg.a[0]),
+      seg.a[1] + tt * (seg.b[1] - seg.a[1]),
+    ]);
+  }
+  if (hits.length === 0) {
+    const n = nearestOnPoly(axisXZ(frame, s), segs);
+    return n ? n.q : null;
+  }
+  let sx = 0;
+  let sz = 0;
+  for (const h of hits) {
+    sx += h[0];
+    sz += h[1];
+  }
+  return [sx / hits.length, sz / hits.length];
 }
 
 /** Deck frame matching architecture.md §4.16 (east→west = +across). */
@@ -555,6 +590,244 @@ describe('src/world/bridge.ts', () => {
       const topN = deckY(frame, frame.span, heightAt) + SPEC.towerTopAboveDeck;
       expect(anchors[0]!.y).toBeCloseTo(topS + 4, 5);
       expect(anchors[1]!.y).toBeCloseTo(topN + 4, 5);
+    }
+  });
+
+  it('one-walkway spec builds a deck deckWidth wide centred on the walkway', () => {
+    const origin = { lat: 0, lon: 0 };
+    const southLat = -200 / 110_574;
+    const northLat = 200 / 110_574;
+    const spec: SuspensionBridgeSpec = {
+      name: 'Test Bridge',
+      sidewalks: ['Test Promenade'],
+      deckWidth: 20,
+      deckApexASL: 10,
+      deckRoads: [],
+      towers: [
+        [0, southLat],
+        [0, northLat],
+      ],
+      towerTopAboveDeck: 40,
+      sideSpan: 80,
+      color: 0x888888,
+    };
+    const city: CityData = {
+      v: 1,
+      origin,
+      bbox: [0, 0, 0, 0],
+      buildings: [],
+      roads: [
+        {
+          id: 1,
+          name: 'Test Promenade',
+          cls: 'pedestrian',
+          bridge: true,
+          pts: [
+            [0, 300],
+            [0, -300],
+          ],
+        },
+      ],
+      places: [],
+    };
+    const south = project(spec.towers[0][0], spec.towers[0][1], origin);
+    const north = project(spec.towers[1][0], spec.towers[1][1], origin);
+    expect(south[0]).toBeCloseTo(0, 5);
+    expect(south[1]).toBeCloseTo(200, 1);
+    expect(north[1]).toBeCloseTo(-200, 1);
+    const dx = north[0] - south[0];
+    const dz = north[1] - south[1];
+    const span = Math.hypot(dx, dz);
+    const along: Vec2 = [dx / span, dz / span];
+    const across: Vec2 = [-along[1], along[0]];
+    const frame: Frame = {
+      origin: south,
+      along,
+      across,
+      span,
+      sep: 20,
+      lat: 20 / 2 + 1.4,
+      east: namedSegs(city, 'Test Promenade'),
+      west: [],
+    };
+    const mesh = buildSuspensionBridge(spec, city, FLAT_HEIGHT);
+    expect(vertexCount(mesh)).toBeGreaterThan(0);
+    const targetAcross = 2 * (20 / 2 + 2);
+    const deckPieces = eachBox(mesh, frame).filter((b) => {
+      const da = b.maxA - b.minA;
+      const dy = b.maxY - b.minY;
+      return Math.abs(da - targetAcross) < 0.5 && Math.abs(dy - 7.6) < 0.8;
+    });
+    expect(deckPieces.length).toBeGreaterThan(0);
+    for (const b of deckPieces) {
+      expect(b.maxA - b.minA).toBeCloseTo(targetAcross, 5);
+      const midA = (b.minA + b.maxA) / 2;
+      expect(Math.abs(midA)).toBeLessThan(0.5);
+    }
+  });
+
+  it('nyc bridges: tower centres lie within 3 m of their walkway lines', () => {
+    expect(NYC.terrain).toBeDefined();
+    const specs = SUSPENSION_BRIDGES.nyc;
+    expect(specs?.length).toBe(3);
+    for (const spec of specs!) {
+      const origin = project(spec.towers[0][0], spec.towers[0][1], NYC.origin);
+      const north = project(spec.towers[1][0], spec.towers[1][1], NYC.origin);
+      const dx = north[0] - origin[0];
+      const dz = north[1] - origin[1];
+      const span = Math.hypot(dx, dz);
+      const along: Vec2 = [dx / span, dz / span];
+      const east = namedSegs(NYC, spec.sidewalks[0]);
+      const westName = spec.sidewalks[1];
+      const west = westName ? namedSegs(NYC, westName) : [];
+      const cw: Vec2 = [along[1], -along[0]];
+      const ccw: Vec2 = [-along[1], along[0]];
+      let across: Vec2 = ccw;
+      if (west.length > 0) {
+        const westHint = nearestOnPoly(origin, west);
+        expect(westHint, spec.name).not.toBeNull();
+        const hx = westHint!.q[0] - origin[0];
+        const hz = westHint!.q[1] - origin[1];
+        across = hx * cw[0] + hz * cw[1] > 0 ? cw : ccw;
+      }
+      const frame: Frame = {
+        origin,
+        along,
+        across,
+        span,
+        sep: spec.deckWidth ?? 20,
+        lat: (spec.deckWidth ?? 20) / 2 + 1.4,
+        east,
+        west,
+      };
+      for (const s of [0, span]) {
+        const tower = axisXZ(frame, s);
+        let q: Vec2;
+        if (west.length > 0) {
+          const e = meanStation(east, frame, s);
+          const w = meanStation(west, frame, s);
+          expect(e, `${spec.name} east s=${s}`).not.toBeNull();
+          expect(w, `${spec.name} west s=${s}`).not.toBeNull();
+          q = [(e![0] + w![0]) / 2, (e![1] + w![1]) / 2];
+        } else {
+          const e = meanStation(east, frame, s);
+          expect(e, `${spec.name} walkway s=${s}`).not.toBeNull();
+          q = e!;
+        }
+        const d = Math.hypot(tower[0] - q[0], tower[1] - q[1]);
+        expect(d, `${spec.name} s=${s} dist=${d.toFixed(3)}`).toBeLessThan(3);
+      }
+    }
+  });
+
+  it('nyc bridge decks reach their apex within 1 m at mid-span', () => {
+    expect(NYC.terrain).toBeDefined();
+    const humps = deckHumps('nyc', NYC);
+    const terrain = new Terrain(NYC.terrain!);
+    const decks = new BridgeDecks(NYC.roads, terrain.heightAt, 25, humps);
+    const groundAt = makeGroundAt(terrain, decks);
+    for (const spec of SUSPENSION_BRIDGES.nyc!) {
+      const south = project(spec.towers[0][0], spec.towers[0][1], NYC.origin);
+      const north = project(spec.towers[1][0], spec.towers[1][1], NYC.origin);
+      const mid: Vec2 = [(south[0] + north[0]) / 2, (south[1] + north[1]) / 2];
+      // Approaches make a chained walkway's t = 0.5 miss the tower midpoint
+      // (Williamsburg footpath t_mid ≈ 0.44). The deck as a whole still
+      // reaches the apex: take the highest of the spec's sidewalk snaps.
+      let y = -Infinity;
+      for (const name of spec.sidewalks) {
+        const snap = nearestOnPoly(mid, namedSegs(NYC, name));
+        expect(snap, `${spec.name} ${name}`).not.toBeNull();
+        y = Math.max(y, groundAt(snap!.q[0], snap!.q[1]));
+      }
+      const apexY = spec.deckApexASL - NYC.terrain!.datum;
+      expect(
+        Math.abs(y - apexY),
+        `${spec.name}: y=${y.toFixed(2)} apexY=${apexY.toFixed(2)}`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('deckHumps lists sidewalks and deckRoads with apexY = deckApexASL − datum', () => {
+    expect(NYC.terrain).toBeDefined();
+    const nycHumps = deckHumps('nyc', NYC);
+    expect(nycHumps).toHaveLength(3);
+    const datum = NYC.terrain!.datum;
+    for (let i = 0; i < nycHumps.length; i++) {
+      const spec = SUSPENSION_BRIDGES.nyc![i]!;
+      const hump = nycHumps[i]!;
+      for (const n of spec.sidewalks) expect(hump.names).toContain(n);
+      for (const n of spec.deckRoads) expect(hump.names).toContain(n);
+      expect(hump.apexY).toBeCloseTo(spec.deckApexASL - datum, 12);
+    }
+    const sfHumps = deckHumps('sf', SF);
+    expect(sfHumps).toHaveLength(1);
+    expect(sfHumps[0]!.names).toEqual(
+      expect.arrayContaining([
+        'Golden Gate Bridge East Sidewalk',
+        'Golden Gate Bridge West Sidewalk',
+        'Golden Gate Bridge',
+      ]),
+    );
+    expect(sfHumps[0]!.apexY).toBeCloseTo(67 - SF.terrain!.datum, 12);
+    expect(deckHumps('london', stubCity())).toEqual([]);
+    expect(deckHumps('kyiv', stubCity())).toEqual([]);
+    const flatHumps = deckHumps('sf', { ...SF, terrain: undefined });
+    expect(flatHumps[0]!.apexY).toBe(67);
+  });
+
+  it('SF bridge with the 67 m apex: cable clearance and portal tests still hold', () => {
+    if (!SF.terrain) throw new Error('sf.json has no terrain');
+    const humps = deckHumps('sf', SF);
+    const terrain = new Terrain(SF.terrain);
+    const decks = new BridgeDecks(SF.roads, terrain.heightAt, 25, humps);
+    const groundAt = makeGroundAt(terrain, decks);
+    const frame = ggbFrame(SF);
+    const mesh = buildSuspensionBridge(SPEC, SF, groundAt);
+
+    for (const side of [-1, 1] as const) {
+      const stations: { s: number; y: number }[] = [
+        { s: 0, y: deckY(frame, 0, groundAt) + SPEC.towerTopAboveDeck },
+        { s: frame.span / 2, y: deckY(frame, frame.span / 2, groundAt) + 3 },
+        { s: frame.span, y: deckY(frame, frame.span, groundAt) + SPEC.towerTopAboveDeck },
+      ];
+      for (const st of stations) {
+        const xz: Vec2 = [
+          frame.origin[0] + frame.along[0] * st.s + side * frame.lat * frame.across[0],
+          frame.origin[1] + frame.along[1] * st.s + side * frame.lat * frame.across[1],
+        ];
+        const y = meanYNear(mesh, xz[0], xz[1], 1.5, st.y, 1.2);
+        expect(y, `no cable verts at s=${st.s} side=${side}`).not.toBeNull();
+        expect(Math.abs(y! - st.y)).toBeLessThanOrEqual(0.5);
+      }
+    }
+
+    const posts = eachBox(mesh, frame).filter((b) => {
+      const ds = b.maxS - b.minS;
+      const da = b.maxA - b.minA;
+      const dy = b.maxY - b.minY;
+      return Math.abs(ds - 12) < 0.6 && Math.abs(da - 2) < 0.6 && Math.abs(dy - 8) < 0.6;
+    });
+    expect(posts.length).toBe(8);
+    const through: Vec2[] = [];
+    for (const r of SF.roads) {
+      if (r.name !== SPEC.sidewalks[0] || !r.bridge) continue;
+      for (const p of r.pts) {
+        if (Math.abs(acrossOf(p, frame.origin, frame.across)) <= frame.sep / 2 + 4) {
+          through.push(p);
+        }
+      }
+    }
+    expect(through.length).toBeGreaterThan(0);
+    for (const post of posts) {
+      const sPost = (post.minS + post.maxS) / 2;
+      const dYlocal = deckY(frame, sPost, groundAt);
+      expect(post.minY).toBeLessThanOrEqual(dYlocal - 1 + 0.2);
+      expect(post.maxY).toBeGreaterThanOrEqual(dYlocal + 7 - 0.2);
+      for (const v of through) {
+        const s = alongOf(v, frame.origin, frame.along);
+        const a = acrossOf(v, frame.origin, frame.across);
+        expect(distPointToRect(s, a, post)).toBeGreaterThanOrEqual(1.5);
+      }
     }
   });
 });

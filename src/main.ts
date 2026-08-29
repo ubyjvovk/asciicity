@@ -17,7 +17,7 @@ import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
-import { SUSPENSION_BRIDGES, bridgeAnchors, makeBridgesObject } from './world/bridge';
+import { SUSPENSION_BRIDGES, bridgeAnchors, deckHumps, makeBridgesObject } from './world/bridge';
 import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
@@ -477,9 +477,10 @@ async function main(): Promise<void> {
   let terrain: Terrain | undefined;
   let decks: BridgeDecks | undefined;
   let groundAt: HeightFn = FLAT_HEIGHT;
+  const humps = deckHumps(cityId ?? 'synthetic', city);
   if (city.terrain) {
     terrain = new Terrain(city.terrain);
-    decks = new BridgeDecks(city.roads, terrain.heightAt);
+    decks = new BridgeDecks(city.roads, terrain.heightAt, 25, humps);
     groundAt = makeGroundAt(terrain, decks);
   }
   const groundMesh = makeGround();
@@ -491,7 +492,7 @@ async function main(): Promise<void> {
   scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
 
   await buildStep('ROADS');
-  scene.add(makeRoadsObject(city.roads, groundAt));
+  scene.add(makeRoadsObject(city.roads, groundAt, humps));
 
   // Trees (architecture.md §4.14): two instanced meshes seated on the terrain.
   await buildStep('TREES');

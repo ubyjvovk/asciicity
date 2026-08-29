@@ -3,8 +3,8 @@
  * Boots the real `nyc.json` dataset twice: once at Times Square to prove it
  * renders (non-black glyphs) with terrain present (ALT row), and once with
  * the default spawn on the Brooklyn Bridge Promenade to prove the deck
- * spawn sits well above the datum (y > 8 means the walkway, not the East
- * River). Manhattan is 10 MB with 41 k buildings and 3 k building parts, so
+ * spawn sits well above the datum (y > 20 means the walkway at mid-span,
+ * not the East River). Manhattan is 10 MB with 41 k buildings and 3 k building parts, so
  * these tests may run up to a 90 s ready timeout. Never edits smoke.spec.ts.
  */
 import { test, expect, type Page } from '@playwright/test';
@@ -60,15 +60,16 @@ test('nyc: boots at Times Square, renders non-black, terrain present (ALT row)',
   await expect(page.locator('#hud')).toContainText('ALT');
 });
 
-test('nyc: default spawn puts the player on the Brooklyn Bridge deck (y > 8)', async ({
+test('nyc: default spawn puts the player on the Brooklyn Bridge deck (y > 20)', async ({
   page,
 }) => {
   await page.goto('/?city=nyc');
   await waitReady(page);
 
   // World y is relative to Union Square datum (~12 m ASL). The Brooklyn
-  // Bridge Promenade deck is ~40 m ASL → y ≈ 28; the East River water sits
-  // around ≈ −10. y > 8 separates the walkway from the river with margin.
+  // Bridge Promenade deck is ~41 m ASL at mid-span → y ≈ 31; the East River
+  // water sits around ≈ −10. y > 20 separates the walkway from the river
+  // (and from the old approach-ramp spawn at y ≈ 10).
   const out = await page.evaluate(() => {
     const api = (
       window as unknown as {
@@ -78,5 +79,5 @@ test('nyc: default spawn puts the player on the Brooklyn Bridge deck (y > 8)', a
     return { y: api?.state?.y ?? NaN, city: api?.city ?? '' };
   });
   expect(out.city).toBe('nyc');
-  expect(out.y).toBeGreaterThan(8);
+  expect(out.y).toBeGreaterThan(20);
 });
