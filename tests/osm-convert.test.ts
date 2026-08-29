@@ -237,6 +237,130 @@ describe('osm-convert building parts', () => {
     expect(tall!.minH).toBeCloseTo(50, 5);
   });
 
+  it('a part inside two nested outlines belongs to the smaller one and takes its name', () => {
+    const city = convertElements([
+      closedRect(
+        1,
+        { building: 'yes', name: 'Big Station', height: '30' },
+        0,
+        0,
+        40,
+        40,
+      ),
+      closedRect(
+        2,
+        { building: 'yes', name: 'Small Tower', height: '200' },
+        10,
+        10,
+        10,
+        10,
+      ),
+      closedRect(
+        3,
+        { 'building:part': 'yes', height: '120' },
+        12,
+        12,
+        4,
+        4,
+      ),
+    ]);
+    // Both outlines are replaced by the part; only the SMALLEST containing
+    // outline (id 2) may hand its name to the part — id 1 is dropped without
+    // transferring its name to a part that belongs to a smaller outline.
+    expect(city.buildings.some((b) => b.id === 1)).toBe(false);
+    expect(city.buildings.some((b) => b.id === 2)).toBe(false);
+    expect(city.buildings).toHaveLength(1);
+    const part = city.buildings.find((b) => b.id === 3);
+    expect(part).toBeDefined();
+    expect(part!.name).toBe('Small Tower');
+    expect(part!.h).toBeCloseTo(120, 5);
+  });
+
+  it('an outline whose parts all belong to smaller outlines is dropped without renaming anything', () => {
+    const city = convertElements([
+      closedRect(
+        1,
+        { building: 'yes', name: 'Grand Complex', height: '20' },
+        0,
+        0,
+        40,
+        40,
+      ),
+      closedRect(
+        2,
+        { building: 'yes', name: 'Alpha', height: '100' },
+        10,
+        10,
+        6,
+        6,
+      ),
+      closedRect(
+        3,
+        { building: 'yes', name: 'Beta', height: '100' },
+        25,
+        25,
+        6,
+        6,
+      ),
+      closedRect(
+        4,
+        { 'building:part': 'yes', height: '80' },
+        11,
+        11,
+        2,
+        2,
+      ),
+      closedRect(
+        5,
+        { 'building:part': 'yes', height: '90' },
+        26,
+        26,
+        2,
+        2,
+      ),
+    ]);
+    // Both parts belong to Alpha/Beta, so the outer Grand Complex is dropped
+    // WITHOUT its name landing on either part.
+    expect(city.buildings.some((b) => b.id === 1)).toBe(false);
+    expect(city.buildings.some((b) => b.id === 2)).toBe(false);
+    expect(city.buildings.some((b) => b.id === 3)).toBe(false);
+    expect(city.buildings).toHaveLength(2);
+    const pa = city.buildings.find((b) => b.id === 4);
+    const pb = city.buildings.find((b) => b.id === 5);
+    expect(pa).toBeDefined();
+    expect(pb).toBeDefined();
+    expect(pa!.name).toBe('Alpha');
+    expect(pb!.name).toBe('Beta');
+    expect(city.buildings.some((b) => b.name === 'Grand Complex')).toBe(false);
+  });
+
+  it('a named part keeps its own name', () => {
+    const city = convertElements([
+      closedRect(
+        1,
+        { building: 'yes', name: 'Complex', height: '20' },
+        0,
+        0,
+        40,
+        40,
+      ),
+      closedRect(
+        2,
+        { 'building:part': 'yes', name: 'My Tower', height: '300' },
+        10,
+        10,
+        10,
+        10,
+      ),
+    ]);
+    expect(city.buildings.some((b) => b.id === 1)).toBe(false);
+    expect(city.buildings).toHaveLength(1);
+    const part = city.buildings.find((b) => b.id === 2);
+    expect(part).toBeDefined();
+    expect(part!.name).toBe('My Tower');
+    expect(part!.h).toBeCloseTo(300, 5);
+  });
+
   it('an outline without parts and a part outside every outline are kept unchanged', () => {
     const city = convertElements([
       closedRect(10, { building: 'yes', name: 'Ordinary', height: '14' }, 0, 0, 10, 10),
