@@ -188,6 +188,8 @@ body {
   font-size: 18px;
   letter-spacing: 0.15em;
   margin: 0;
+  /* Loading indicator (§4.18): the bar line follows a \n. */
+  white-space: pre-line;
 }
 
 /* Compact "CLICK TO RESUME" variant shown after pointer-lock loss. */
