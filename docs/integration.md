@@ -343,8 +343,8 @@ spire/tower/dome cap and its stone/glass colour (`docs/architecture.md`
 | `timessquare`      | coordinate  | Times Square, facing north up Broadway.                                     |
 | `unionsquarenyc`   | coordinate  | Union Square (nyc.json origin). SF's `unionsquare` still targets SF.        |
 | `batterypark`      | coordinate  | Battery Park, facing the Downtown skyline.                                  |
-| `dumbo`            | coordinate  | DUMBO, Manhattan Bridge framing the skyline (the postcard).                 |
-| `empirestate`      | building    | Facing the Empire State Building.                                           |
+| `dumbo`            | coordinate  | Washington Street at Water Street, DUMBO — north up Washington St (bearing 350°), Manhattan Bridge tower framing the skyline (T-0090 re-aim). |
+| `empirestate`      | coordinate  | Middle of 5th Avenue at 38th Street, facing down the avenue toward the tower (bearing 200°; T-0090 re-aim from building preset). |
 | `chrysler`         | building    | Facing the Chrysler Building.                                               |
 | `onewtc`           | building    | Facing One World Trade Center.                                              |
 | `flatiron`         | building    | Facing the Flatiron Building.                                               |
