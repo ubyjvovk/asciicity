@@ -169,10 +169,27 @@ export function makeTerrainObject(t: TerrainData): THREE.Mesh {
 }
 
 /**
- * Straight deck between the abutments, never below the sampled ground at a
- * polyline vertex. A 2-point polyline is `[ya, yb]`.
+ * Named roads that share one parabolic deck hump (architecture.md §4.9,
+ * wave 10). `apexY` is metres above the city datum (`deckApexASL − datum`).
  */
-export function bridgeProfile(pts: Vec2[], heightAt: HeightFn): number[] {
+export interface DeckHump {
+  /** Exact `Road.name` values (walkways + roadway) that share this hump. */
+  names: string[];
+  /** Deck height at mid-span, metres above the city datum. */
+  apexY: number;
+}
+
+/**
+ * Deck height along a polyline: straight lerp between the abutments, or —
+ * when `apexY` is given — the quadratic through `(0, ya)`, `(0.5, apexY)`,
+ * `(1, yb)` in normalised arc-length. Never below the sampled ground at a
+ * polyline vertex. A 2-point polyline without an apex is `[ya, yb]`.
+ */
+export function bridgeProfile(
+  pts: Vec2[],
+  heightAt: HeightFn,
+  apexY?: number,
+): number[] {
   const n = pts.length;
   const first = pts[0]!;
   const last = pts[n - 1]!;
@@ -190,10 +207,46 @@ export function bridgeProfile(pts: Vec2[], heightAt: HeightFn): number[] {
   for (let i = 0; i < n; i++) {
     const p = pts[i]!;
     const ti = total > 0 ? cum[i]! / total : 0;
-    const deck = ya + (yb - ya) * ti;
+    const deck =
+      apexY === undefined
+        ? ya + (yb - ya) * ti
+        : // Quadratic through (0, ya), (0.5, apexY), (1, yb).
+          2 * (ya + yb - 2 * apexY) * ti * ti + (4 * apexY - 3 * ya - yb) * ti + ya;
     ys[i] = Math.max(deck, heightAt(p[0], p[1]));
   }
   return ys;
+}
+
+/** Apex of the hump that names `roadName`, or `undefined` when none matches. */
+function humpApex(roadName: string | undefined, humps: readonly DeckHump[]): number | undefined {
+  if (roadName === undefined) return undefined;
+  for (const h of humps) {
+    if (h.names.includes(roadName)) return h.apexY;
+  }
+  return undefined;
+}
+
+/**
+ * Insert vertices so no segment is longer than `maxLen` metres. Needed so a
+ * quadratic hump is not chorded away on OSM's long main-span segments
+ * (Manhattan Bridge's pedestrian path crosses the river in one ~430 m
+ * piece). Linear corridors are unchanged — new points lie on existing
+ * segments.
+ */
+function densifyPts(pts: Vec2[], maxLen = 50): Vec2[] {
+  if (pts.length < 2) return pts;
+  const out: Vec2[] = [pts[0]!];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.max(1, Math.ceil(len / maxLen));
+    for (let k = 1; k <= n; k++) {
+      const f = k / n;
+      out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]);
+    }
+  }
+  return out;
 }
 
 /** Distance between two points, in metres. */
@@ -277,18 +330,20 @@ export class BridgeDecks {
 
   /**
    * Bucket every segment of every `bridge === true` road. `cell` defaults to
-   * 25 m, matching `CollisionGrid` corridors.
+   * 25 m, matching `CollisionGrid` corridors. After chaining, a road whose
+   * `name` is in a hump's `names` is profiled with that hump's `apexY`.
    */
-  constructor(roads: Road[], heightAt: HeightFn, cell = 25) {
+  constructor(roads: Road[], heightAt: HeightFn, cell = 25, humps: readonly DeckHump[] = []) {
     this.cell = cell;
     // Chain same-name bridge pieces into one polyline first, so a multi-piece
     // bridge (e.g. the Golden Gate Bridge East Sidewalk) is profiled between
     // its true abutments instead of between each piece's own water-level ends.
     for (const road of chainBridgeRoads(roads)) {
       if (road.bridge !== true) continue;
-      const pts = road.pts;
+      const apex = humpApex(road.name, humps);
+      const pts = apex === undefined ? road.pts : densifyPts(road.pts);
       if (pts.length < 2) continue;
-      const ys = bridgeProfile(pts, heightAt);
+      const ys = bridgeProfile(pts, heightAt, apex);
       const halfWidth = ROAD_WIDTH[road.cls] / 2 + 1;
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i]!;

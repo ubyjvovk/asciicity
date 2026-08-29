@@ -321,23 +321,19 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
   },
   // Manhattan presets (wave 10, docs/integration.md §Manhattan presets).
   // Default spawn: `brooklynbridge` — snapped onto the "Brooklyn Bridge
-  // Promenade" pedestrian walkway at mid-span, facing Manhattan (NW). The
-  // exact coordinate is the promenade vertex nearest the polyline bounding
-  // box centre in nyc.json; landmark buildings resolve against
+  // Promenade" pedestrian walkway at mid-span between the two towers,
+  // facing Manhattan (NW). Landmark buildings resolve against
   // `applyLandmarks(nyc.json)` via `landmarkSpawn` with their own coord
   // fallback in case an OSM name changes upstream. Coordinate presets sit at
   // the named intersections/squares. The SF `unionsquare` key already exists,
   // so Union Square Manhattan is `unionsquarenyc`.
   brooklynbridge: {
-    // Snapped to a "Brooklyn Bridge Promenade" vertex on the Brooklyn-side
-    // approach ramp — bridge structure (arches, cables) is T-0088; without
-    // it `bridgeProfile` lerps the deck between the two shore abutments and
-    // mid-span sits at river-bed elevation. This ramp vertex is the closest
-    // point to true mid-span where `terrain.heightAt` naturally lifts the
-    // walker onto the deck (h ≈ 8.5 m → y > 8, satisfying the T-0087
-    // e2e that treats y > 8 as "on the bridge, not in the East River").
-    lon: -73.989857,
-    lat: 40.700537,
+    // Mid-span between the two OSM pylon centroids (ways 317352708 /
+    // 1255363983), snapped onto the "Brooklyn Bridge Promenade" line,
+    // facing Manhattan along the deck (bearing 316°). Deck humps (T-0088)
+    // put this station at ~41 m ASL.
+    lon: -73.996345,
+    lat: 40.705685,
     bearingDeg: 316,
     label: 'Brooklyn Bridge Promenade, facing Manhattan',
     city: 'nyc',

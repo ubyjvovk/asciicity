@@ -14,6 +14,7 @@ import {
   chainBridgeRoads,
   makeGroundAt,
   terrainHeightAt,
+  type DeckHump,
 } from '../src/world/terrain';
 
 function grid(
@@ -292,6 +293,31 @@ describe('bridgeProfile', () => {
     expect(ys[2]).toBe(1);
     expect(ys[1]).toBe(7);
   });
+
+  it('bridgeProfile with an apex is a parabola through the abutments peaking at mid-span', () => {
+    const heightAt: HeightFn = () => 2;
+    const pts: Vec2[] = [
+      [0, 0],
+      [10, 0],
+      [20, 0],
+      [30, 0],
+      [40, 0],
+    ];
+    const apexY = 12;
+    const ys = bridgeProfile(pts, heightAt, apexY);
+    expect(ys[0]).toBeCloseTo(2, 12);
+    expect(ys[4]).toBeCloseTo(2, 12);
+    expect(ys[2]).toBeCloseTo(apexY, 12);
+    // Symmetric about mid-span: q(t) = q(1 − t).
+    expect(ys[1]).toBeCloseTo(ys[3]!, 12);
+    // Above the straight lerp (which would be 2 throughout).
+    expect(ys[1]!).toBeGreaterThan(2);
+    expect(ys[1]!).toBeLessThan(apexY);
+    // Terrain still floors the parabola: a bump at a vertex wins.
+    const bump: HeightFn = (x) => (x === 20 ? 20 : 2);
+    const ysBump = bridgeProfile(pts, bump, apexY);
+    expect(ysBump[2]).toBe(20);
+  });
 });
 
 describe('BridgeDecks', () => {
@@ -338,6 +364,21 @@ describe('BridgeDecks', () => {
       heightAt,
     );
     expect(decks.deckAt([10, 0])).toBeCloseTo(8, 12);
+  });
+
+  it('BridgeDecks applies a hump only to the named chained roads', () => {
+    const heightAt: HeightFn = () => 0;
+    const humps: DeckHump[] = [{ names: ['Humped'], apexY: 10 }];
+    const roads: Road[] = [
+      makeRoad({ id: 1, name: 'Humped', bridge: true, pts: [[0, 0], [20, 0], [40, 0]] }),
+      makeRoad({ id: 2, name: 'Straight', bridge: true, pts: [[0, 20], [20, 20], [40, 20]] }),
+    ];
+    const decks = new BridgeDecks(roads, heightAt, 25, humps);
+    expect(decks.deckAt([20, 0])).toBeCloseTo(10, 12);
+    expect(decks.deckAt([0, 0])).toBeCloseTo(0, 12);
+    expect(decks.deckAt([40, 0])).toBeCloseTo(0, 12);
+    // Unnamed-in-hump road keeps the straight lerp (0 throughout).
+    expect(decks.deckAt([20, 20])).toBeCloseTo(0, 12);
   });
 });
 

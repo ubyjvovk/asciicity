@@ -3,9 +3,9 @@
  * (docs/architecture.md §4.5).
  */
 import * as THREE from 'three';
-import { FLAT_HEIGHT, type HeightFn, type Road, type RoadClass } from '../data/types';
+import { FLAT_HEIGHT, type HeightFn, type Road, type RoadClass, type Vec2 } from '../data/types';
 import { MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
-import { bridgeProfile, chainBridgeRoads } from './terrain';
+import { bridgeProfile, chainBridgeRoads, type DeckHump } from './terrain';
 
 /** Metres of ribbon width per OSM-style road class. */
 export const ROAD_WIDTH: Record<RoadClass, number> = {
@@ -42,21 +42,54 @@ function lerp(a: number, b: number, f: number): number {
   return a + (b - a) * f;
 }
 
+/** Apex of the hump that names `roadName`, or `undefined` when none matches. */
+function humpApex(roadName: string | undefined, humps: readonly DeckHump[]): number | undefined {
+  if (roadName === undefined) return undefined;
+  for (const h of humps) {
+    if (h.names.includes(roadName)) return h.apexY;
+  }
+  return undefined;
+}
+
+/** Insert vertices so no segment exceeds `maxLen` m (hump chords). */
+function densifyPts(pts: Vec2[], maxLen = 50): Vec2[] {
+  if (pts.length < 2) return pts;
+  const out: Vec2[] = [pts[0]!];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.max(1, Math.ceil(len / maxLen));
+    for (let k = 1; k <= n; k++) {
+      const f = k / n;
+      out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]);
+    }
+  }
+  return out;
+}
+
 /**
  * Build a merged triangle soup of draped road ribbons (no mitres). Bridge
  * roads are first passed through `chainBridgeRoads` so same-name pieces with
  * coincident endpoints (e.g. the Golden Gate Bridge East Sidewalk, split into
  * three OSM ways over open water) share one `bridgeProfile` spanning the true
  * abutments — the ribbon then agrees with the walkable deck built by
- * `BridgeDecks`. Non-bridge and unnamed bridge roads pass through untouched.
+ * `BridgeDecks`. After chaining, a road whose `name` is in a hump's `names`
+ * is profiled with that hump's `apexY` (architecture.md §4.9). Non-bridge
+ * and unnamed bridge roads pass through untouched.
  */
-export function buildRoadsMesh(roads: Road[], heightAt: HeightFn = FLAT_HEIGHT): MeshData {
+export function buildRoadsMesh(
+  roads: Road[],
+  heightAt: HeightFn = FLAT_HEIGHT,
+  humps: readonly DeckHump[] = [],
+): MeshData {
   const mesh = new MeshBuilder();
   for (const road of chainBridgeRoads(roads)) {
     const half = ROAD_WIDTH[road.cls] / 2;
     const color = colorForClass(road.cls);
-    const pts = road.pts;
-    const deckYs = road.bridge === true ? bridgeProfile(pts, heightAt) : undefined;
+    const apex = road.bridge === true ? humpApex(road.name, humps) : undefined;
+    const pts = apex === undefined ? road.pts : densifyPts(road.pts);
+    const deckYs = road.bridge === true ? bridgeProfile(pts, heightAt, apex) : undefined;
     for (let i = 0; i < pts.length - 1; i++) {
       const p = pts[i]!;
       const q = pts[i + 1]!;
@@ -116,8 +149,12 @@ export function buildRoadsMesh(roads: Road[], heightAt: HeightFn = FLAT_HEIGHT):
 }
 
 /** Wrap `buildRoadsMesh` in a single MeshBasicMaterial mesh with vertex colours. */
-export function makeRoadsObject(roads: Road[], heightAt: HeightFn = FLAT_HEIGHT): THREE.Mesh {
-  const geom = toGeometry(buildRoadsMesh(roads, heightAt));
+export function makeRoadsObject(
+  roads: Road[],
+  heightAt: HeightFn = FLAT_HEIGHT,
+  humps: readonly DeckHump[] = [],
+): THREE.Mesh {
+  const geom = toGeometry(buildRoadsMesh(roads, heightAt, humps));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
   return new THREE.Mesh(geom, mat);
 }

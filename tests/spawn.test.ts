@@ -20,6 +20,8 @@ import {
 } from '../src/world/collision';
 import { applyLandmarks } from '../src/world/landmarks';
 import { ROAD_WIDTH } from '../src/world/roads';
+import { deckHumps } from '../src/world/bridge';
+import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -1164,8 +1166,8 @@ describe('Manhattan presets (wave 10)', () => {
     expect('building' in SPAWN_PRESETS.brooklynbridge).toBe(false);
     expect(SPAWN_PRESETS.brooklynbridge).toMatchObject({
       city: 'nyc',
-      lon: -73.989857,
-      lat: 40.700537,
+      lon: -73.996345,
+      lat: 40.705685,
       bearingDeg: 316,
     });
   });
@@ -1229,6 +1231,44 @@ describe('Manhattan presets (wave 10)', () => {
       // vertices per piece so the segment loop above covers everything).
     }
     expect(best).toBeLessThan(3);
+  });
+
+  it('brooklynbridge sits on the promenade at mid-span, 40 ± 5 m ASL', () => {
+    const NYC: CityData = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+    );
+    expect(NYC.terrain).toBeDefined();
+    const preset = SPAWN_PRESETS.brooklynbridge as { lon: number; lat: number };
+    const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
+    const walkway = NYC.roads.filter(
+      (r) =>
+        r.name === 'Brooklyn Bridge Promenade' &&
+        r.cls === 'pedestrian' &&
+        r.bridge === true,
+    );
+    expect(walkway.length).toBeGreaterThan(0);
+    let best = Infinity;
+    for (const r of walkway) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        best = Math.min(best, distToSegment([px, pz], r.pts[i], r.pts[i + 1]));
+      }
+    }
+    expect(best).toBeLessThan(3);
+
+    // Mid-span between the two Brooklyn Bridge pylons (OSM ways 317352708 /
+    // 1255363983). The spawn is the promenade snap of that midpoint.
+    const south = project(-73.994355, 40.704103, NYC.origin);
+    const north = project(-73.998335, 40.707268, NYC.origin);
+    const mid: Vec2 = [(south[0] + north[0]) / 2, (south[1] + north[1]) / 2];
+    expect(Math.hypot(px - mid[0], pz - mid[1])).toBeLessThan(3);
+
+    const humps = deckHumps('nyc', NYC);
+    const terrain = new Terrain(NYC.terrain!);
+    const decks = new BridgeDecks(NYC.roads, terrain.heightAt, 25, humps);
+    const groundAt = makeGroundAt(terrain, decks);
+    const asl = NYC.terrain!.datum + groundAt(px, pz);
+    expect(asl).toBeGreaterThanOrEqual(35);
+    expect(asl).toBeLessThanOrEqual(45);
   });
 
   it('manhattanbridge sits on the "Manhattan Bridge Pedestrian Path" south walkway (≤ 3 m)', () => {

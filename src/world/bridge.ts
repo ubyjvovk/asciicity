@@ -8,6 +8,7 @@ import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from '../data/ty
 import { project } from '../geo';
 import type { TagAnchor } from '../hud/tags';
 import { MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
+import type { DeckHump } from './terrain';
 
 const UV: UV = [0, 0];
 /** Cable / hanger sample spacing (m). */
@@ -56,8 +57,18 @@ const JOINT_EPS = 0.5;
 export interface SuspensionBridgeSpec {
   /** Display name, e.g. `'Golden Gate Bridge'`. */
   name: string;
-  /** Exact road names: `[east, west]` deck-edge polylines (`bridge: true`). */
-  sidewalks: [string, string];
+  /**
+   * Exact road names of the deck-edge walkway polylines (`bridge: true`).
+   * Two names = east then west; one name (wave 10) = the walkway is the
+   * deck axis and `deckWidth` is required.
+   */
+  sidewalks: [string, string] | [string];
+  /** Full deck width in metres; required with one walkway. */
+  deckWidth?: number;
+  /** Deck height at mid-span, metres above sea level. */
+  deckApexASL: number;
+  /** Exact names of the roadway/walkway roads that ride this deck. */
+  deckRoads: string[];
   /** WGS84 `[lon, lat]` tower centres (south, then north). */
   towers: [[number, number], [number, number]];
   /** Metres of tower above the deck (GGB: 160). */
@@ -68,12 +79,14 @@ export interface SuspensionBridgeSpec {
   color: number;
 }
 
-/** Per-city suspension-bridge table; only `sf` has an entry. */
+/** Per-city suspension-bridge table (`sf` + `nyc`). */
 export const SUSPENSION_BRIDGES: Readonly<Record<string, readonly SuspensionBridgeSpec[]>> = {
   sf: [
     {
       name: 'Golden Gate Bridge',
       sidewalks: ['Golden Gate Bridge East Sidewalk', 'Golden Gate Bridge West Sidewalk'],
+      deckApexASL: 67,
+      deckRoads: ['Golden Gate Bridge'],
       towers: [
         [-122.4779, 37.814],
         [-122.47923, 37.8255],
@@ -81,6 +94,57 @@ export const SUSPENSION_BRIDGES: Readonly<Record<string, readonly SuspensionBrid
       towerTopAboveDeck: 160,
       sideSpan: 343,
       color: 0xc0362c,
+    },
+  ],
+  nyc: [
+    {
+      // OSM pylon ways 317352708 (Brooklyn / south) and 1255363983
+      // (Manhattan / north), `bridge:support=pylon` centroids.
+      name: 'Brooklyn Bridge',
+      sidewalks: ['Brooklyn Bridge Promenade'],
+      deckWidth: 26,
+      deckApexASL: 41,
+      deckRoads: ['Brooklyn Bridge', 'Brooklyn Bridge Bicycle Path'],
+      towers: [
+        [-73.994355, 40.704103],
+        [-73.998335, 40.707268],
+      ],
+      towerTopAboveDeck: 43,
+      sideSpan: 284,
+      color: 0x8f857a,
+    },
+    {
+      // OSM pylon ways 317352033 (Brooklyn / south) and 1255353996
+      // (Manhattan / north); matching pier ways 1016640944 / 1255353997.
+      name: 'Manhattan Bridge',
+      sidewalks: ['Manhattan Bridge Pedestrian Path', 'Manhattan Bridge Bike Path'],
+      deckWidth: 37,
+      deckApexASL: 41,
+      deckRoads: ['Manhattan Bridge', 'Manhattan Bridge (lower level)'],
+      towers: [
+        [-73.989436, 40.705115],
+        [-73.991489, 40.708812],
+      ],
+      towerTopAboveDeck: 61,
+      sideSpan: 221,
+      color: 0x6f7f8f,
+    },
+    {
+      // OSM pylon ways 1016434035 (Brooklyn / south) and 1016434034
+      // (Manhattan / north). Both OSM walkways exist; they sit ~13 m
+      // apart on a 36 m deck, so `deckWidth` supplies `sep`.
+      name: 'Williamsburg Bridge',
+      sidewalks: ['Williamsburg Bridge Footpath', 'Williamsburg Bridge Bike Path'],
+      deckWidth: 36,
+      deckApexASL: 41,
+      deckRoads: ['Williamsburg Bridge'],
+      towers: [
+        [-73.969458, 40.712758],
+        [-73.97482, 40.714395],
+      ],
+      towerTopAboveDeck: 54,
+      sideSpan: 180,
+      color: 0x7a6f66,
     },
   ],
 };
@@ -251,30 +315,57 @@ function makeFrame(spec: SuspensionBridgeSpec, city: CityData): Frame | null {
   const span = Math.hypot(dx, dz);
   if (span < 1) return null;
   const along: Vec2 = [dx / span, dz / span];
-  const east = namedBridgeSegs(city, spec.sidewalks[0]);
-  const west = namedBridgeSegs(city, spec.sidewalks[1]);
-  if (east.length === 0 || west.length === 0) return null;
+  const eastName = spec.sidewalks[0];
+  const westName = spec.sidewalks[1];
+  const east = namedBridgeSegs(city, eastName);
+  if (east.length === 0) return null;
+  const cw: Vec2 = [along[1], -along[0]];
+  const ccw: Vec2 = [-along[1], along[0]];
+  const eastPieces = city.roads
+    .filter((r) => r.name === eastName && r.bridge)
+    .map((r) => r.pts);
+  const eastLine = concatAlong(eastPieces, south, along);
+
+  // One-walkway (wave 10): the walkway IS the axis; sep = deckWidth;
+  // cables/legs sit at ±(sep/2 + 1.4). +across is along rotated +90° (ccw).
+  if (westName === undefined) {
+    const sep = spec.deckWidth;
+    if (sep === undefined || sep < 1) return null;
+    return {
+      origin: south,
+      along,
+      across: ccw,
+      span,
+      sep,
+      halfW: sep / 2 + 2,
+      lat: sep / 2 + 1.4,
+      east,
+      west: [],
+      eastLine,
+    };
+  }
+
+  const west = namedBridgeSegs(city, westName);
+  if (west.length === 0) return null;
   // +across must point from the east sidewalk toward the west one.
   const westHint = nearestOnPoly(south, west);
   if (!westHint) return null;
   const hx = westHint.q[0] - south[0];
   const hz = westHint.q[1] - south[1];
-  const cw: Vec2 = [along[1], -along[0]];
-  const ccw: Vec2 = [-along[1], along[0]];
   const across: Vec2 = hx * cw[0] + hz * cw[1] > 0 ? cw : ccw;
-  const eastPieces = city.roads
-    .filter((r) => r.name === spec.sidewalks[0] && r.bridge)
-    .map((r) => r.pts);
-  const eastLine = concatAlong(eastPieces, south, along);
   const dists: number[] = [];
   for (const r of city.roads) {
-    if (r.name !== spec.sidewalks[0] || !r.bridge) continue;
+    if (r.name !== eastName || !r.bridge) continue;
     for (const p of r.pts) {
       const n = nearestOnPoly(p, west);
       if (n) dists.push(n.d);
     }
   }
-  const sep = median(dists);
+  const measured = median(dists);
+  // `deckWidth` (when set) is the real deck width; OSM walkways are not
+  // always the deck edges (Williamsburg's pair sit ~13 m apart on a 36 m
+  // deck). GGB has no `deckWidth` and keeps the measured median.
+  const sep = spec.deckWidth !== undefined && spec.deckWidth >= 1 ? spec.deckWidth : measured;
   if (sep < 1) return null;
   return {
     origin: south,
@@ -510,9 +601,14 @@ function cablePoint(
   heightAt: HeightFn,
 ): Vec3 {
   const xz = lateralXZ(frame, s, side);
-  const topS = deckY(frame, 0, heightAt) + spec.towerTopAboveDeck;
-  const topN = deckY(frame, frame.span, heightAt) + spec.towerTopAboveDeck;
-  const sag = spec.towerTopAboveDeck - MIDSPAN_CLEAR;
+  const dS = deckY(frame, 0, heightAt);
+  const dN = deckY(frame, frame.span, heightAt);
+  const dMid = deckY(frame, frame.span / 2, heightAt);
+  const topS = dS + spec.towerTopAboveDeck;
+  const topN = dN + spec.towerTopAboveDeck;
+  // 3 m clearance over the deck at mid-span. On a flat deck this is
+  // `towerTopAboveDeck − 3`; a hump raises dMid so sag grows with it.
+  const sag = (topS + topN) / 2 - dMid - MIDSPAN_CLEAR;
   let y: number;
   if (s >= 0 && s <= frame.span) {
     const u = frame.span > 0 ? s / frame.span : 0;
@@ -594,6 +690,9 @@ function emitTower(
   const innerW = frame.lat - halfLeg;
   const strutHalf = STRUT_ALONG / 2;
   for (const level of STRUT_LEVELS) {
+    // NYC towers (43–61 m above deck) are shorter than GGB's 160 m; skip
+    // strut levels that would sit above the tower top.
+    if (dY + level >= topY - 1e-6) continue;
     box(
       mesh,
       frame,
@@ -602,7 +701,7 @@ function emitTower(
       innerE,
       innerW,
       dY + level,
-      dY + level + STRUT_H,
+      Math.min(dY + level + STRUT_H, topY),
       color,
     );
   }
@@ -731,4 +830,24 @@ export function makeBridgesObject(
   const geom = toGeometry(mesh.build());
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   return new THREE.Mesh(geom, mat);
+}
+
+/**
+ * Deck humps for `cityId`: one per spec, `names = sidewalks ∪ deckRoads`,
+ * `apexY = deckApexASL − datum` (flat cities: `apexY = deckApexASL`).
+ */
+export function deckHumps(cityId: string, city: CityData): DeckHump[] {
+  const datum = city.terrain?.datum ?? 0;
+  const out: DeckHump[] = [];
+  for (const spec of SUSPENSION_BRIDGES[cityId] ?? []) {
+    const names: string[] = [];
+    for (const n of spec.sidewalks) {
+      if (!names.includes(n)) names.push(n);
+    }
+    for (const n of spec.deckRoads) {
+      if (!names.includes(n)) names.push(n);
+    }
+    out.push({ names, apexY: spec.deckApexASL - datum });
+  }
+  return out;
 }
