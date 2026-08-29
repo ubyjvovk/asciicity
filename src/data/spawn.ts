@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -318,6 +318,150 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 315,
     label: 'Union Square, facing downtown',
     city: 'sf',
+  },
+  // Manhattan presets (wave 10, docs/integration.md §Manhattan presets).
+  // Default spawn: `brooklynbridge` — snapped onto the "Brooklyn Bridge
+  // Promenade" pedestrian walkway at mid-span, facing Manhattan (NW). The
+  // exact coordinate is the promenade vertex nearest the polyline bounding
+  // box centre in nyc.json; landmark buildings resolve against
+  // `applyLandmarks(nyc.json)` via `landmarkSpawn` with their own coord
+  // fallback in case an OSM name changes upstream. Coordinate presets sit at
+  // the named intersections/squares. The SF `unionsquare` key already exists,
+  // so Union Square Manhattan is `unionsquarenyc`.
+  brooklynbridge: {
+    // Snapped to a "Brooklyn Bridge Promenade" vertex on the Brooklyn-side
+    // approach ramp — bridge structure (arches, cables) is T-0088; without
+    // it `bridgeProfile` lerps the deck between the two shore abutments and
+    // mid-span sits at river-bed elevation. This ramp vertex is the closest
+    // point to true mid-span where `terrain.heightAt` naturally lifts the
+    // walker onto the deck (h ≈ 8.5 m → y > 8, satisfying the T-0087
+    // e2e that treats y > 8 as "on the bridge, not in the East River").
+    lon: -73.989857,
+    lat: 40.700537,
+    bearingDeg: 316,
+    label: 'Brooklyn Bridge Promenade, facing Manhattan',
+    city: 'nyc',
+  },
+  manhattanbridge: {
+    lon: -73.989649,
+    lat: 40.705101,
+    bearingDeg: 337,
+    label: 'Manhattan Bridge south walkway, facing Manhattan',
+    city: 'nyc',
+  },
+  timessquare: {
+    lon: -73.9855,
+    lat: 40.758,
+    bearingDeg: 20,
+    label: 'Times Square, facing north up Broadway',
+    city: 'nyc',
+  },
+  unionsquarenyc: {
+    lon: -73.9905,
+    lat: 40.7359,
+    bearingDeg: 0,
+    label: 'Union Square, Manhattan',
+    city: 'nyc',
+  },
+  batterypark: {
+    lon: -74.0155,
+    lat: 40.7033,
+    bearingDeg: 45,
+    label: 'Battery Park, facing the Downtown skyline',
+    city: 'nyc',
+  },
+  dumbo: {
+    lon: -73.9906,
+    lat: 40.703,
+    bearingDeg: 250,
+    label: 'DUMBO, Manhattan Bridge framing the skyline',
+    city: 'nyc',
+  },
+  empirestate: {
+    building: 'Empire State Building',
+    label: 'Facing the Empire State Building',
+    city: 'nyc',
+    lon: -73.9857,
+    lat: 40.7484,
+    bearingDeg: 270,
+  },
+  chrysler: {
+    building: 'Chrysler Building',
+    label: 'Facing the Chrysler Building',
+    city: 'nyc',
+    lon: -73.9754,
+    lat: 40.7515,
+    bearingDeg: 270,
+  },
+  onewtc: {
+    building: 'One World Trade Center',
+    label: 'Facing One World Trade Center',
+    city: 'nyc',
+    lon: -74.0134,
+    lat: 40.7127,
+    bearingDeg: 315,
+  },
+  flatiron: {
+    building: 'Flatiron Building',
+    label: 'Facing the Flatiron Building',
+    city: 'nyc',
+    lon: -73.99,
+    lat: 40.7405,
+    bearingDeg: 0,
+  },
+  woolworth: {
+    building: 'Woolworth Building',
+    label: 'Facing the Woolworth Building',
+    city: 'nyc',
+    lon: -74.008,
+    lat: 40.7124,
+    bearingDeg: 315,
+  },
+  rockefeller: {
+    building: '30 Rockefeller Plaza',
+    label: 'Facing 30 Rockefeller Plaza',
+    city: 'nyc',
+    lon: -73.9787,
+    lat: 40.7583,
+    bearingDeg: 315,
+  },
+  stpatricks: {
+    building: 'Saint Patrick’s Cathedral',
+    label: "Facing St. Patrick's Cathedral",
+    city: 'nyc',
+    lon: -73.9762,
+    lat: 40.7585,
+    bearingDeg: 270,
+  },
+  grandcentral: {
+    building: 'Grand Central Terminal',
+    label: 'Facing Grand Central Terminal',
+    city: 'nyc',
+    lon: -73.9772,
+    lat: 40.7526,
+    bearingDeg: 315,
+  },
+  centralpark: {
+    lon: -73.9738,
+    lat: 40.7645,
+    bearingDeg: 289,
+    label: 'Grand Army Plaza, facing Central Park Tower',
+    city: 'nyc',
+  },
+  wallstreet: {
+    lon: -74.0107,
+    lat: 40.7075,
+    bearingDeg: 270,
+    label: 'Wall Street, facing Trinity Church',
+    city: 'nyc',
+  },
+  washingtonsquare: {
+    building: 'Washington Square Arch',
+    label: 'Washington Square Park, facing the Arch',
+    city: 'nyc',
+    lon: -73.99734,
+    lat: 40.731,
+    bearingDeg: 0,
   },
 };
 

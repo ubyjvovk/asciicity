@@ -21,8 +21,8 @@ function loadBbox(file: string): DatasetHeader['bbox'] {
 }
 
 describe('CITIES registry', () => {
-  it('lists london first (default), then kyiv, then sf', () => {
-    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv', 'sf']);
+  it('lists london first (default), then kyiv, sf, nyc', () => {
+    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv', 'sf', 'nyc']);
   });
 
   it('carries the expected labels, files and blurbs', () => {
@@ -43,6 +43,12 @@ describe('CITIES registry', () => {
     expect(sf.file).toBe('data/sf.json');
     expect(sf.defaultSpawn).toBe('ggb');
     expect(sf.blurb).toBe('Downtown to the Golden Gate · hills & bay');
+
+    const nyc = CITIES[3];
+    expect(nyc.label).toBe('MANHATTAN');
+    expect(nyc.file).toBe('data/nyc.json');
+    expect(nyc.defaultSpawn).toBe('brooklynbridge');
+    expect(nyc.blurb).toBe('Battery to Central Park · skyscrapers & bridges');
   });
 });
 
@@ -73,6 +79,12 @@ describe('cityById', () => {
   it("cityById('sf') → the San Francisco entry (resolvable)", () => {
     expect(cityById('sf')?.id).toBe('sf');
     expect(cityById('SF ')?.id).toBe('sf');
+  });
+
+  it("cityById('nyc') → the Manhattan entry (resolvable, wave 10)", () => {
+    expect(cityById('nyc')?.id).toBe('nyc');
+    expect(cityById(' NYC ')?.id).toBe('nyc');
+    expect(cityById('NyC')?.label).toBe('MANHATTAN');
   });
 });
 

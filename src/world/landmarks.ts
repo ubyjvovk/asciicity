@@ -73,6 +73,35 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
     // the floating tag read "Alcatraz" (architecture.md §4.13 wave 9 (a)).
     'Alcatraz Island Lighthouse': { color: 0xf5f0e6, label: 'Alcatraz' },
   },
+  // Manhattan (wave 10, docs/architecture.md §4.13 wave-10 table). NYC OSM
+  // heights are mostly good since T-0086's building-part support brought the
+  // real setback massing in — Empire State (443), One WTC (541 spire),
+  // Chrysler (282), 30 Rockefeller Plaza (260), MetLife (246), 432 Park
+  // (425.5), One Vanderbilt (427), Central Park Tower (472), Bank of
+  // America Tower (366), Flatiron (88), Grand Central (45.8), Madison
+  // Square Garden (45), Federal Hall (19.3), NYSE (105) are all within 60 %
+  // of the spec. Only Woolworth (120 in OSM, real 241) and Saint Patrick’s
+  // Cathedral (42 in OSM, real 101) are stubs; heights are fixed there and
+  // nowhere else. Shape caps and stone/glass colours come from the table.
+  nyc: {
+    'Empire State Building': { shape: 'spire', color: 0xd9cfbf },
+    'Chrysler Building': { shape: 'spire', color: 0xc9c9c9 },
+    'One World Trade Center': { shape: 'spire', color: 0xbfd6e6 },
+    'Flatiron Building': { color: 0xd9cfbf },
+    'Woolworth Building': { h: 241, shape: 'spire', color: 0xe8e0c8 },
+    '30 Rockefeller Plaza': { color: 0xd9cfbf },
+    'Saint Patrick’s Cathedral': { h: 101, shape: 'spire', color: 0xe8e0c8 },
+    'Grand Central Terminal': { color: 0xd9cfbf },
+    'Bank of America Tower': { shape: 'spire', color: 0xbfd6e6 },
+    'One Vanderbilt': { shape: 'tower', color: 0xbfd6e6 },
+    '432 Park Avenue': { shape: 'tower', color: 0xe6e6e6 },
+    'Central Park Tower': { shape: 'tower', color: 0xbfd6e6 },
+    'Trinity Church': { shape: 'spire', color: 0xa89f91 },
+    'Federal Hall National Memorial': { color: 0xe8e0c8 },
+    'New York Stock Exchange': { color: 0xe8e0c8 },
+    'MetLife Building': { color: 0xd9cfbf },
+    'Madison Square Garden': { shape: 'dome', color: 0xd9cfbf },
+  },
 };
 
 /** Per-city extra synthetic buildings appended at load. */
@@ -107,6 +136,20 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
       size: 14,
       color: 0xf5f0e6,
       shape: 'tower',
+    },
+  ],
+  // Manhattan (wave 10, architecture.md §4.13 wave-10 row 19). OSM has the
+  // arch at h 20.5 but as an ordinary square; the extra restages it as an
+  // 8×8 m ivory landmark with a matching floating tag alongside the OSM
+  // building, exactly the way Nelson's Column does in London.
+  nyc: [
+    {
+      name: 'Washington Square Arch',
+      lon: -73.99734,
+      lat: 40.731,
+      h: 23,
+      size: 8,
+      color: 0xe8e0c8,
     },
   ],
 };

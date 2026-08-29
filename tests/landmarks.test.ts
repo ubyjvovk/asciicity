@@ -20,6 +20,9 @@ const LONDON: CityData = JSON.parse(
 const SF: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
 );
+const NYC: CityData = JSON.parse(
+  readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
+);
 
 function byName(buildings: Building[]): Record<string, Building> {
   const out: Record<string, Building> = {};
@@ -274,5 +277,160 @@ describe('applyLandmarks (San Francisco)', () => {
     const extras = twice.buildings.filter((b) => b.id <= -1000);
     expect(extras).toHaveLength(1);
     expect(twice.buildings.length).toBe(SF.buildings.length + 1);
+  });
+});
+
+// Wave 10 Manhattan (T-0087): the nyc fix table names must all exist in the
+// fetched nyc.json (else the fix is dead), and the Washington Square Arch
+// extra must be appended as an 8×8 ivory landmark near the projected point.
+// Building-part support (T-0086) brought real setback massing so only Saint
+// Patrick’s and Woolworth have OSM stubs — the other seventeen fixes are
+// shape/colour only.
+describe('applyLandmarks (Manhattan)', () => {
+  it('every nyc fix name is present in the fetched nyc.json', () => {
+    const present = new Set(
+      NYC.buildings.filter((b) => b.name !== undefined).map((b) => b.name),
+    );
+    for (const name of Object.keys(LANDMARK_FIXES.nyc)) {
+      expect(present.has(name), `fix name "${name}" must exist in nyc.json`).toBe(true);
+    }
+  });
+
+  it("Saint Patrick’s Cathedral is a 42 m OSM stub — fix raises it to 101 m (spire)", () => {
+    // A tiny sanity: the OSM stub is <60% of the real 101 m, so the fix must
+    // rewrite h. This is one of only two height fixes in the nyc table.
+    const osm = NYC.buildings.find((b) => b.name === 'Saint Patrick’s Cathedral');
+    expect(osm).toBeDefined();
+    expect(osm!.h).toBeLessThan(0.6 * 101);
+    const city = applyLandmarks(NYC, 'nyc');
+    const fixed = city.buildings.find((b) => b.name === 'Saint Patrick’s Cathedral');
+    expect(fixed).toBeDefined();
+    expect(fixed!.h).toBe(101);
+    expect(fixed!.shape).toBe('spire');
+  });
+
+  it('Woolworth Building is a 120 m OSM stub — fix raises it to 241 m (spire)', () => {
+    const osm = NYC.buildings.find((b) => b.name === 'Woolworth Building');
+    expect(osm).toBeDefined();
+    expect(osm!.h).toBeLessThan(0.6 * 241);
+    const city = applyLandmarks(NYC, 'nyc');
+    const fixed = city.buildings.find((b) => b.name === 'Woolworth Building');
+    expect(fixed).toBeDefined();
+    expect(fixed!.h).toBe(241);
+    expect(fixed!.shape).toBe('spire');
+  });
+
+  it('shape-only fixes carry the §4.13 caps onto their landmarks (dome/spire/tower)', () => {
+    const city = applyLandmarks(NYC, 'nyc');
+    const names = byName(city.buildings);
+    expect(names['Empire State Building'].shape).toBe('spire');
+    expect(names['Chrysler Building'].shape).toBe('spire');
+    expect(names['One World Trade Center'].shape).toBe('spire');
+    expect(names['Bank of America Tower'].shape).toBe('spire');
+    expect(names['Trinity Church'].shape).toBe('spire');
+    expect(names['One Vanderbilt'].shape).toBe('tower');
+    expect(names['432 Park Avenue'].shape).toBe('tower');
+    expect(names['Central Park Tower'].shape).toBe('tower');
+    expect(names['Madison Square Garden'].shape).toBe('dome');
+    // Colour-only rows keep their OSM shape (usually undefined).
+    expect(names['Flatiron Building'].shape).toBeUndefined();
+    expect(names['MetLife Building'].shape).toBeUndefined();
+  });
+
+  it('leaves the well-tagged landmark heights untouched (T-0086 parts)', () => {
+    // The Empire State Building, One WTC, Chrysler etc. read their real
+    // heights straight from OSM `building:part` ways — no h fix in the table.
+    const before = byName(NYC.buildings);
+    const city = applyLandmarks(NYC, 'nyc');
+    const after = byName(city.buildings);
+    for (const name of [
+      'Empire State Building',
+      'Chrysler Building',
+      'One World Trade Center',
+      'Flatiron Building',
+      '30 Rockefeller Plaza',
+      'Bank of America Tower',
+      'One Vanderbilt',
+      '432 Park Avenue',
+      'Central Park Tower',
+      'MetLife Building',
+      'Madison Square Garden',
+    ]) {
+      expect(after[name].h, name).toBe(before[name].h);
+    }
+  });
+
+  it('appends exactly one Washington Square Arch extra: 8×8 square, h 23, id ≤ −1000, ivory', () => {
+    const city = applyLandmarks(NYC, 'nyc');
+    const extras = city.buildings.filter(
+      (b) => b.name === 'Washington Square Arch' && b.id <= -1000,
+    );
+    expect(extras).toHaveLength(1);
+    const extra = extras[0]!;
+    expect(extra.h).toBe(23);
+    expect(extra.poly).toHaveLength(4);
+    const [a, b, c, d] = extra.poly;
+    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(8);
+    expect(Math.hypot(b[0] - c[0], b[1] - c[1])).toBeCloseTo(8);
+    expect(Math.hypot(c[0] - d[0], c[1] - d[1])).toBeCloseTo(8);
+    expect(Math.hypot(d[0] - a[0], d[1] - a[1])).toBeCloseTo(8);
+    const cx = (a[0] + b[0] + c[0] + d[0]) / 4;
+    const cz = (a[1] + b[1] + c[1] + d[1]) / 4;
+    const [px, pz] = project(-73.99734, 40.731, NYC.origin);
+    expect(Math.hypot(cx - px, cz - pz)).toBeLessThan(1);
+    // Colour is registered so colorFor pulls it from the extras table (the
+    // OSM arch is also named Washington Square Arch — the extra wins for the
+    // negative id via `colorFor`'s extras lookup).
+    expect(colorFor(extra)).toBe(0xe8e0c8);
+  });
+
+  it('the OSM Washington Square Arch keeps its own h (both entries coexist, like Nelson\'s Column)', () => {
+    const city = applyLandmarks(NYC, 'nyc');
+    const arches = city.buildings.filter((b) => b.name === 'Washington Square Arch');
+    // OSM arch + extra (both share the name); the pair works exactly like the
+    // London Nelson's Column plinth-plus-extra pairing.
+    expect(arches.length).toBe(2);
+    const osm = arches.find((b) => b.id > 0)!;
+    const extra = arches.find((b) => b.id <= -1000)!;
+    expect(extra.h).toBe(23);
+    // OSM 20.5 stays as-is (there is no `h` in the fix for the arch — the
+    // ivory landmark is the extra alone).
+    const osmBefore = NYC.buildings.find((b) => b.name === 'Washington Square Arch')!;
+    expect(osm.h).toBe(osmBefore.h);
+  });
+
+  it('is idempotent — applying twice adds no second Washington Square Arch extra', () => {
+    const once = applyLandmarks(NYC, 'nyc');
+    const twice = applyLandmarks(once, 'nyc');
+    const extras = twice.buildings.filter(
+      (b) => b.name === 'Washington Square Arch' && b.id <= -1000,
+    );
+    expect(extras).toHaveLength(1);
+    expect(twice.buildings.length).toBe(NYC.buildings.length + 1);
+  });
+
+  it('colorFor of the fixed Empire State Building is the ivory limestone (0xd9cfbf)', () => {
+    const city = applyLandmarks(NYC, 'nyc');
+    const esb = city.buildings.find((b) => b.name === 'Empire State Building')!;
+    expect(colorFor(esb)).toBe(0xd9cfbf);
+  });
+
+  it('sf fixes still target their names after the nyc table lands (no cross-city bleed)', () => {
+    // Adding LANDMARK_FIXES.nyc must not disturb the SF fixes: the tables
+    // are per-city, and applying the SF cityId must not lift any nyc fix.
+    const city = applyLandmarks(SF, 'sf');
+    const names = byName(city.buildings);
+    // Empire State Building lives only in NYC — but if `applyLandmarks(SF)`
+    // accidentally applied nyc-table shapes it would surface a `.shape` on
+    // some SF building. Instead every SF entry stays unchanged shape-wise.
+    for (const b of city.buildings) {
+      if (b.id <= -1000) continue;
+      const before = SF.buildings.find((x) => x.id === b.id);
+      if (!before) continue;
+      // Only Coit Tower carries a color fix on SF (that fix is shape-less).
+      expect(b.shape).toBe(before.shape);
+    }
+    // Sanity: Coit is still 64 m ivory.
+    expect(names['Coit Tower'].h).toBe(64);
   });
 });
