@@ -109,6 +109,13 @@ Building is one flat 380 m slab. Rules:
    Vanderbilt's 423 m part in the first Manhattan fetch). Outlines with no
    parts are unchanged. Parts whose centroid lies in no outline are kept as
    ordinary buildings.
+3b. **Below-grade structures are not buildings** (T-0089): an outline or
+   part tagged `layer` < 0, `location=underground` or `underground=yes`
+   (subway-station footprints, the underground Grand Central platform
+   relation) is skipped entirely — not emitted, and never a part-holder.
+   In the first Manhattan fetch the underground terminal relation was the
+   only outline containing an unrelated 209 m tower and would have named
+   it "Grand Central Terminal".
 4. **Heights**: the clamp is now `[3, 600]` (converter and validator; One
    WTC's roof is 417 m, its spire 541 m). `minH` is validated as a finite
    number in `[0, h − 1)`.
