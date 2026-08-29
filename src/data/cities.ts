@@ -56,7 +56,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/nyc.json',
     defaultSpawn: 'brooklynbridge',
     blurb: 'Battery to Central Park · skyscrapers & bridges',
-    sizeBytes: 10107567,
+    sizeBytes: 10102343,
   },
 ];
 

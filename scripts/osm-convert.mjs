@@ -161,6 +161,26 @@ function isBuildingPart(tags) {
   return v !== undefined && v !== null && v !== '' && v !== 'no';
 }
 
+/**
+ * True when the element is below grade — an OSM subway-station footprint or
+ * similar underground structure. Data-format.md "Building parts" rule 3b:
+ * such elements are not buildings for our render (they would surface as boxes
+ * on the street) and must never be emitted or claim surface parts. Matches
+ * `layer` < 0, `location=underground`, or `underground=yes`.
+ * @param {Record<string, string>} tags OSM tags
+ * @returns {boolean}
+ */
+function isBelowGrade(tags) {
+  if (tags.location === 'underground') return true;
+  if (tags.underground === 'yes') return true;
+  const layer = tags.layer;
+  if (layer !== undefined && layer !== null && layer !== '') {
+    const n = parseFloat(layer);
+    if (Number.isFinite(n) && n < 0) return true;
+  }
+  return false;
+}
+
 /** Signed ring area (shoelace) in m²; used to drop degenerate footprints. */
 function ringArea(poly) {
   let a = 0;
@@ -760,12 +780,17 @@ function ringCentroid(ring) {
 }
 
 /**
- * Outline replacement (data-format.md "Building parts" rule 3): drop any
- * outline that contains at least one part centroid; move the outline `name`
- * onto the tallest of those parts. Parts whose centroid lies in no outline
- * are kept. Outlines are bucketed by bbox so 52 k × 15 k stays linear.
- * When `parts` is empty the outlines array is returned unchanged (byte-
- * identical London / Kyiv / SF conversion).
+ * Outline replacement (data-format.md "Building parts" rule 3): a part
+ * BELONGS to the SMALLEST (by area) outline containing its centroid so a
+ * large station/complex outline cannot claim the parts of a tower that has
+ * its own outline. Any outline that CONTAINS the centroid of at least one
+ * part is dropped (its parts represent it); the outline `name` transfers to
+ * the tallest part that belongs to it and has no name of its own. An outline
+ * whose parts all belong to smaller outlines is dropped without transferring
+ * anything. Ring area is computed once per outline. Parts whose centroid
+ * lies in no outline are kept. Outlines are bucketed by bbox so 52 k × 15 k
+ * stays linear. When `parts` is empty the outlines array is returned
+ * unchanged (byte-identical London / Kyiv / SF conversion).
  * @param {Array<Object>} outlines `building=*` entries
  * @param {Array<Object>} parts `building:part` entries
  * @returns {Array<Object>} surviving outlines followed by every part
@@ -782,9 +807,11 @@ function applyBuildingParts(outlines, parts) {
     }
     bucket.push(item);
   };
+  const items = [];
   for (const o of outlines) {
     const bb = ringBBox(o.poly);
-    const item = { o, bb };
+    const item = { o, bb, area: ringArea(o.poly) };
+    items.push(item);
     const cxMin = Math.floor(bb.minX / CELL);
     const cxMax = Math.floor(bb.maxX / CELL);
     const czMin = Math.floor(bb.minZ / CELL);
@@ -795,13 +822,19 @@ function applyBuildingParts(outlines, parts) {
       }
     }
   }
+  // `contained` maps an outline to the parts whose centroid lies inside it
+  // (any containing outline — drives the drop decision). `home` maps a part
+  // to its SMALLEST (by area) containing outline (drives name transfer).
   const contained = new Map();
+  const home = new Map();
   for (const part of parts) {
     const c = ringCentroid(part.poly);
     const key = `${Math.floor(c[0] / CELL)},${Math.floor(c[1] / CELL)}`;
     const candidates = buckets.get(key);
     if (!candidates) continue;
-    for (const { o, bb } of candidates) {
+    const containing = [];
+    for (const item of candidates) {
+      const { o, bb } = item;
       if (
         c[0] < bb.minX ||
         c[0] > bb.maxX ||
@@ -811,28 +844,40 @@ function applyBuildingParts(outlines, parts) {
         continue;
       }
       if (!pointInPolygon(c, o.poly)) continue;
-      let list = contained.get(o);
+      containing.push(item);
+      let list = contained.get(item);
       if (!list) {
         list = [];
-        contained.set(o, list);
+        contained.set(item, list);
       }
       list.push(part);
     }
+    if (containing.length > 0) {
+      let smallest = containing[0];
+      for (let i = 1; i < containing.length; i++) {
+        if (containing[i].area < smallest.area) smallest = containing[i];
+      }
+      home.set(part, smallest);
+    }
   }
   const kept = [];
-  for (const o of outlines) {
-    const inside = contained.get(o);
+  for (const item of items) {
+    const o = item.o;
+    const inside = contained.get(item);
     if (!inside || inside.length === 0) {
       kept.push(o);
       continue;
     }
-    if (o.name) {
-      let tallest = inside[0];
-      for (let i = 1; i < inside.length; i++) {
-        if (inside[i].h > tallest.h) tallest = inside[i];
-      }
-      tallest.name = o.name;
+    if (!o.name) continue;
+    // Only parts that belong to THIS outline (it is their smallest container)
+    // may take its name, and only when they have no name of their own.
+    let target = null;
+    for (const part of inside) {
+      if (home.get(part) !== item) continue; // belongs to a smaller outline
+      if (part.name) continue; // a named part keeps its own name
+      if (target === null || part.h > target.h) target = part;
     }
+    if (target !== null) target.name = o.name;
   }
   return kept.concat(parts);
 }
@@ -1282,10 +1327,12 @@ export function convertOverpass(json, opts) {
 
     if (el.type === 'way') {
       if (isBuildingPart(tags)) {
+        if (isBelowGrade(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) parts.push(buildPartEntry(el.id, tags, poly));
       } else if (tags.building !== undefined) {
         if (tags.building === 'no' || tags.building === 'part') continue;
+        if (isBelowGrade(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) outlines.push(buildEntry(el.id, tags, poly));
       } else if (tags.highway !== undefined) {
@@ -1336,6 +1383,7 @@ export function convertOverpass(json, opts) {
       }
     } else if (el.type === 'relation') {
       if (isBuildingPart(tags) && tags['type'] === 'multipolygon') {
+        if (isBelowGrade(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
@@ -1349,6 +1397,7 @@ export function convertOverpass(json, opts) {
         }
         if (emitted === 0) skippedRelations++;
       } else if (tags.building !== undefined && tags['type'] === 'multipolygon') {
+        if (isBelowGrade(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
