@@ -168,6 +168,8 @@ export function colorFor(b: Building): number  // LANDMARK_COLORS[name] if prese
   within `r` of any of its edges, **or on water**: `p` inside an ODD number
   of water rings (ray-cast `pointInPolygon` over every ring whose bbox
   contains `p`) or within `r` of any ring edge (shore margin, both sides).
+  **Wave 10:** footprints with `minH >= 2.5` (elevated building parts) are
+  not bucketed at all — the player walks under them.
   **Wave 9 (island parity, mirrors data-format "Coastline water" rule 6):**
   `main.ts` passes `city.water` as the `water` argument instead of merging
   rings into the building list, so an island ring (Alcatraz) inside the Bay
@@ -802,7 +804,9 @@ spec table, in the same spirit as `EXTRA_BUILDINGS`:
 // src/world/bridge.ts
 export interface SuspensionBridgeSpec {
   name: string;                       // 'Golden Gate Bridge'
-  sidewalks: [string, string];        // exact road names: [east, west] deck-edge polylines (bridge: true)
+  sidewalks: [string, string] | [string]; // exact road names of the deck-edge walkway polylines (bridge: true);
+                                      // ONE name (wave 10: Brooklyn Bridge promenade) = the walkway is the deck axis
+  deckWidth?: number;                 // required with one walkway: full deck width in metres (cables/legs at ±(deckWidth/2 + 1.4))
   towers: [[number, number], [number, number]]; // WGS84 [lon, lat] tower centres (OSM pier centroids)
   towerTopAboveDeck: number;          // 160 (227 m above water − 67 m deck)
   sideSpan: number;                   // 343 — tower → anchorage along the axis
@@ -824,7 +828,11 @@ Geometry rules (all parts are axis-oriented boxes pushed through
 `MeshBuilder.quad`; every box has 6 faces with outward normals):
 
 - **Frames.** *Deck axis* = the straight line through the two projected
-  tower centres, extended both ways. *Along* = unit vector S→N tower;
+  tower centres, extended both ways. **One-walkway bridges (wave 10):** the
+  walkway polyline IS the axis line (still straightened through the towers);
+  `sep = deckWidth`, `halfW = sep/2 + 2`, and cables/hangers/legs sit at
+  `±(sep/2 + 1.4)` — the walker is in the middle, under the cables. Deck
+  height samples the walkway polyline. Everything else unchanged. *Along* = unit vector S→N tower;
   *across* = along rotated +90° so it points from the east sidewalk toward
   the west one (verify the sign against the data: the west sidewalk must be
   on the +across side). *Deck surface height* `deckY(s)` at axis distance
@@ -946,6 +954,79 @@ heightAt(x, z) + 0`, `rotation.y = −heading` like `BoatFleet`):
   `window.__asciicity.ships = { count, lightsOn }` is exposed for the e2e.
 - Budget: ≤ 20 instances, 4 draw calls, no per-frame allocation, 60 fps on
   the GPU host.
+
+### 4.18 Loading indicator (wave 10) — `src/ui/loading.ts`
+
+SF is 14.7 MB and Manhattan ~20 MB; on a phone that is seconds of blank
+overlay. The start overlay therefore reports progress from the first byte to
+`ready`:
+
+```ts
+// src/data/cities.ts
+export interface CityInfo { …; sizeBytes: number }   // committed file size (`stat`), kept current at accept — the
+                                                     // progress denominator when Content-Length is absent or gzip-compressed
+// src/ui/loading.ts (pure + one DOM writer; no three.js)
+export interface LoadProgress { phase: 'download' | 'parse' | 'build' | 'ready'; received: number; total: number; step?: string }
+export function formatLoading(label: string, p: LoadProgress): string;
+//   download → 'LOADING SAN FRANCISCO\n[########............] 41% · 6.0 / 14.7 MB'   (20-cell bar, MB with one decimal)
+//   parse    → 'PARSING SAN FRANCISCO'
+//   build    → 'BUILDING SAN FRANCISCO · TREES'   (step = the builder that runs next, upper-case)
+//   ready    → ''                                  (the overlay shows its usual prompt again)
+export async function loadCityJson(url: string, sizeHint: number, onProgress: (p: LoadProgress) => void): Promise<unknown>;
+//   fetch → `body.getReader()` → concatenate chunks → TextDecoder → JSON.parse;
+//   total = Content-Length when the response has no `content-encoding`, else sizeHint; received is clamped to total
+```
+
+`main.ts` (integration): the city JSON is fetched through `loadCityJson`;
+the overlay's `<p>` shows `formatLoading` output while `phase !== 'ready'`;
+between the major synchronous builders (terrain → buildings → roads →
+trees → water → bridges/ships/traffic) `await nextFrame()`
+(`requestAnimationFrame` promise) so the overlay repaints with the `step`;
+`window.__asciicity.loading` exposes the live `LoadProgress`. The
+`__asciicity.ready` contract is unchanged (true only after everything is
+built). `?synthetic=1` skips the download phase and reports `build` steps
+only. Unit fixtures pin `formatLoading` for every phase and the clamp; the
+e2e polls `__asciicity.loading.phase` every 50 ms during an SF boot and
+asserts it observed `build`, ends at `ready`, and the overlay `<p>` no
+longer contains `LOADING`/`BUILDING`.
+
+### 4.13 (wave 10) Manhattan landmarks
+
+`nyc.json` (data-format "Manhattan") + PM-curated tables in `landmarks.ts`
+/ `spawn.ts` / `bridge.ts`. Twenty landmarks; NYC OSM heights are good, so
+the fix table is mostly `shape`/`color` (the worker verifies every name and
+height against the fetched file and fixes only stubs):
+
+| # | OSM name (verify) | expect h | fix | preset key |
+|---|---|---|---|---|
+| 1 | Empire State Building | 381 (+ spire 443) | shape spire, 0xd9cfbf | `empirestate` |
+| 2 | Chrysler Building | 319 | shape spire, 0xc9c9c9 | `chrysler` |
+| 3 | One World Trade Center | 417 (+ 541) | shape spire, 0xbfd6e6 | `onewtc` |
+| 4 | Flatiron Building | 87 | 0xd9cfbf | `flatiron` |
+| 5 | Woolworth Building | 241 | shape spire, 0xe8e0c8 | `woolworth` |
+| 6 | 30 Rockefeller Plaza (or "Comcast Building") | 260 | 0xd9cfbf | `rockefeller` |
+| 7 | St. Patrick's Cathedral | 101 | shape spire, 0xe8e0c8 | `stpatricks` |
+| 8 | Grand Central Terminal | 38 | 0xd9cfbf | `grandcentral` |
+| 9 | Bank of America Tower | 366 | shape spire, 0xbfd6e6 | — |
+| 10 | One Vanderbilt | 427 | shape tower, 0xbfd6e6 | — |
+| 11 | 432 Park Avenue | 426 | shape tower, 0xe6e6e6 | — |
+| 12 | Central Park Tower | 472 | shape tower, 0xbfd6e6 | `centralpark` (preset at Grand Army Plaza, facing the tower) |
+| 13 | Trinity Church | 85 | shape spire, 0xa89f91 | `wallstreet` (preset on Wall St facing it) |
+| 14 | Federal Hall National Memorial | 20 | 0xe8e0c8 | — |
+| 15 | New York Stock Exchange | 30 | 0xe8e0c8 | — |
+| 16 | MetLife Building | 246 | 0xd9cfbf | — |
+| 17 | Brooklyn Bridge | towers 84 | `SUSPENSION_BRIDGES.nyc` (one walkway) | `brooklynbridge` (deck mid-span facing Manhattan; DEFAULT spawn) |
+| 18 | Manhattan Bridge | towers 102 | `SUSPENSION_BRIDGES.nyc` (two walkways) | `manhattanbridge` |
+| 19 | Washington Square Arch | 23 (extra) | extra 0xe8e0c8, 8 × 8 m at −73.99734, 40.73100 | `washingtonsquare` |
+| 20 | Madison Square Garden | 46 | shape dome, 0xd9cfbf | — |
+
+Plus coordinate presets `timessquare` (−73.9855, 40.7580, bearing 20),
+`unionsquare` (origin, bearing 0), `batterypark` (−74.0155, 40.7033, bearing
+45 — Downtown skyline), `dumbo` (−73.9906, 40.7030, bearing 250 — the
+Manhattan Bridge with the skyline behind, the postcard). `presetsFor('nyc')`
+feeds fast travel as usual. Bridges' tower positions come from OSM
+(`bridge:support=pier` / `man_made=tower` ways, as the GGB's did), never from
+memory; walkway names are read from the fetched file.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 

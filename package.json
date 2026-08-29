@@ -13,6 +13,7 @@
     "fetch-data": "node scripts/fetch-osm.mjs",
     "fetch-data:kyiv": "node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --out public/data/kyiv.json",
     "fetch-data:sf": "node scripts/fetch-osm.mjs --bbox -122.487,37.764,-122.383,37.835 --origin -122.4075,37.788 --lang en --dem 1 --out public/data/sf.json",
+    "fetch-data:nyc": "node scripts/fetch-osm.mjs --bbox -74.025,40.698,-73.958,40.775 --origin -73.9905,40.7359 --lang en --dem 1 --out public/data/nyc.json",
     "check": "bash scripts/check.sh"
   },
   "dependencies": {

@@ -58,8 +58,15 @@ export type RoadClass =
 export interface Building {
   /** OSM way/relation id, or a synthetic id. Unique within the file. */
   id: number;
-  /** Height in metres (roof, flat). Clamped to [3, 320] by producers. */
+  /** Height in metres (roof, flat). Clamped to [3, 600] by producers (wave 10: supertalls). */
   h: number;
+  /**
+   * Base height in metres for a `building:part` that starts above the ground
+   * (OSM `min_height` / `building:min_level`; wave 10, data-format "Building
+   * parts"). Absent or 0 = grounded. Walls run from `minH` to `h`; parts with
+   * `minH >= 2.5` do not block the player (you walk under them).
+   */
+  minH?: number;
   /** OSM `name` when present — named buildings render as landmarks. */
   name?: string;
   /** Landmark silhouette cap set by `applyLandmarks` (architecture §4.13, wave 7). Absent = flat roof. */

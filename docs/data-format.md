@@ -62,6 +62,52 @@ island ring) / 1 river / 34 466 trees (28 582 filled), terrain 461×396 @
 20 m (0 voids, datum 23.6 m), 14 638 126 bytes (13.96 MB). Stitch summary
 on the real data: 46 pieces → 5 closed + 3 open chains → 2 water rings.
 
+### Manhattan (`nyc.json`, wave 10)
+
+`npm run fetch-data:nyc` — bbox `-74.025,40.698,-73.958,40.775` (Battery
+Park to 59th Street: all of Downtown and Midtown, the Brooklyn, Manhattan and
+Williamsburg bridges, DUMBO / Brooklyn Heights and a sliver of Long Island
+City on the far banks; Central Park's south end), origin Union Square
+`-73.9905,40.7359`, `--lang en --dem 1` (tiles `N40W074` + `N40W075` — the
+DEM loader mosaics every tile the bbox touches; the island is 0–25 m ASL).
+The Hudson and East rivers are `natural=coastline` (88 ways in the bbox)
+and close through the coastline rules; Governors Island is an island ring.
+Overpass counts at boarding: 52 126 `building` ways (33 025 with `height`),
+15 494 `building:part` ways (the setback geometry of the towers — see
+"Building parts" below), 8 `natural=water` relations. **Size budget 22 MB**
+(it is the densest bbox so far; the loading indicator of §4.18 covers the
+download). Counts/size: recorded here by the PM at accept.
+
+## Building parts (`building:part`, wave 10 — Manhattan)
+
+Tall buildings are mapped as an outline (`building=*`) plus `building:part`
+ways carrying the real 3D massing (`height` / `min_height`, or
+`building:levels` / `building:min_level`). Without them the Empire State
+Building is one flat 380 m slab. Rules:
+
+1. **Fetch**: the Overpass query also asks for `way["building:part"]` (and
+   `relation["building:part"]["type"="multipolygon"]`) in the bbox.
+2. **Convert**: a part becomes a `buildings[]` entry with `h` from `height`
+   (ft honoured) else `building:levels × 3.3 + 2`, and `minH` from
+   `min_height` else `building:min_level × 3.3` (absent → 0; `minH` is
+   omitted when 0 and must satisfy `0 <= minH < h − 1`).
+3. **Outline replacement**: an outline that CONTAINS the centroid of at least
+   one part is dropped — the parts represent it. Its `name` (and only its
+   name) is transferred to the tallest of its parts so landmark fixes,
+   presets and floating tags keep resolving by OSM name. Outlines with no
+   parts are unchanged. Parts whose centroid lies in no outline are kept as
+   ordinary buildings.
+4. **Heights**: the clamp is now `[3, 600]` (converter and validator; One
+   WTC's roof is 417 m, its spire 541 m). `minH` is validated as a finite
+   number in `[0, h − 1)`.
+5. **Consumers**: walls run from `minH` to `h` and a bottom cap is emitted
+   when `minH > 0` (§4.4); the collision grid ignores footprints with
+   `minH >= 2.5` (§4.6); tags use `roofY = ground + h` unchanged; the
+   minimap ignores `minH`.
+6. London / Kyiv / SF files are NOT re-fetched by this rule (no `minH` in
+   them → byte-identical behaviour). A later `fetch-data:sf` picks up SF's
+   parts automatically.
+
 ## The real dataset: City of London to Westminster
 
 - **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`
@@ -80,7 +126,7 @@ on the real data: 46 pieces → 5 closed + 3 open chains → 2 water rings.
   "v": 1,
   "origin": { "lat": 51.5133, "lon": -0.0887 },
   "bbox": [-0.13, 51.497, -0.07, 51.521],
-  "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],
+  "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],   // + optional "minH" (building parts, wave 10)
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]], "bridge": true } ],   // bridge optional (T-0030)
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
   "water":     [ [[x,z],[x,z],[x,z]] ],         // optional, rings (T-0023)
