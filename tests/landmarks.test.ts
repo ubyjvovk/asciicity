@@ -296,6 +296,20 @@ describe('applyLandmarks (Manhattan)', () => {
     }
   });
 
+  it('nyc: exactly one building carries each fixed landmark name', () => {
+    // T-0089: with the smallest-containing-outline rule (data-format.md
+    // "Building parts" rule 3) plus the below-grade skip (rule 3b), each
+    // landmark fix name resolves to a single OSM building. Before the fix the
+    // 423 m One Vanderbilt part inherited "Grand Central Terminal" from the
+    // surface station outline, and after the rule flip the 209 m glass tower
+    // north of GCT inherited the underground platform-relation's name — both
+    // gone once below-grade outlines stop claiming parts.
+    for (const name of Object.keys(LANDMARK_FIXES.nyc)) {
+      const matches = NYC.buildings.filter((b) => b.name === name);
+      expect(matches.length, `landmark "${name}" appears ${matches.length}× in nyc.json`).toBe(1);
+    }
+  });
+
   it("Saint Patrick’s Cathedral is a 42 m OSM stub — fix raises it to 101 m (spire)", () => {
     // A tiny sanity: the OSM stub is <60% of the real 101 m, so the fix must
     // rewrite h. This is one of only two height fixes in the nyc table.

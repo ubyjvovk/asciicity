@@ -161,6 +161,26 @@ function isBuildingPart(tags) {
   return v !== undefined && v !== null && v !== '' && v !== 'no';
 }
 
+/**
+ * True when the element is below grade — an OSM subway-station footprint or
+ * similar underground structure. Data-format.md "Building parts" rule 3b:
+ * such elements are not buildings for our render (they would surface as boxes
+ * on the street) and must never be emitted or claim surface parts. Matches
+ * `layer` < 0, `location=underground`, or `underground=yes`.
+ * @param {Record<string, string>} tags OSM tags
+ * @returns {boolean}
+ */
+function isBelowGrade(tags) {
+  if (tags.location === 'underground') return true;
+  if (tags.underground === 'yes') return true;
+  const layer = tags.layer;
+  if (layer !== undefined && layer !== null && layer !== '') {
+    const n = parseFloat(layer);
+    if (Number.isFinite(n) && n < 0) return true;
+  }
+  return false;
+}
+
 /** Signed ring area (shoelace) in m²; used to drop degenerate footprints. */
 function ringArea(poly) {
   let a = 0;
@@ -1307,10 +1327,12 @@ export function convertOverpass(json, opts) {
 
     if (el.type === 'way') {
       if (isBuildingPart(tags)) {
+        if (isBelowGrade(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) parts.push(buildPartEntry(el.id, tags, poly));
       } else if (tags.building !== undefined) {
         if (tags.building === 'no' || tags.building === 'part') continue;
+        if (isBelowGrade(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) outlines.push(buildEntry(el.id, tags, poly));
       } else if (tags.highway !== undefined) {
@@ -1361,6 +1383,7 @@ export function convertOverpass(json, opts) {
       }
     } else if (el.type === 'relation') {
       if (isBuildingPart(tags) && tags['type'] === 'multipolygon') {
+        if (isBelowGrade(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
@@ -1374,6 +1397,7 @@ export function convertOverpass(json, opts) {
         }
         if (emitted === 0) skippedRelations++;
       } else if (tags.building !== undefined && tags['type'] === 'multipolygon') {
+        if (isBelowGrade(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {

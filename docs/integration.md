@@ -445,6 +445,11 @@ converter:
 - drops any outline whose polygon contains at least one part centroid, moving
   the outline `name` onto the tallest of those parts so landmark presets and
   floating tags still resolve by OSM name
+- assigns each part to its SMALLEST containing outline (data-format.md rule 3)
+  so a station/complex outline cannot claim a tower with its own outline; also
+  skips outlines and parts tagged `layer` < 0, `location=underground` or
+  `underground=yes` (rule 3b) so the underground "Grand Central Terminal"
+  platform relation stops handing its name to a surface glass tower
 - clamps `h` to `[3, 600]` (was 320) so One WTC / ESB / 432 Park keep their
   real roof height
 
