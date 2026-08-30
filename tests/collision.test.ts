@@ -367,6 +367,105 @@ describe('CollisionGrid water rings (T-0078 parity)', () => {
   });
 });
 
+describe('CollisionGrid addSource/removeSource (T-0094)', () => {
+  const extra = rectBuilding(99, 40, 0, 5, 5); // [35,-5]..[45,5]
+
+  it('blocked true after addSource, false after removeSource', () => {
+    const grid = new CollisionGrid([], 25);
+    expect(grid.blocked([40, 0])).toBe(false);
+    grid.addSource('tile-a', [extra], []);
+    expect(grid.blocked([40, 0])).toBe(true);
+    grid.removeSource('tile-a');
+    expect(grid.blocked([40, 0])).toBe(false);
+  });
+
+  it('base-source footprints unaffected by removeSource of another key', () => {
+    const base = rectBuilding(1, 0, 0, 5, 5);
+    const grid = new CollisionGrid([base], 25);
+    grid.addSource('tile-a', [extra], []);
+    expect(grid.blocked([0, 0])).toBe(true);
+    expect(grid.blocked([40, 0])).toBe(true);
+    grid.removeSource('tile-a');
+    expect(grid.blocked([0, 0])).toBe(true);
+    expect(grid.blocked([40, 0])).toBe(false);
+    grid.removeSource('missing');
+    expect(grid.blocked([0, 0])).toBe(true);
+  });
+
+  it('corridors added via a source override footprints and water exactly as constructor corridors do', () => {
+    const footprint = rectBuilding(1, 5, 5, 5, 5); // [0,0]..[10,10]
+    const outer: Vec2[] = [
+      [-50, -50],
+      [50, -50],
+      [50, 50],
+      [-50, 50],
+    ];
+    const bridge: Corridor = {
+      pts: [
+        [-5, 5],
+        [15, 5],
+      ],
+      halfWidth: 2,
+    };
+    const viaCtor = new CollisionGrid([footprint], 25, [bridge], [outer]);
+    const viaSource = new CollisionGrid([footprint], 25, [], [outer]);
+    viaSource.addSource('bridges', [], [bridge]);
+    // On the corridor, over the footprint AND the water ring.
+    expect(viaSource.blocked([5, 5], 0.6)).toBe(false);
+    expect(viaSource.blocked([5, 5], 0.6)).toBe(viaCtor.blocked([5, 5], 0.6));
+    expect(viaSource.blocked([2, 5], 0.6)).toBe(viaCtor.blocked([2, 5], 0.6));
+    // Off the corridor, still inside the footprint.
+    expect(viaSource.blocked([5, 9], 0.6)).toBe(true);
+    expect(viaSource.blocked([5, 9], 0.6)).toBe(viaCtor.blocked([5, 9], 0.6));
+    // Off the corridor, on water.
+    expect(viaSource.blocked([0, 20], 0.6)).toBe(true);
+    expect(viaSource.blocked([0, 20], 0.6)).toBe(viaCtor.blocked([0, 20], 0.6));
+    viaSource.removeSource('bridges');
+    expect(viaSource.blocked([5, 5], 0.6)).toBe(true);
+  });
+
+  it('water parity (island-in-bay) behaviour identical with sources present', () => {
+    const outer: Vec2[] = [
+      [-50, -50],
+      [50, -50],
+      [50, 50],
+      [-50, 50],
+    ];
+    const inner: Vec2[] = [
+      [-10, -10],
+      [10, -10],
+      [10, 10],
+      [-10, 10],
+    ];
+    const plain = new CollisionGrid([], 25, [], [outer, inner]);
+    const withSrc = new CollisionGrid([], 25, [], [outer, inner]);
+    withSrc.addSource('far', [rectBuilding(7, 200, 200, 5, 5)], []);
+    expect(withSrc.blocked([0, 0], 0.6)).toBe(false);
+    expect(withSrc.blocked([0, 0], 0.6)).toBe(plain.blocked([0, 0], 0.6));
+    expect(withSrc.blocked([30, 30], 0.6)).toBe(true);
+    expect(withSrc.blocked([30, 30], 0.6)).toBe(plain.blocked([30, 30], 0.6));
+    expect(withSrc.blocked([100, 100], 0.6)).toBe(false);
+    expect(withSrc.blocked([10.4, 0], 0.6)).toBe(true);
+    expect(withSrc.blocked([9.6, 0], 0.6)).toBe(true);
+    expect(withSrc.blocked([9, 0], 0.6)).toBe(false);
+    expect(withSrc.blocked([200, 200])).toBe(true);
+    expect(plain.blocked([200, 200])).toBe(false);
+  });
+
+  it('re-adding a removed key works', () => {
+    const grid = new CollisionGrid([], 25);
+    grid.addSource('tile-a', [extra], []);
+    expect(grid.blocked([40, 0])).toBe(true);
+    grid.removeSource('tile-a');
+    expect(grid.blocked([40, 0])).toBe(false);
+    grid.addSource('tile-a', [extra], []);
+    expect(grid.blocked([40, 0])).toBe(true);
+    grid.addSource('tile-a', [rectBuilding(8, 80, 0, 5, 5)], []);
+    expect(grid.blocked([40, 0])).toBe(false);
+    expect(grid.blocked([80, 0])).toBe(true);
+  });
+});
+
 describe('CollisionGrid performance', () => {
 
   it('answers 10000 blocked queries against 5000 buildings in under 200 ms', () => {

@@ -92,6 +92,34 @@ interface WaterEdge {
   maxZ: number;
 }
 
+/** Footprints + corridor segs belonging to one `addSource` (or the constructor). */
+interface SourceRecord {
+  footprints: Footprint[];
+  segs: CorridorSeg[];
+}
+
+/** Internal key for constructor buildings/corridors; `removeSource` never drops it. */
+const BASE_SOURCE = '#base';
+
+/** Push `item` onto a spatial-hash bucket, creating the bucket if needed. */
+function bucketPush<T>(map: Map<string, T[]>, key: string, item: T): void {
+  let bucket = map.get(key);
+  if (!bucket) {
+    bucket = [];
+    map.set(key, bucket);
+  }
+  bucket.push(item);
+}
+
+/** Remove `item` from a spatial-hash bucket (identity), deleting empty buckets. */
+function bucketPull<T>(map: Map<string, T[]>, key: string, item: T): void {
+  const bucket = map.get(key);
+  if (!bucket) return;
+  const idx = bucket.indexOf(item);
+  if (idx >= 0) bucket.splice(idx, 1);
+  if (bucket.length === 0) map.delete(key);
+}
+
 /**
  * Spatial hash bucketing building footprints for near-constant-time
  * `blocked`/`resolve` queries (docs/architecture.md §4.6).
@@ -102,6 +130,7 @@ export class CollisionGrid {
   private readonly corridorCells: Map<string, CorridorSeg[]> = new Map();
   private readonly waterRings: WaterRing[] = [];
   private readonly waterEdgeCells: Map<string, WaterEdge[]> = new Map();
+  private readonly sources: Map<string, SourceRecord> = new Map();
 
   /**
    * Bucket footprints, corridor segments, and water ring edges into the grid.
@@ -111,6 +140,8 @@ export class CollisionGrid {
    * `blocked` — a point is "on water" only when it lies inside an ODD number
    * of rings (an island ring nested inside a Bay ring is walkable land).
    * Mirrors data-format.md "Coastline water" rule 6.
+   * Constructor buildings/corridors form a permanent base source; water rings
+   * stay constructor-only. Per-tile sources use `addSource` / `removeSource`.
    */
   constructor(
     buildings: Building[],
@@ -119,74 +150,7 @@ export class CollisionGrid {
     water: Vec2[][] = [],
   ) {
     this.cell = cell;
-    for (const b of buildings) {
-      // Elevated parts (minH >= 2.5 m) are walkable — architecture.md §4.6.
-      if ((b.minH ?? 0) >= 2.5) continue;
-      if (b.poly.length < 3) continue;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minZ = Infinity;
-      let maxZ = -Infinity;
-      for (const v of b.poly) {
-        if (v[0] < minX) minX = v[0];
-        if (v[0] > maxX) maxX = v[0];
-        if (v[1] < minZ) minZ = v[1];
-        if (v[1] > maxZ) maxZ = v[1];
-      }
-      const fp: Footprint = { poly: b.poly, minX, maxX, minZ, maxZ };
-      const cxMin = Math.floor((minX - 1) / cell);
-      const cxMax = Math.floor((maxX + 1) / cell);
-      const czMin = Math.floor((minZ - 1) / cell);
-      const czMax = Math.floor((maxZ + 1) / cell);
-      for (let cx = cxMin; cx <= cxMax; cx++) {
-        for (let cz = czMin; cz <= czMax; cz++) {
-          const key = `${cx},${cz}`;
-          let bucket = this.cells.get(key);
-          if (!bucket) {
-            bucket = [];
-            this.cells.set(key, bucket);
-          }
-          bucket.push(fp);
-        }
-      }
-    }
-    // Bucket corridor centre-line segments into every cell their AABB (expanded
-    // by `halfWidth`) touches, mirroring the footprint bucketing.
-    for (const c of corridors) {
-      const pts = c.pts;
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i];
-        const b = pts[i + 1];
-        const minX = Math.min(a[0], b[0]) - c.halfWidth;
-        const maxX = Math.max(a[0], b[0]) + c.halfWidth;
-        const minZ = Math.min(a[1], b[1]) - c.halfWidth;
-        const maxZ = Math.max(a[1], b[1]) + c.halfWidth;
-        const seg: CorridorSeg = {
-          a,
-          b,
-          halfWidth: c.halfWidth,
-          minX,
-          maxX,
-          minZ,
-          maxZ,
-        };
-        const cxMin = Math.floor(minX / cell);
-        const cxMax = Math.floor(maxX / cell);
-        const czMin = Math.floor(minZ / cell);
-        const czMax = Math.floor(maxZ / cell);
-        for (let cx = cxMin; cx <= cxMax; cx++) {
-          for (let cz = czMin; cz <= czMax; cz++) {
-            const key = `${cx},${cz}`;
-            let bucket = this.corridorCells.get(key);
-            if (!bucket) {
-              bucket = [];
-              this.corridorCells.set(key, bucket);
-            }
-            bucket.push(seg);
-          }
-        }
-      }
-    }
+    this.ingestSource(BASE_SOURCE, buildings, corridors);
     // Water rings: keep each ring whole with its bbox (odd-parity test) and
     // bucket every ring edge into the cells its (radius-expanded) AABB touches
     // (shore-margin test — both sides of every shore).
@@ -236,6 +200,110 @@ export class CollisionGrid {
         }
       }
     }
+  }
+
+  /** Bucket buildings/corridors under `key` (replaces an existing source of the same key). */
+  addSource(key: string, buildings: Building[], corridors: Corridor[]): void {
+    this.dropSource(key);
+    this.ingestSource(key, buildings, corridors);
+  }
+
+  /** Drop a previously `addSource`d key; no-op for unknown keys and the constructor base. */
+  removeSource(key: string): void {
+    if (key === BASE_SOURCE) return;
+    this.dropSource(key);
+  }
+
+  private ingestSource(key: string, buildings: Building[], corridors: Corridor[]): void {
+    const cell = this.cell;
+    const footprints: Footprint[] = [];
+    const segs: CorridorSeg[] = [];
+    for (const b of buildings) {
+      // Elevated parts (minH >= 2.5 m) are walkable — architecture.md §4.6.
+      if ((b.minH ?? 0) >= 2.5) continue;
+      if (b.poly.length < 3) continue;
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const v of b.poly) {
+        if (v[0] < minX) minX = v[0];
+        if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minZ) minZ = v[1];
+        if (v[1] > maxZ) maxZ = v[1];
+      }
+      const fp: Footprint = { poly: b.poly, minX, maxX, minZ, maxZ };
+      footprints.push(fp);
+      const cxMin = Math.floor((minX - 1) / cell);
+      const cxMax = Math.floor((maxX + 1) / cell);
+      const czMin = Math.floor((minZ - 1) / cell);
+      const czMax = Math.floor((maxZ + 1) / cell);
+      for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cz = czMin; cz <= czMax; cz++) {
+          bucketPush(this.cells, `${cx},${cz}`, fp);
+        }
+      }
+    }
+    for (const c of corridors) {
+      const pts = c.pts;
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const minX = Math.min(a[0], b[0]) - c.halfWidth;
+        const maxX = Math.max(a[0], b[0]) + c.halfWidth;
+        const minZ = Math.min(a[1], b[1]) - c.halfWidth;
+        const maxZ = Math.max(a[1], b[1]) + c.halfWidth;
+        const seg: CorridorSeg = {
+          a,
+          b,
+          halfWidth: c.halfWidth,
+          minX,
+          maxX,
+          minZ,
+          maxZ,
+        };
+        segs.push(seg);
+        const cxMin = Math.floor(minX / cell);
+        const cxMax = Math.floor(maxX / cell);
+        const czMin = Math.floor(minZ / cell);
+        const czMax = Math.floor(maxZ / cell);
+        for (let cx = cxMin; cx <= cxMax; cx++) {
+          for (let cz = czMin; cz <= czMax; cz++) {
+            bucketPush(this.corridorCells, `${cx},${cz}`, seg);
+          }
+        }
+      }
+    }
+    this.sources.set(key, { footprints, segs });
+  }
+
+  private dropSource(key: string): void {
+    const rec = this.sources.get(key);
+    if (!rec) return;
+    const cell = this.cell;
+    for (const fp of rec.footprints) {
+      const cxMin = Math.floor((fp.minX - 1) / cell);
+      const cxMax = Math.floor((fp.maxX + 1) / cell);
+      const czMin = Math.floor((fp.minZ - 1) / cell);
+      const czMax = Math.floor((fp.maxZ + 1) / cell);
+      for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cz = czMin; cz <= czMax; cz++) {
+          bucketPull(this.cells, `${cx},${cz}`, fp);
+        }
+      }
+    }
+    for (const seg of rec.segs) {
+      const cxMin = Math.floor(seg.minX / cell);
+      const cxMax = Math.floor(seg.maxX / cell);
+      const czMin = Math.floor(seg.minZ / cell);
+      const czMax = Math.floor(seg.maxZ / cell);
+      for (let cx = cxMin; cx <= cxMax; cx++) {
+        for (let cz = czMin; cz <= czMax; cz++) {
+          bucketPull(this.corridorCells, `${cx},${cz}`, seg);
+        }
+      }
+    }
+    this.sources.delete(key);
   }
 
   /**
