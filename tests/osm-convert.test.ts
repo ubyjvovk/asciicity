@@ -440,11 +440,11 @@ describe('osm-convert building parts', () => {
     expect(part!.name).toBeUndefined();
   });
 
-  it('heights clamp to [3, 600]', () => {
+  it('heights clamp to [3, 650]', () => {
     expect(heightOf({ height: '1' })).toBe(3);
-    expect(heightOf({ height: '600' })).toBe(600);
-    expect(heightOf({ height: '601' })).toBe(600);
-    expect(heightOf({ height: '1000' })).toBe(600);
+    expect(heightOf({ height: '650' })).toBe(650);
+    expect(heightOf({ height: '651' })).toBe(650);
+    expect(heightOf({ height: '1000' })).toBe(650);
     const city = convertElements([
       closedRect(1, { building: 'yes', height: '1' }, 0, 0, 10, 10),
       closedRect(2, { building: 'yes', height: '1000' }, 20, 0, 10, 10),
@@ -458,9 +458,9 @@ describe('osm-convert building parts', () => {
       ),
     ]);
     expect(city.buildings.find((b) => b.id === 1)?.h).toBe(3);
-    expect(city.buildings.find((b) => b.id === 2)?.h).toBe(600);
+    expect(city.buildings.find((b) => b.id === 2)?.h).toBe(650);
     const part = city.buildings.find((b) => b.id === 3);
-    expect(part?.h).toBe(600);
+    expect(part?.h).toBe(650);
     expect(part?.minH).toBeCloseTo(100, 5);
   });
 });

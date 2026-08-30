@@ -23,7 +23,9 @@ node scripts/fetch-osm.mjs \
   [--out public/data/city.json] \
   [--lang en] \
   [--dem 1] \
-  [--step 20]
+  [--step 20] \
+  [--tiles] \
+  [--chunks NxM]
 ```
 
 Defaults are the City of London values from `docs/data-format.md`: bbox
@@ -40,6 +42,16 @@ Flags:
   (cached under `.cache/dem/`). The Overpass timeout is bumped from 180 s to
   300 s to give the larger Kyiv box a chance to complete.
 - `--step <m>` — DEM grid spacing in metres (default 20).
+- `--tiles` — ship the city as a **tiled dataset** (sector streaming, wave
+  11): `--out` then names a city DIRECTORY holding `index.json` plus
+  `tiles/<i>_<j>.json`. Format contract: docs/data-format.md "Tiled datasets".
+  `--tiles` is orthogonal to every other flag (including `--chunks`).
+- `--chunks <NxM>` — split the bbox into an N×M grid of sub-bboxes fetched
+  sequentially (5 s pause between requests, same endpoint fallback as a
+  single query) and concatenate the responses, deduplicating elements by
+  `type` + `id` (a seam element is returned by every chunk) BEFORE
+  conversion. Summary-line counts are post-dedupe. Use it for bboxes too
+  large for one Overpass query (e.g. Tokyo). Orthogonal to every other flag.
 
 Requires **node ≥ 22** (uses the global `fetch`); zero npm dependencies. The
 real-bbox query takes ~1–3 minutes and Overpass is occasionally overloaded, so
@@ -64,6 +76,46 @@ origin Maidan Nezalezhnosti. With `--dem 1` the converter samples SRTM into a
 20 m grid (`terrain`) and flattens every water ring to its 10th-percentile bed
 level (`waterLevels`), so buildings drape over the Pechersk hills and the
 Dnipro reads as a flat sheet ~60 m below Maidan.
+
+## Tiling and chunked fetch (wave 11 — sector streaming)
+
+Past Manhattan-scale density a city ships **tiled**: `public/data/<city>/`
+holding `index.json` (global data: origin, bbox, tileSize, terrain, water +
+waterLevels, rivers, `bridgeRoads`, `landmarks`, `places`, per-tile stats)
+plus one `tiles/<i>_<j>.json` per non-empty tile. The full format contract is
+docs/data-format.md "Tiled datasets"; the runtime that loads it is
+architecture.md §4.19.
+
+**Fetch-time tiling (`--tiles`):**
+
+```
+node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715 \
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles \
+  --out public/data/tokyo
+```
+
+`--out` names the city DIRECTORY (created with `index.json` + `tiles/`, each
+written atomically via a `.tmp` rename). The summary line gains a trailing
+`N tiles (S KB tiled total)`.
+
+**Migration command (`node scripts/tile-city.mjs`)**: a standalone, pure,
+zero-dependency tiler that turns an existing monolithic `city.json` into a
+tiled directory without touching Overpass — deterministic, so it can be
+re-run safely:
+
+```
+node scripts/tile-city.mjs public/data/city.json public/data/london-tiled
+```
+
+It validates its input with `validateCity` (rule 7) before tiling and prints
+a one-line summary. Input validation imports the TS validator from
+`src/data/validate.ts` via Node's built-in type stripping (node ≥ 22.18).
+Same input → byte-identical `index.json` and tile files.
+
+**Chunked fetch (`--chunks NxM`)** splits a bbox too large for one Overpass
+query into an N×M grid of sub-bboxes, fetched sequentially (5 s pause,
+endpoint fallback unchanged), and dedupes the concatenated `elements` by
+`type` + `id` before conversion so seam elements count once.
 
 ## The summary line
 
@@ -96,7 +148,7 @@ exactly per `docs/data-format.md`:
 
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
-  dropped, heights clamped to `[3, 600]`.
+  dropped, heights clamped to `[3, 650]`.
 - **Roads** — `highway` → `cls` via the mapping table; `footway`, `cycleway`
   and other unmapped values (e.g. `steps`) are dropped; ways with < 2
   distinct points are dropped. A road whose way carries a `bridge` tag with a

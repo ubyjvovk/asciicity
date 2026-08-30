@@ -14,11 +14,12 @@
  */
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { fetchDemTiles } from './dem.mjs';
 import { convertOverpass } from './osm-convert.mjs';
+import { tileCity, DEFAULT_TILE_SIZE } from './tile-city.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -97,6 +98,68 @@ function parseBbox(s) {
     throw new Error(`bad --bbox "${s}" (want minLon,minLat,maxLon,maxLat)`);
   }
   return parts;
+}
+
+/**
+ * Split a WGS84 bbox into an N×M grid of sub-bboxes that tile it exactly
+ * (shared edges, no gaps or overlaps). Pure — used by `--chunks NxM`.
+ * @param {[number,number,number,number]} bbox [minLon,minLat,maxLon,maxLat]
+ * @param {number} n columns (lon)
+ * @param {number} m rows (lat)
+ * @returns {Array<[number,number,number,number]>} n*m sub-bboxes, row-major
+ */
+export function splitBbox(bbox, n, m) {
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  if (!Number.isInteger(n) || n <= 0 || !Number.isInteger(m) || m <= 0) {
+    throw new Error('--chunks: want NxM with N,M >= 1');
+  }
+  const lonStep = (maxLon - minLon) / n;
+  const latStep = (maxLat - minLat) / m;
+  const out = [];
+  for (let r = 0; r < m; r++) {
+    for (let c = 0; c < n; c++) {
+      out.push([
+        minLon + c * lonStep,
+        minLat + r * latStep,
+        minLon + (c + 1) * lonStep,
+        minLat + (r + 1) * latStep,
+      ]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Keep one copy of each Overpass element by `type` + `id` (first wins,
+ * original order preserved) — a seam element is returned by every chunk of a
+ * chunked fetch. Pure — used by `--chunks NxM` before conversion.
+ * @param {Array<{type: string, id: number}>} elements
+ * @returns {Array<{type: string, id: number}>} deduplicated, ordered
+ */
+export function dedupeElements(elements) {
+  const seen = new Set();
+  const out = [];
+  for (const el of elements) {
+    const key = `${el.type}:${el.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(el);
+  }
+  return out;
+}
+
+/** Parse `--chunks NxM` → `{n, m}`. */
+function parseChunks(s) {
+  const m = /^(\d+)x(\d+)$/.exec(s);
+  if (!m) {
+    throw new Error(`bad --chunks "${s}" (want NxM, e.g. 3x3)`);
+  }
+  const n = Number(m[1]);
+  const rows = Number(m[2]);
+  if (n < 1 || rows < 1) {
+    throw new Error(`bad --chunks "${s}" (N and M must be >= 1)`);
+  }
+  return { n, m: rows };
 }
 
 /** POST the query to one endpoint; throws `QueryError` on non-200. */
@@ -180,6 +243,8 @@ async function main() {
   const out = args.out || DEFAULT_OUT;
   const lang = args.lang || undefined;
   const useDem = args.dem === '1' || args.dem === 'true';
+  const tiles = args.tiles === '1' || args.tiles === 'true';
+  const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
     throw new Error(`bad --step "${args.step}" (want positive number)`);
@@ -197,7 +262,22 @@ async function main() {
     if (useDem) {
       dem = await fetchDemTiles(bbox);
     }
-    const json = await fetchJson(query);
+    // Chunked fetch: sequential sub-bboxes (5 s pause, same endpoint fallback
+    // as a single query), concatenated and deduped by type+id BEFORE
+    // conversion — a seam element is returned by every chunk it touches.
+    let json;
+    if (chunks) {
+      const subs = splitBbox(bbox, chunks.n, chunks.m);
+      const all = [];
+      for (let k = 0; k < subs.length; k++) {
+        if (k > 0) await sleep(5000);
+        const res = await fetchJson(buildQuery(subs[k], timeoutSec));
+        all.push(...res.elements);
+      }
+      json = { elements: dedupeElements(all) };
+    } else {
+      json = await fetchJson(query);
+    }
     const city = convertOverpass(json, {
       origin,
       bbox,
@@ -226,6 +306,28 @@ async function main() {
       city.skippedRelations ?? 0
     } relations, dropped ${city.skippedOpenWaterChains ?? 0} open water chains)`;
 
+    if (tiles) {
+      // `--out` names the city DIRECTORY: index.json + tiles/<i>_<j>.json.
+      const tiled = tileCity(city, DEFAULT_TILE_SIZE);
+      mkdirSync(join(out, 'tiles'), { recursive: true });
+      const write = (path, obj) => {
+        const tmp = `${path}.tmp`;
+        writeFileSync(tmp, JSON.stringify(obj));
+        renameSync(tmp, path); // atomic-ish: never a partial file at `path`
+      };
+      write(join(out, 'index.json'), tiled.index);
+      let tileBytes = 0;
+      for (const [key, tile] of tiled.tiles) {
+        write(join(out, 'tiles', `${key}.json`), tile);
+        tileBytes += tiled.index.tiles[key].bytes;
+      }
+      const totalKb = Math.round((bytes + tileBytes) / 1024);
+      process.stdout.write(
+        `${line}, ${tiled.tiles.size} tiles (${totalKb} KB tiled total)\n`,
+      );
+      return;
+    }
+
     const tmp = `${out}.tmp`;
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(tmp, JSON.stringify(city));
@@ -237,4 +339,8 @@ async function main() {
   }
 }
 
-main();
+// Run the CLI only when this file is the entry point (not when imported by
+// the tests for `splitBbox` / `dedupeElements`).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
+}
