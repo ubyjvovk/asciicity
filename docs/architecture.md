@@ -1096,12 +1096,15 @@ sizes come from `index.tiles[key].bytes`. All four shipped cities migrate
 to tiled directories in wave 11 so the app has ONE real-city boot path;
 the monolithic loader remains for `?synthetic=1` and unit tests.
 
-**Radii (locked).** Wanted set = every tile whose rect intersects a
-2 000 m circle around the player (5×5 at rest); a loaded tile is dropped
-only when its rect is entirely outside 2 600 m (hysteresis — walking along
-a boundary never thrashes). The player's own tile and its 8 neighbours are
-never unloaded regardless of radius. Debug override `?tileradius=<m>`
-scales both radii proportionally (e2e uses a small one).
+**Radii (locked; reconciled at T-0094 accept).** The metric is the
+axis-aligned SQUARE, not a circle (a 2 000 m disk never reaches the 5×5
+corners from a tile's interior — worker flag, accepted): wanted = every
+tile whose rect intersects the square of half-extent `loadR` = 2 000 m
+around the player (exactly 5×5 at rest), plus ALWAYS the player's tile and
+its 8 neighbours; a loaded tile is dropped only when its rect is entirely
+outside the `unloadR` = 2 600 m square (hysteresis — walking along a
+boundary never thrashes). Debug override `?tileradius=<m>` maps to
+`{ loadR: m, unloadR: 1.3·m }` (parsed in main.ts, T-0095).
 
 **`TileManager`** (pure scheduling core — no three.js, no DOM; unit-tested
 in node with an injected loader):
@@ -1111,8 +1114,8 @@ new TileManager(index: TileIndexData, loadTile: (key: string) => Promise<TileDat
 update(x: number, z: number): void  // recompute wanted set; schedule fetches nearest-first, ≤ 2 in flight; retry a failed tile once, then log and skip
 take(): TileEvent[]                 // drained once per frame; delivers at most ONE 'add' per call (builds are ~ms each — one per frame keeps §4.18's budget), any number of 'remove's
                                     // type TileEvent = { kind: 'add'; key: string; tile: TileData } | { kind: 'remove'; key: string }
-snapshot(): { buildings: Building[]; roads: Road[]; version: number }  // concatenated arrays over ADDED tiles, cached until the set changes; version increments per change
-loadedKeys(): string[]; pending(): number
+snapshot(): { buildings: Building[]; roads: Road[]; version: number }  // concatenated arrays over ADDED tiles (numeric key order — deterministic), cached; version bumps ONCE per take() that mutates the added set
+loadedKeys(): string[]; pending(): number   // pending = in-flight fetches + fetched-not-yet-taken
 ```
 
 The caller applies events: `add` → build meshes + collision source;
@@ -1128,7 +1131,8 @@ number, disposed: number }` (live reference) is the e2e surface.
 **Collision**: `CollisionGrid` learns removable sources —
 `addSource(key, buildings, corridors)` / `removeSource(key)`; entries are
 tagged by source key internally; the constructor's own arguments form the
-permanent base source. Water stays constructor-global (rings + parity,
+permanent base source (internal key `'#base'` — never pass that as a
+source key; `addSource` replaces an existing same-key source). Water stays constructor-global (rings + parity,
 §4.6 semantics unchanged — a tiled city passes `index.water`).
 `blocked`/`resolve` behaviour is unchanged.
 
