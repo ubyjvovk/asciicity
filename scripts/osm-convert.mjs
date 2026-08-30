@@ -93,7 +93,7 @@ const HEIGHT_BY_BUILDING = {
 /**
  * Compute a building's height in metres from OSM tags per data-format rules:
  * `height` tag (ft honored) → `building:levels` (×3.3 + 2, plus roof levels)
- * → default by `building` value. Always clamped to [3, 600].
+ * → default by `building` value. Always clamped to [3, 650].
  * @param {Record<string, string>} tags OSM way/relation tags
  * @returns {number} height in metres
  */
@@ -125,7 +125,7 @@ export function heightOf(tags) {
     const b = (tags.building || '').toLowerCase();
     h = HEIGHT_BY_BUILDING[b] ?? 14;
   }
-  return Math.min(600, Math.max(3, h));
+  return Math.min(650, Math.max(3, h));
 }
 
 /**
