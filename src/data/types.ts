@@ -58,7 +58,7 @@ export type RoadClass =
 export interface Building {
   /** OSM way/relation id, or a synthetic id. Unique within the file. */
   id: number;
-  /** Height in metres (roof, flat). Clamped to [3, 600] by producers (wave 10: supertalls). */
+  /** Height in metres (roof, flat). Clamped to [3, 650] by producers (wave 10 supertalls; 650 since wave 11 — Tokyo Skytree is 634 m). */
   h: number;
   /**
    * Base height in metres for a `building:part` that starts above the ground
@@ -140,4 +140,74 @@ export interface CityData {
    * Added 2026-08-26 (wave 5).
    */
   waterLevels?: number[];
+}
+
+/*
+ * ── Tiled datasets (wave 11, sector streaming) ───────────────────────────
+ * Large cities ship as `public/data/<city>/index.json` (globals, below) plus
+ * one `tiles/<i>_<j>.json` per non-empty 1000-m tile. Format contract:
+ * docs/data-format.md "Tiled datasets"; runtime: docs/architecture.md §4.19.
+ */
+
+/** Per-tile entry in `TileIndexData.tiles`: element counts + the tile file's byte length (loading-bar denominator). */
+export interface TileStat {
+  buildings: number;
+  roads: number;
+  trees: number;
+  bytes: number;
+}
+
+/**
+ * Anchor of a named building (footprint centroid, local metres) so spawn
+ * presets and fast travel resolve before any tile is loaded. Order = tile
+ * scan order; consumers take the FIRST entry for a name.
+ */
+export interface LandmarkEntry {
+  name: string;
+  x: number;
+  z: number;
+}
+
+/**
+ * `index.json` of a tiled city. Carries everything global (terrain, water,
+ * rivers, bridge roads, places, landmark anchors) plus the tile directory.
+ * Tile `(i, j)` covers `x ∈ [i·tileSize, (i+1)·tileSize)`,
+ * `z ∈ [j·tileSize, (j+1)·tileSize)` in local metres — `i = floor(x /
+ * tileSize)`, `j = floor(z / tileSize)`, negative indices allowed; the key
+ * is `"i_j"` (e.g. `"-3_2"`).
+ */
+export interface TileIndexData {
+  v: 1;
+  /** Discriminant against a monolithic `CityData` file. */
+  tiled: true;
+  origin: { lat: number; lon: number };
+  /** `[minLon, minLat, maxLon, maxLat]` of the source query (WGS84). */
+  bbox: [number, number, number, number];
+  /** Metres per tile edge (1000 for shipped datasets). */
+  tileSize: number;
+  /**
+   * Every road whose `bridge` is truthy — global, whole polylines, NEVER
+   * split at tile edges: bridge chaining (§4.9), `BridgeDecks` and
+   * `groundAt` are built once from this list so decks never pop in or out.
+   */
+  bridgeRoads: Road[];
+  /** Anchors of every named building (see `LandmarkEntry`). */
+  landmarks: LandmarkEntry[];
+  /** ALL places, global (small; zone naming and spawn need them at boot). */
+  places: Place[];
+  /** Non-empty tiles only, keyed `"i_j"`. */
+  tiles: Record<string, TileStat>;
+  terrain?: TerrainData;
+  water?: Vec2[][];
+  waterLevels?: number[];
+  rivers?: Vec2[][];
+}
+
+/** One `tiles/<i>_<j>.json` file. Element schemas are exactly `CityData`'s. */
+export interface TileData {
+  v: 1;
+  buildings: Building[];
+  roads: Road[];
+  trees?: [number, number, number, number][];
+  woods?: Vec2[][];
 }

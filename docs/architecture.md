@@ -1081,13 +1081,103 @@ feeds fast travel as usual. Bridges' tower positions come from OSM
 (`bridge:support=pier` / `man_made=tower` ways, as the GGB's did), never from
 memory; walkway names are read from the fetched file.
 
+### 4.19 Sector streaming (wave 11) — `src/world/tiles.ts`, tiled boot path
+
+Central Tokyo is 112 k buildings — past what one JSON download and one
+buildings mesh can carry. A city whose registry entry has `tiled: true`
+loads `data/<city>/index.json` (globals) at boot and streams 1000-m tiles
+around the player. Format: data-format.md "Tiled datasets"; types:
+`TileIndexData`/`TileData` in `src/data/types.ts`.
+
+**Registry** (`src/data/cities.ts`): `CityInfo` gains `tiled?: true`;
+for a tiled city `file` names the index (`data/<city>/index.json`) and
+`sizeBytes` is the committed index size (the download-phase hint); per-tile
+sizes come from `index.tiles[key].bytes`. All four shipped cities migrate
+to tiled directories in wave 11 so the app has ONE real-city boot path;
+the monolithic loader remains for `?synthetic=1` and unit tests.
+
+**Radii (locked).** Wanted set = every tile whose rect intersects a
+2 000 m circle around the player (5×5 at rest); a loaded tile is dropped
+only when its rect is entirely outside 2 600 m (hysteresis — walking along
+a boundary never thrashes). The player's own tile and its 8 neighbours are
+never unloaded regardless of radius. Debug override `?tileradius=<m>`
+scales both radii proportionally (e2e uses a small one).
+
+**`TileManager`** (pure scheduling core — no three.js, no DOM; unit-tested
+in node with an injected loader):
+
+```ts
+new TileManager(index: TileIndexData, loadTile: (key: string) => Promise<TileData>, opts?: { loadR?: number; unloadR?: number })
+update(x: number, z: number): void  // recompute wanted set; schedule fetches nearest-first, ≤ 2 in flight; retry a failed tile once, then log and skip
+take(): TileEvent[]                 // drained once per frame; delivers at most ONE 'add' per call (builds are ~ms each — one per frame keeps §4.18's budget), any number of 'remove's
+                                    // type TileEvent = { kind: 'add'; key: string; tile: TileData } | { kind: 'remove'; key: string }
+snapshot(): { buildings: Building[]; roads: Road[]; version: number }  // concatenated arrays over ADDED tiles, cached until the set changes; version increments per change
+loadedKeys(): string[]; pending(): number
+```
+
+The caller applies events: `add` → build meshes + collision source;
+`remove` → remove + dispose. A tile is "added" only after its `add` event
+was taken (fetch completion alone changes nothing observable).
+
+**Scene**: one `THREE.Group` per tile — buildings mesh, roads mesh, trees
+instanced mesh, built by the EXISTING builders (unchanged signatures, same
+`groundAt`). On remove, dispose geometries/materials and detach the group.
+`window.__asciicity.tiles = { loaded: string[], pending: number, version:
+number, disposed: number }` (live reference) is the e2e surface.
+
+**Collision**: `CollisionGrid` learns removable sources —
+`addSource(key, buildings, corridors)` / `removeSource(key)`; entries are
+tagged by source key internally; the constructor's own arguments form the
+permanent base source. Water stays constructor-global (rings + parity,
+§4.6 semantics unchanged — a tiled city passes `index.water`).
+`blocked`/`resolve` behaviour is unchanged.
+
+**Global at boot from the index**: terrain, water/waterLevels, rivers
+(BoatFleet), ship lanes (curated, §4.17) — and `bridgeRoads`: chaining
+(§4.9), `BridgeDecks` and `groundAt` are built ONCE from
+`index.bridgeRoads`, never from tiles, so decks exist before any tile and
+never pop. `bridgeRoads` also renders as a permanent pseudo-tile (roads
+builder + a permanent collision source `'bridges'`) and joins every bus
+graph (below).
+
+**HUD**: `ZoneIndex`, tag anchors (`landmarkAnchors`) and the minimap
+rebuild from `snapshot()` + global `places`/`water` when `version`
+changes — at most once per second, scheduled after the frame, never in
+the render hot path. `Minimap` gains `setCity(city: CityData): void`
+(rebuild; ctor unchanged) and receives a `CityData`-shaped view assembled
+from the snapshot + globals.
+
+**Buses**: rebuilt from `snapshot().roads` concatenated with
+`index.bridgeRoads` on the same ≤ 1/s version trigger, seed `9 ^ version`
+(deterministic per tile-set). Buses teleport on rebuild — ACCEPTED for
+wave 11 (fog hides all but the nearest; smooth handover is parked polish).
+Boats/ships are global and never rebuild.
+
+**Tiled boot** (`main.ts`): fetch the index through `loadCityJson`
+(phase `download`, sizeHint = registry `sizeBytes`) → build globals with
+`await nextFrame()` between builders (phase `build`, §4.18 steps) → load
+and build the spawn tile's 3×3 (phase `build`, `step` `TILE <i>_<j>`; bar
+fraction = completed bytes / Σ bytes of that 3×3) → `ready`. The rest of
+the 5×5 streams in after `ready`. Spawn presets and `?at=` resolve from
+`index.landmarks` and `index.bbox` BEFORE any tile is fetched (adapt
+`landmarkSpawn` to take `{name, x, z}` anchors — first entry per name
+wins; `resolveSpawn` semantics otherwise unchanged), so the 3×3 is
+centred on the spawn, not on the origin. In fly mode distant unloaded
+tiles are visibly absent from altitude — accepted for wave 11.
+
+**Perf**: at rest 25 tile groups × 3 meshes ≈ 75 draw calls + globals —
+fine at the ≤ 640×360 scene target (§7 amended; the per-frame cost that
+matters stays "≤ 1 tile build per frame, zero allocations in the loop
+outside tile transitions").
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
 1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
    (`hills=1` adds the synthetic terrain); else the city picker / `?city=`
    (§4.10) → `loadCity(import.meta.env.BASE_URL + city.file)`, falling back
    to `syntheticCity()` on error (log a console warning). `cell=WxH`
-   overrides cell size.
+   overrides cell size. A registry entry with `tiled: true` takes the
+   tiled boot path instead (§4.19): index → globals → spawn 3×3 → ready.
 2. Build: ground, roads, buildings (one mesh each) → scene. With
    `city.terrain`: `terrain = new Terrain(city.terrain)`,
    `decks = new BridgeDecks(city.roads, terrain.heightAt)`,
@@ -1118,11 +1208,14 @@ memory; walkway names are read from the fetched file.
 
 ## 7. Performance budget
 
-≥ 55 fps on an integrated GPU at 1080p with cell 6×12 (≈ 320×90 cells). The
-whole city is five meshes (ground, terrain, roads, buildings, water) plus two
-instanced fleets → ≤ 8 draw calls per frame plus the ASCII quad. Never
-allocate per frame in the loop. The Kyiv heightfield is ≈ 87 k vertices /
-170 k indexed triangles — one draw call, well inside budget.
+≥ 55 fps on an integrated GPU at 1080p with cell 6×12 (≈ 320×90 cells). A
+monolithic city is five meshes (ground, terrain, roads, buildings, water)
+plus two instanced fleets → ≤ 8 draw calls per frame plus the ASCII quad; a
+tiled city (wave 11, §4.19) adds ≤ 25 tile groups × 3 meshes ≈ 75 draw
+calls — still trivial at the low-res scene target. Never allocate per frame
+in the loop (tile transitions are the one sanctioned exception, ≤ 1 tile
+build per frame). The Kyiv heightfield is ≈ 87 k vertices / 170 k indexed
+triangles — one draw call, well inside budget.
 
 ## 8. Testing strategy
 

@@ -101,7 +101,13 @@ in your report instead of guessing.
   geometry. The sampler and the heightfield share one triangulation
   (architecture.md §4.9) — never "improve" one without the other.
 - Kyiv names are English (`name:en`) where OSM has them, else Ukrainian
-  Cyrillic; the HUD `<pre>` renders both — do not transliterate.
+  Cyrillic; the HUD `<pre>` renders both — do not transliterate. Tokyo
+  (wave 11) follows the same rule with Japanese.
+- Sector streaming (wave 11): big cities ship as `public/data/<city>/`
+  (`index.json` + `tiles/<i>_<j>.json`) and stream around the player.
+  Format: data-format.md "Tiled datasets"; runtime (`TileManager`, radii,
+  collision sources, HUD/bus rebuilds): architecture.md §4.19. Bridge
+  roads are GLOBAL (`index.bridgeRoads`) — never split or tile them.
 - Visual-verification steps: if your model cannot view images, verify through
   `window.__asciicity` and the HUD text instead and say so in the report —
   the PM does the GPU visual review. Never fail a ticket over that.

@@ -84,6 +84,107 @@ places / 97 water rings / 2 rivers / 27 424 trees (8 961 filled), terrain
 287×430 @ 20 m (0 voids, tiles N40W074 + N40W075), max h 541 (One WTC
 spire), 10 102 343 bytes (9.63 MB).
 
+## Tiled datasets (wave 11 — sector streaming)
+
+Central Tokyo holds 112 k building ways (counted 2026-08-30) — 2.7× the
+Manhattan dataset, an estimated 30–50 MB of JSON. Past that scale a city
+ships **tiled**: a directory `public/data/<city>/` holding
+
+- `index.json` — everything global: `origin`, `bbox`, `tileSize`,
+  `terrain`, `water` + `waterLevels`, `rivers`, `bridgeRoads`, `landmarks`,
+  `places`, and a `tiles` directory of per-tile stats;
+- `tiles/<i>_<j>.json` — one file per non-empty tile: `buildings`, `roads`,
+  `trees`, `woods`, element schemas identical to the monolithic ones.
+
+TypeScript shapes: `TileIndexData` / `TileData` / `TileStat` /
+`LandmarkEntry` in `src/data/types.ts` (PM-owned). Runtime behaviour
+(TileManager, load radii, HUD/bus rebuilds): architecture.md §4.19.
+
+**Tile grid.** `tileSize` is 1000 m for shipped datasets. Tile `(i, j)`
+covers `x ∈ [i·S, (i+1)·S)`, `z ∈ [j·S, (j+1)·S)` in local metres; `i =
+floor(x/S)`, `j = floor(z/S)`; negative indices are allowed and keep their
+minus sign in the key (`"-3_2"`). Empty tiles are neither written nor
+listed.
+
+**The tiler** is a pure function `tileCity(city, tileSize)` in
+`scripts/tile-city.mjs` (zero deps, unit-tested), with two entry points:
+`node scripts/tile-city.mjs <city.json> <outdir>` retiles an existing
+monolithic file (the migration path — deterministic, no Overpass), and
+`fetch-osm.mjs --tiles` tiles at fetch time (`--out` then names the city
+DIRECTORY). Same input → byte-identical output. Rules:
+
+1. **Exclusive assignment by anchor** — every element lands in exactly one
+   tile; the union of all tiles equals the monolithic arrays (input order
+   preserved within a tile). Anchors: building → arithmetic mean of its
+   `poly` vertices (computed on the unrounded ring); tree → its `(x, z)`;
+   `woods` ring → vertex mean. No margins, no duplication: the runtime's
+   2 km load radius (§4.19) exceeds fog visibility, so edge pop-in is not
+   reachable on foot.
+2. **Roads split at tile boundaries** — except bridges (rule 3). Each
+   polyline is clipped geometrically against every tile rect it crosses
+   (a segment may cross a tile that contains none of its vertices); the
+   crossing point is computed once and appended to BOTH pieces, so the
+   pieces' endpoints coincide exactly and the road graph reconnects when
+   both tiles are loaded — independent of vertex order or travel
+   direction. Pieces keep the original `id`, `name`, `cls`; consumers must
+   not assume road ids are unique across tiles or even within one tile (a
+   road can leave and re-enter it around a corner). Degenerate pieces (a
+   single point) are dropped.
+3. **Bridge roads are global.** Every road whose `bridge` is truthy goes to
+   `index.bridgeRoads` verbatim — whole polylines, never split. Bridge
+   chaining (§4.9), `BridgeDecks` and `groundAt` need whole chains; a
+   boundary-split bridge would resurrect the wave-9 per-piece deck-lerp
+   bug.
+4. **`landmarks`** — for every building with a `name` (as present in the
+   input `CityData`), append `{ name, x, z }` using the same centroid
+   anchor. Order = tile scan order (`j` ascending, then `i`, then input
+   order); consumers take the first entry per name.
+5. **`places` are global** (they are small — 187 in Manhattan — and zone
+   naming/spawn need them at boot). Tiles carry no places.
+6. **`tiles[key].bytes`** = the byte length of the tile file as written —
+   the loading bar's denominator. `buildings`/`roads`/`trees` are element
+   counts.
+7. **Validation**: the tiler validates its INPUT with `validateCity` (the
+   monolithic rules below, road-id uniqueness included); `validate.ts`
+   gains `validateTileIndex(raw): TileIndexData` (shape, finiteness, tile
+   keys matching `/-?\d+_-?\d+/`, `tileSize > 0`). Tile FILES get a light
+   shape check at load time only (`v === 1`, arrays present) — they are
+   machine-generated from already-validated input, and fully re-validating
+   25 tiles on the main thread would stall the frame loop. The monolithic
+   road-id uniqueness rule does not apply inside tile files (rule 2).
+
+**Chunked fetch (`--chunks NxM`)** — for bboxes too large for one Overpass
+query, `fetch-osm.mjs --chunks NxM` splits the bbox into an N×M grid of
+sub-bboxes fetched sequentially (5 s pause between requests, same
+endpoint fallback as today) and concatenates the responses, deduplicating
+elements by `type` + `id` before conversion (an element on a seam is
+returned by both chunks). Summary-line counts are post-dedupe. Chunking
+changes fetching only — conversion sees one merged element list.
+
+**Height clamp raised to [3, 650]** (was 600) — converter, validator and
+`types.ts` alike. Tokyo Skytree is 634 m; no existing dataset has a
+building over 600, so London/Kyiv/SF/NYC stay byte-identical.
+
+### Central Tokyo (`data/tokyo/`, wave 11) — the first streamed-only city
+
+- **bbox**: `139.730, 35.645, 139.820, 35.715` — ≈ 8.1 km × 7.8 km:
+  Imperial Palace, Tokyo Station, Ginza, Akihabara, Tokyo Tower
+  (verified in OSM at ≈ `139.747, 35.658`) and Tokyo Skytree (≈ `139.808,
+  35.710`), plus the Sumida riverfront between them.
+- **origin**: Tokyo Station, `lon 139.7671, lat 35.6812` — verify against
+  the fetched `railway=station` node and correct if > 100 m off.
+- Overpass counts at boarding (2026-08-30): **112 184 `building` ways**,
+  510 `building:part` ways, 46 594 highway ways.
+- Names: `--lang en` (same rule as Kyiv — `name:en` wins, else Japanese;
+  never transliterate).
+- Terrain: `--dem 1`, single SRTM tile `N35E139`; the bay/rivers come from
+  the coastline + water rules above.
+- Command: `node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles --out
+  public/data/tokyo` (`npm run fetch-data:tokyo`).
+- **Size budget: 60 MB** for `index.json` + all tiles combined (blocked
+  question if over). Counts/size recorded here at accept.
+
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
 Tall buildings are mapped as an outline (`building=*`) plus `building:part`
@@ -117,7 +218,7 @@ Building is one flat 380 m slab. Rules:
    In the first Manhattan fetch the underground terminal relation was the
    only outline containing an unrelated 209 m tower and would have named
    it "Grand Central Terminal".
-4. **Heights**: the clamp is now `[3, 600]` (converter and validator; One
+4. **Heights**: the clamp is now `[3, 650]` (converter and validator; One
    WTC's roof is 417 m, its spire 541 m). `minH` is validated as a finite
    number in `[0, h − 1)`.
 5. **Consumers**: walls run from `minH` to `h` and a bottom cap is emitted
@@ -161,7 +262,7 @@ Rules every producer must follow and `validateCity` must enforce:
 
 - `buildings[].poly`: ≥ 3 points, first point not repeated last, no NaN.
   Degenerate rings (|area| < 1 m²) are dropped by producers.
-- `buildings[].h`: finite, clamped to `[3, 600]`.
+- `buildings[].h`: finite, clamped to `[3, 650]`.
 - `roads[].pts`: ≥ 2 points. `cls` ∈ `RoadClass`.
 - `places[]`: finite `x`/`z`, non-empty `name`.
 - `id` unique within each array.
@@ -216,7 +317,7 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
      when present).
   3. default by `building` value: `cathedral|church` 30, `office|commercial`
      20, `apartments|residential` 15, `retail` 10, anything else 14.
-  Clamp to `[3, 600]`.
+  Clamp to `[3, 650]`.
 - `name` copied when present (trimmed).
 
 **Roads** — `highway` mapping to `cls` (wave 9: `motorway`/`motorway_link`
@@ -405,7 +506,7 @@ field, e.g. `buildings[3].poly`, `roads[0].cls`. Checks performed, in order:
 - Top level is an object with `v === 1` (else `v`).
 - `origin.lat`/`origin.lon` are finite numbers (`origin.lat`, `origin.lon`).
 - `bbox` is a length-4 array of finite numbers (`bbox`, `bbox[i]`).
-- `buildings`: `h` finite and in `[3, 600]` (`buildings[i].h`); optional
+- `buildings`: `h` finite and in `[3, 650]` (`buildings[i].h`); optional
   `name` is a string (`buildings[i].name`); `poly` is a closed ring with
   ≥ 3 finite `[x, z]` points and first point not repeated last
   (`buildings[i].poly`); `id` finite and unique per array (`buildings[i].id`).
