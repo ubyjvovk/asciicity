@@ -34,6 +34,7 @@ and the `?synthetic=1`/unit-test path.
 | `kyiv` | Maidan Nezalezhnosti `50.4501, 30.5234` | SRTM 1″, step 20 m | 57 | 634 133 | 3 605 753 |
 | `sf` | Union Square `-122.4075, 37.788` | SRTM 1″, step 20 m | 69 | 1 273 711 | 14 968 348 |
 | `nyc` | Union Square `-73.9905, 40.7359` | SRTM 1″, step 20 m | 77 | 920 302 | 10 430 168 |
+| `tokyo` | Tokyo Station `139.7671, 35.6812` | SRTM 1″, step 20 m | 99 | 1 979 748 | 18 629 801 |
 
 Migration counts (tiler input → tiles, T-0096): london 9 061 buildings /
 8 115 roads (381 bridge roads global) / 2 413 landmarks; kyiv 8 183 /
