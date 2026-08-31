@@ -171,3 +171,41 @@ unloadR  = 1.3 · m
 
 `?tileradius=600` → `{ loadR: 600, unloadR: 780 }`. The e2e uses this so a
 short teleport crosses a tile boundary and an original 3×3 tile unloads.
+
+## Verifying streaming
+
+**Debug surface** — live reference, mutated every frame, exposed as
+`window.__asciicity.tiles`:
+
+| field | meaning |
+|---|---|
+| `loaded` | keys whose `add` event has been taken (resident) |
+| `pending` | in-flight fetches + fetched-but-not-yet-taken |
+| `version` | `snapshot().version` (bumps once per mutating `take()`) |
+| `disposed` | count of `remove` events applied (geometries disposed) |
+
+The live player pose is `window.__asciicity.state` (`x`, `y`, `z`, `yaw`,
+`pitch`) and `y` mirrors the eye height each frame — together they are the
+“no fall-through” position surface sampled per poll. Movement in e2e:
+fly mode (`?fly=1`, hold `Shift`+`W`) covers ground fastest; `?tileradius=`
+scales both radii so a short run crosses tile boundaries.
+
+**`tests/tiles.test.ts`** covers the scheduler deterministically in node:
+
+- *Thrash guard* — 20 alternating `update()` calls 1 m either side of a tile
+  boundary produce ≤ 2 version changes: the hysteresis band (`unloadR`)
+  keeps a just-beyond-load-radius tile resident instead of dropping and
+  re-fetching it on every toggle.
+- *Fetch storm* — a never-resolving `loadTile` while the player crosses many
+  tiles keeps unresolved calls ≤ 2 (the `MAX_IN_FLIGHT` cap) and `take()`
+  well-behaved (no spurious adds/removes, no throw).
+
+**`e2e/tiles.spec.ts`** boots a tiled city (SF) at `?tileradius=600&fly=1`
+and asserts, per poll during a long fly across ≥ 3 tile widths:
+
+- `loaded` never exceeds a radius-derived bound (≤ 36);
+- `disposed` strictly increases and `version` increases as the trailing
+  tiles unload and leading ones stream in;
+- the player's current 3×3 keys are all present in `loaded` after the fly;
+- `state.y` stays finite and ≥ its takeoff value through every boundary
+  (no fall-through — a ground gap / NaN height would sink or NaN it).

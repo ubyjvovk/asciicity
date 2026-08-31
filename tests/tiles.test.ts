@@ -397,4 +397,76 @@ describe('TileManager', () => {
       return Math.abs(i) <= 2 && Math.abs(j) <= 2;
     })).toBe(true);
   });
+
+  it('20 alternating update() calls 1 m either side of a tile boundary produce ≤ 2 version changes (hysteresis)', async () => {
+    // Single index row `i_0` (1000 m tiles); the x = 1000 boundary between
+    // tile 0 and tile 1 is straddled at x = 999 / 1001. Narrow load square +
+    // wide unload band mirror the real 1.3 hysteresis ratio (loadR/unloadR).
+    const row = makeIndex(0, 4, 0, 0);
+    const loadTile = (key: string): Promise<TileData> => Promise.resolve(makeTile(key));
+    const mgr = new TileManager(row, loadTile, { loadR: 100, unloadR: 1500 });
+
+    // Drain on the west side: only tiles 0_0 and 1_0 are wanted/loaded.
+    await drain(mgr, 999, 500);
+    expect(sortedKeys(mgr.loadedKeys())).toEqual(sortedKeys(['0_0', '1_0']));
+
+    const v0 = mgr.snapshot().version;
+    let changes = 0;
+    let droppedHysteresis = 0;
+    for (let k = 0; k < 20; k++) {
+      // 1 m either side of the x = 1000 tile boundary.
+      const x = k % 2 === 0 ? 1001 : 999;
+      mgr.update(x, 500);
+      await microtasks(6);
+      const events = mgr.take();
+      if (events.length > 0) changes += 1;
+      // `2_0` becomes wanted only on the east side; on the west side it is
+      // kept solely by the hysteresis band — it must never be dropped and
+      // re-fetched while we oscillate across the boundary.
+      if (events.some((e) => e.kind === 'remove' && e.key === '2_0')) droppedHysteresis += 1;
+    }
+    // Without the hysteresis band this would re-add / re-drop `2_0` on every
+    // toggle (≫ 2 version bumps). With it, the east neighbour loads once and
+    // stays resident: at most one add's worth of version movement.
+    expect(changes).toBeLessThanOrEqual(2);
+    expect(droppedHysteresis).toBe(0);
+    expect(mgr.loadedKeys()).toContain('2_0');
+    expect(mgr.snapshot().version - v0).toBeLessThanOrEqual(2);
+  });
+
+  it('fetch-storm: never-resolving loadTile while crossing many tiles keeps unresolved calls ≤ 2 and take() well-behaved', async () => {
+    // Every fetch hangs forever — simulates a stuck/slow tile request while
+    // the player keeps moving so the wanted set keeps changing.
+    const unresolved = new Set<string>();
+    const loadTile = (key: string): Promise<TileData> => {
+      unresolved.add(key);
+      return new Promise<TileData>(() => {});
+    };
+    // A long single-row index so the wanted set changes as x sweeps east.
+    const row = makeIndex(0, 40, 0, 0);
+    const mgr = new TileManager(row, loadTile, { loadR: 50, unloadR: 60 });
+
+    let maxUnresolved = 0;
+    let addsSeen = 0;
+    // Cross ~6.4 km (~6 tile widths) in 100 m steps; nothing ever resolves.
+    for (let step = 0; step < 64; step++) {
+      const x = 500 + step * 100;
+      mgr.update(x, 500);
+      await microtasks(6);
+      const events = mgr.take();
+      // take() stays well-behaved: no adds (nothing resolved), no removes
+      // (nothing was ever added), and it never throws under the storm.
+      expect(events.filter((e) => e.kind === 'add')).toHaveLength(0);
+      addsSeen += events.filter((e) => e.kind === 'add').length;
+      maxUnresolved = Math.max(maxUnresolved, unresolved.size);
+      expect(unresolved.size).toBeLessThanOrEqual(2);
+      expect(mgr.pending()).toBeLessThanOrEqual(2);
+    }
+    // The storm actually started (fetches were issued) and the scheduler kept
+    // the unresolved call count glued to MAX_IN_FLIGHT = 2 for the whole crossing.
+    expect(maxUnresolved).toBe(2);
+    expect(unresolved.size).toBeLessThanOrEqual(2);
+    expect(mgr.pending()).toBeLessThanOrEqual(2);
+    expect(addsSeen).toBe(0);
+  });
 });
