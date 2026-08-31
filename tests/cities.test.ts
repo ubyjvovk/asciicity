@@ -7,7 +7,12 @@
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CITIES, cityById } from '../src/data/cities';
+import {
+  CITIES,
+  cityById,
+  resolveBootRender,
+  type CityInfo,
+} from '../src/data/cities';
 import { SPAWN_PRESETS } from '../src/data/spawn';
 
 interface DatasetHeader {
@@ -74,6 +79,16 @@ describe('CITIES registry', () => {
       expect(city.file).toBe(`data/${city.id}/index.json`);
     }
   });
+
+  it('only tokyo carries defaultRender, and its value is matrix', () => {
+    for (const city of CITIES) {
+      if (city.id === 'tokyo') {
+        expect(city.defaultRender).toBe('matrix');
+      } else {
+        expect(city.defaultRender).toBeUndefined();
+      }
+    }
+  });
 });
 
 describe('cityById', () => {
@@ -115,6 +130,39 @@ describe('cityById', () => {
     expect(cityById('tokyo')?.id).toBe('tokyo');
     expect(cityById(' TOKYO ')?.id).toBe('tokyo');
     expect(cityById('Tokyo')?.label).toBe('TOKYO');
+  });
+});
+
+describe("resolveBootRender — architecture.md §4.20 precedence chain", () => {
+  // The precedence tests live here (not tests/settings.test.ts) because the
+  // chain function lives in src/data/cities.ts: settings.ts is frozen
+  // (read-only per the ticket's out-of-scope fence), so it cannot host it.
+  const tokyo = cityById('tokyo') as CityInfo;
+  const london = cityById('london') as CityInfo;
+
+  it('explicit URL style beats the city default', () => {
+    expect(resolveBootRender('ascii', tokyo, 'gloom')).toBe('ascii');
+    expect(resolveBootRender('pico8', tokyo, 'gloom')).toBe('pico8');
+  });
+
+  it('city default beats the persisted setting', () => {
+    expect(resolveBootRender(undefined, tokyo, 'gloom')).toBe('matrix');
+    expect(resolveBootRender(undefined, tokyo, 'ascii')).toBe('matrix');
+  });
+
+  it('persisted setting used when the city has no default', () => {
+    expect(resolveBootRender(undefined, london, 'gloom')).toBe('gloom');
+    expect(resolveBootRender(undefined, london, 'ascii')).toBe('ascii');
+  });
+
+  it('unknown defaultRender id falls through to the persisted setting', () => {
+    const bogus: CityInfo = { ...london, defaultRender: 'not-a-style' };
+    expect(resolveBootRender(undefined, bogus, 'pico8')).toBe('pico8');
+  });
+
+  it('synthetic unaffected — no city, persisted setting wins', () => {
+    expect(resolveBootRender(undefined, undefined, 'pico8')).toBe('pico8');
+    expect(resolveBootRender(undefined, undefined, 'ascii')).toBe('ascii');
   });
 });
 

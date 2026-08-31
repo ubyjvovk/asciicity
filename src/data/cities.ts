@@ -3,6 +3,7 @@
  * `CITIES` lists every dataset shipped in `public/data/`; `cityById` picks one
  * by URL id (trimmed, case-insensitive). Pure: no DOM/WebGL.
  */
+import { STYLE_ORDER } from '../render/style';
 
 /** Everything `main.ts` needs to boot a city: URL id, label, dataset path, default spawn. */
 export interface CityInfo {
@@ -28,6 +29,14 @@ export interface CityInfo {
    * the monolithic loader remains only for `?synthetic=1` and unit tests.
    */
   tiled?: true;
+  /**
+   * Boot render-style id (a `STYLE_ORDER` id, architecture.md §4.20): when the
+   * URL carries no explicit `?render=`, this city boots that style instead of
+   * the persisted choice. Applied at boot only — `R` cycling and persistence
+   * are unaffected. An unknown id falls through to the persisted setting.
+   * Only Tokyo sets one (`matrix`); other cities must leave it unset.
+   */
+  defaultRender?: string;
 }
 
 /** Datasets shipped in `public/data/`. Order = picker order. */
@@ -76,6 +85,7 @@ export const CITIES: readonly CityInfo[] = [
     blurb: 'Imperial Palace to the Skytree · streamed',
     sizeBytes: 2701381,
     tiled: true,
+    defaultRender: 'matrix',
   },
 ];
 
@@ -88,4 +98,27 @@ export function cityById(id: string | null | undefined): CityInfo | undefined {
   const key = id.trim().toLowerCase();
   if (key === '') return undefined;
   return CITIES.find((c) => c.id === key);
+}
+
+/**
+ * Boot render-style precedence (architecture.md §4.20, locked): an explicit
+ * URL style (`urlRender`, parsed by the caller) always wins, then the city's
+ * `defaultRender` (an unknown id falls through), then the persisted
+ * `settings.render` (which itself falls back to `'ascii'`). `cityInfo` is
+ * `undefined` for synthetic, so no city default applies. Pure: no DOM/WebGL.
+ */
+export function resolveBootRender(
+  urlRender: string | undefined,
+  cityInfo: CityInfo | undefined,
+  persistedRender: string,
+): string {
+  if (urlRender !== undefined) return urlRender;
+  const cityDefault = cityInfo?.defaultRender;
+  if (
+    cityDefault !== undefined &&
+    (STYLE_ORDER as readonly string[]).includes(cityDefault)
+  ) {
+    return cityDefault;
+  }
+  return persistedRender;
 }

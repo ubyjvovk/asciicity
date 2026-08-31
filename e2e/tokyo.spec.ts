@@ -78,3 +78,29 @@ test('tokyo: booting the skytree preset resolves to the east-side vantage on til
   expect(Math.hypot(info.x - EXPECTED_X, info.z - EXPECTED_Z)).toBeLessThan(60);
   expect(info.loaded).toContain('4_-3');
 });
+
+test('tokyo: plain ?city=tokyo boot reports render matrix (per-city default, architecture §4.20)', async ({
+  page,
+}) => {
+  await page.goto('/?city=tokyo&tileradius=600');
+  await waitReady(page);
+  const render = await page.evaluate(() => {
+    const api = (window as unknown as { __asciicity?: { render?: string } })
+      .__asciicity;
+    return api?.render ?? '';
+  });
+  expect(render).toBe('matrix');
+});
+
+test('tokyo: ?city=tokyo&render=ascii boots ascii — the explicit URL wins over the city default', async ({
+  page,
+}) => {
+  await page.goto('/?city=tokyo&render=ascii&tileradius=600');
+  await waitReady(page);
+  const render = await page.evaluate(() => {
+    const api = (window as unknown as { __asciicity?: { render?: string } })
+      .__asciicity;
+    return api?.render ?? '';
+  });
+  expect(render).toBe('ascii');
+});
