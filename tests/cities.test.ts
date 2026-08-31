@@ -40,9 +40,10 @@ describe('CITIES registry', () => {
 
     const sf = CITIES[2];
     expect(sf.label).toBe('SAN FRANCISCO');
-    expect(sf.file).toBe('data/sf.json');
+    expect(sf.file).toBe('data/sf/index.json');
     expect(sf.defaultSpawn).toBe('ggb');
     expect(sf.blurb).toBe('Downtown to the Golden Gate · hills & bay');
+    expect(sf.tiled).toBe(true);
 
     const nyc = CITIES[3];
     expect(nyc.label).toBe('MANHATTAN');

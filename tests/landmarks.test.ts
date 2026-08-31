@@ -10,6 +10,7 @@ import { project } from '../src/geo';
 import { applyLandmarks, LANDMARK_FIXES } from '../src/world/landmarks';
 import { colorFor } from '../src/world/palette';
 import { landmarkAnchors } from '../src/hud/tags';
+import { loadSfCity } from './sfCity';
 
 const KYIV: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
@@ -17,9 +18,7 @@ const KYIV: CityData = JSON.parse(
 const LONDON: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'city.json'), 'utf8'),
 );
-const SF: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-);
+const SF: CityData = loadSfCity();
 const NYC: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
 );

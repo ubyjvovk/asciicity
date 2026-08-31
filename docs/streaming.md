@@ -1,9 +1,10 @@
 # Sector streaming — `TileManager` (`src/world/tiles.ts`)
 
-Pure scheduler for 1000 m tiles around the player. No three.js, no DOM;
-`main.ts` wiring (meshes, `?tileradius=` URL parsing, HUD/bus rebuilds) is
-T-0095. Contract: `docs/architecture.md` §4.19; tile files:
-`docs/data-format.md` "Tiled datasets".
+Pure scheduler for 1000 m tiles around the player. No three.js, no DOM.
+`main.ts` wires meshes, `?tileradius=` URL parsing, HUD/bus rebuilds, and
+the tiled boot path (this file, Integration). Contract:
+`docs/architecture.md` §4.19; tile files: `docs/data-format.md` "Tiled
+datasets".
 
 ## Exports
 
@@ -96,3 +97,77 @@ The constructor's buildings/corridors are a permanent base source and
 cannot be removed; water rings + odd-parity / shore-margin tests stay
 constructor-only so island-in-bay behaviour is unchanged when sources
 come and go. Re-adding a removed key replaces the previous contents.
+
+## Integration (`main.ts`)
+
+A registry entry with `tiled: true` (`file` = `data/<city>/index.json`,
+`sizeBytes` = the committed index size) takes the tiled boot path.
+Monolithic cities (`?synthetic=1`, London / Kyiv / NYC) keep the existing
+loader. Both paths coexist.
+
+### Boot order
+
+1. **Index** — `loadCityJson` (phase `download`, `sizeHint` = registry
+   `sizeBytes`) → `validateTileIndex`.
+2. **Spawn** — `resolveSpawn` against `index.landmarks` (first entry per
+   name) and `index.bbox` **before any tile fetch**, so the 3×3 is centred
+   on the player, not the origin.
+3. **Globals** — terrain, water + levels, rivers/boats, ship lanes,
+   `bridgeRoads` → chaining + `BridgeDecks` + `groundAt`, plus a permanent
+   rendered roads mesh and collision source `'bridges'`. Landmark extras
+   (`id ≤ −1000`) are a permanent buildings mesh. `await nextFrame()`
+   between builders (phase `build`, §4.18 steps).
+4. **Spawn 3×3** — `TileManager.update(spawn)` then `take()` until the
+   player's tile and its 8 neighbours that exist in the index are added
+   (phase `build`, step `TILE <i>_<j>`; bar = completed / Σ bytes of that
+   3×3).
+5. **`ready`** — overlay prompt returns. The rest of the 5×5 streams in
+   after ready, at most one tile build per frame.
+
+### Frame loop
+
+Each frame: `tiles.update(x, z)` then apply `tiles.take()`. `add` builds
+the tile's `THREE.Group` (existing buildings / roads / trees builders,
+same `groundAt`) and `collision.addSource(key, …)`; `remove` detaches the
+group, disposes geometries/materials, and `removeSource`. ≤ 1 add per
+frame comes free from `take()`.
+
+### What rebuilds when
+
+When `snapshot().version` changes, at most once per second, scheduled
+**outside** the render path (`setTimeout(0)`):
+
+- `ZoneIndex` from `snapshot().roads` + `index.bridgeRoads` + places +
+  snapshot buildings + extras
+- tag anchors (`landmarkAnchors` + suspension-bridge tags)
+- `minimap.setCity(...)` with a `CityData`-shaped view of the snapshot +
+  globals (woods concatenated from resident tiles)
+- the bus fleet from `snapshot().roads` + `index.bridgeRoads`, seed
+  `9 ^ version` (buses teleport on rebuild — accepted)
+
+Boats and ships are global and never rebuild.
+
+### Debug surface
+
+`window.__asciicity.tiles = { loaded, pending, version, disposed }` is a
+live reference, mutated every frame:
+
+| field | meaning |
+|---|---|
+| `loaded` | keys whose `add` event has been taken |
+| `pending` | in-flight fetches + fetched-not-yet-taken |
+| `version` | `snapshot().version` (bumps once per mutating `take()`) |
+| `disposed` | count of `remove` events applied (geometries disposed) |
+
+### `?tileradius=<m>`
+
+Parsed in `main.ts` (`parseTileRadius`). Scales both radii from the
+defaults (`2000 / 2600 × m / 2000`):
+
+```
+loadR    = m
+unloadR  = 1.3 · m
+```
+
+`?tileradius=600` → `{ loadR: 600, unloadR: 780 }`. The e2e uses this so a
+short teleport crosses a tile boundary and an original 3×3 tile unloads.

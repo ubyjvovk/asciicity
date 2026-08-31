@@ -5,7 +5,7 @@
  * origin, and resolving named-building presets against the dataset via
  * `landmarkSpawn`. No DOM/WebGL.
  */
-import type { CityData, Vec2 } from './types';
+import type { CityData, LandmarkEntry, Vec2 } from './types';
 import { project } from '../geo';
 
 /** Resolved spawn pose in local metres: `x` east, `z` south, yaw in radians. */
@@ -523,7 +523,10 @@ function corridorClear(
 
 /** Parameter type for `resolveSpawn`'s `city` argument (bbox is optional for tests). */
 type SpawnCity = Pick<CityData, 'buildings' | 'roads'> &
-  Partial<Pick<CityData, 'bbox'>>;
+  Partial<Pick<CityData, 'bbox'>> & {
+    /** Tiled-index anchors; first matching `name` wins (architecture.md §4.19). */
+    landmarks?: readonly LandmarkEntry[];
+  };
 
 /**
  * Parse an `?at=` value. `null`/empty → `null`; a preset name (trimmed,
@@ -568,10 +571,13 @@ function normalizeAngle(a: number): number {
  * road vertex, facing the building centroid. An **exact** (case-insensitive)
  * name match is preferred before a substring (`includes`) match; when several
  * buildings share the exact name, an extra (`id ≤ −1000`) wins over an OSM
- * footprint (Nelson's Column is both a 6 m plinth and a 52 m extra). The
- * default target distance scales with the target's height:
- * `clamp(70 + 1.2·h, 70, 220)`. Returns the candidate road vertex from every
- * road polyline (all classes) whose distance from the centroid lies in
+ * footprint (Nelson's Column is both a 6 m plinth and a 52 m extra). When
+ * `city.landmarks` is present (tiled `index.landmarks`), the **first** matching
+ * `{name, x, z}` entry supplies the centroid — first-entry-wins, so a later
+ * duplicate name is ignored. The default target distance scales with the
+ * target's height: `clamp(70 + 1.2·h, 70, 220)` (`h = 0` when only an anchor
+ * is known). Returns the candidate road vertex from every road polyline (all
+ * classes) whose distance from the centroid lies in
  * `[targetDist − 40, targetDist + 60]` with the smallest `|dist − targetDist|`;
  * if none, any corridor-clear vertex within 300 m. Every candidate must pass
  * **both** a 6 m footprint clearance (`blocked(pt, 6) === false`) and a clear
@@ -585,11 +591,38 @@ function normalizeAngle(a: number): number {
  */
 export function landmarkSpawn(
   name: string,
-  city: Pick<CityData, 'buildings' | 'roads'>,
+  city: Pick<CityData, 'buildings' | 'roads'> & {
+    landmarks?: readonly LandmarkEntry[];
+  },
   targetDist?: number,
   blocked?: (p: Vec2, r?: number) => boolean,
 ): SpawnPoint | null {
   const needle = name.toLowerCase();
+  // Tiled anchors: first exact match, else first substring; first-entry wins.
+  let cx: number | undefined;
+  let cz: number | undefined;
+  if (city.landmarks !== undefined) {
+    let anchor: LandmarkEntry | undefined;
+    for (const a of city.landmarks) {
+      if (a.name.toLowerCase() === needle) {
+        anchor = a;
+        break;
+      }
+    }
+    if (!anchor) {
+      for (const a of city.landmarks) {
+        if (a.name.toLowerCase().includes(needle)) {
+          anchor = a;
+          break;
+        }
+      }
+    }
+    if (anchor) {
+      cx = anchor.x;
+      cz = anchor.z;
+    }
+  }
+
   // Exact (case-insensitive) match first, then substring match. An extra
   // (id ≤ −1000) with the same exact name wins over an OSM building.
   const exactMatches = city.buildings.filter(
@@ -601,19 +634,20 @@ export function landmarkSpawn(
     city.buildings.find(
       (b) => b.name !== undefined && b.name.toLowerCase().includes(needle),
     );
-  if (!building) return null;
-  const distance = targetDist ?? clamp(70 + 1.2 * building.h, 70, 220);
-
-  // Centroid of the footprint ring.
-  let cx = 0;
-  let cz = 0;
-  for (const [x, z] of building.poly) {
-    cx += x;
-    cz += z;
+  if (cx === undefined || cz === undefined) {
+    if (!building) return null;
+    let sx = 0;
+    let sz = 0;
+    for (const [x, z] of building.poly) {
+      sx += x;
+      sz += z;
+    }
+    const n = building.poly.length;
+    cx = sx / n;
+    cz = sz / n;
   }
-  const n = building.poly.length;
-  cx /= n;
-  cz /= n;
+  if (cx === undefined || cz === undefined) return null;
+  const distance = targetDist ?? clamp(70 + 1.2 * (building?.h ?? 0), 70, 220);
 
   // Yaw that faces the target centroid (the same bearing the preset faces).
   const targetYaw = (px: number, pz: number): number =>

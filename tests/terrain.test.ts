@@ -2,9 +2,8 @@
  * Unit tests for src/world/terrain.ts (T-0042). Every case listed in the
  * ticket's acceptance criteria is covered here by name.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadSfGlobals } from './sfCity';
 import type { CityData, HeightFn, Road, TerrainData, Vec2 } from '../src/data/types';
 import {
   BridgeDecks,
@@ -430,9 +429,7 @@ describe('chained deck', () => {
 
 describe('Golden Gate Bridge chaining (sf.json)', () => {
   it('sf.json: groundAt along the Golden Gate Bridge East Sidewalk never drops below 25 m and is within 4 m of the West Sidewalk', () => {
-    const sf: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-    );
+    const sf: CityData = loadSfGlobals();
     const terrain = new Terrain(sf.terrain!);
     const decks = new BridgeDecks(sf.roads, terrain.heightAt);
     const groundAt = makeGroundAt(terrain, decks);

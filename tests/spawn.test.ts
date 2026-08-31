@@ -22,6 +22,7 @@ import { applyLandmarks } from '../src/world/landmarks';
 import { ROAD_WIDTH } from '../src/world/roads';
 import { deckHumps } from '../src/world/bridge';
 import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
+import { loadSfCity } from './sfCity';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -487,9 +488,9 @@ describe('San Francisco presets (wave 8)', () => {
   });
 
   it('every SF preset coordinate falls inside the sf.json bbox', () => {
-    const SF: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-    );
+    const SF = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf', 'index.json'), 'utf8'),
+    ) as { bbox: [number, number, number, number] };
     for (const [, preset] of presetsFor('sf')) {
       const p = preset as { lon?: number; lat?: number };
       expect(p.lon).toBeDefined();
@@ -503,6 +504,52 @@ describe('San Francisco presets (wave 8)', () => {
 });
 
 describe('landmarkSpawn', () => {
+  it('landmarkSpawn over anchors (first-entry wins)', () => {
+    // Two anchors share the name; the first supplies the centroid (0, 0).
+    // A building of the same name sits at (1000, 1000) — using it would pick
+    // a different road vertex. targetDist defaults to 70 (h unknown on an
+    // anchor-only match) so the 100 m vertex is in range.
+    const city: Pick<CityData, 'buildings' | 'roads'> & {
+      landmarks: { name: string; x: number; z: number }[];
+    } = {
+      buildings: [
+        {
+          id: 9,
+          h: 200,
+          name: 'Twin Tower',
+          poly: [
+            [990, 990],
+            [1010, 990],
+            [1010, 1010],
+            [990, 1010],
+          ],
+        },
+      ],
+      roads: [
+        {
+          id: 1,
+          cls: 'residential',
+          pts: [
+            [0, 0],
+            [100, 0],
+            [200, 0],
+          ],
+        },
+      ],
+      landmarks: [
+        { name: 'Twin Tower', x: 0, z: 0 },
+        { name: 'Twin Tower', x: 999, z: 999 },
+      ],
+    };
+    const spawn = landmarkSpawn('Twin Tower', city, 70);
+    expect(spawn).not.toBeNull();
+    expect(spawn!.x).toBeCloseTo(100, 6);
+    expect(spawn!.z).toBeCloseTo(0, 6);
+    // Faces the FIRST anchor at (0, 0) looking west (yaw −π/2), not the
+    // building at (1000, 1000).
+    expect(spawn!.yaw).toBeCloseTo(-Math.PI / 2, 5);
+  });
+
   it('picks the 70 m road vertex and faces the building centroid', () => {
     const spawn = landmarkSpawn('test tower', CITY);
     expect(spawn).not.toBeNull();
@@ -1006,9 +1053,7 @@ describe('London trafalgar preset (T-0069)', () => {
 // ggb preset must sit on the East Sidewalk 260 ± 15 m south of the south
 // tower, facing north along the deck (architecture.md §4.13 (c)).
 describe('San Francisco wave-9 presets (T-0079)', () => {
-  const SF: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-  );
+  const SF: CityData = loadSfCity();
   // The same CollisionGrid main.ts builds (integration.md §5): bridge roads
   // as corridors, and water rings passed for the odd-parity island test.
   const city = applyLandmarks(SF, 'sf');

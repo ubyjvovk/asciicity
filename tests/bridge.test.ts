@@ -18,10 +18,9 @@ import {
 } from '../src/world/bridge';
 import type { MeshData } from '../src/world/mesh';
 import { BridgeDecks, Terrain, chainBridgeRoads, makeGroundAt } from '../src/world/terrain';
+import { loadSfGlobals } from './sfCity';
 
-const SF: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-);
+const SF: CityData = loadSfGlobals();
 const NYC: CityData = JSON.parse(
   readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
 );
