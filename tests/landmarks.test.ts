@@ -2,7 +2,7 @@
  * Unit tests for landmark fixes / extra buildings (`src/world/landmarks.ts`)
  * and their palette integration (docs/architecture.md §4.13).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Building, CityData } from '../src/data/types';
 import { project } from '../src/geo';
 import { applyLandmarks, LANDMARK_FIXES } from '../src/world/landmarks';
@@ -10,6 +10,10 @@ import { colorFor } from '../src/world/palette';
 import { landmarkAnchors } from '../src/hud/tags';
 import { loadSfCity } from './sfCity';
 import { loadTiledCity, loadTiledGlobals, loadTiledTile } from './tiledCity';
+
+// T-0101: dataset-heavy file — a cold-cache first load on a slow CI runner
+// can exceed vitest's default 5 s per test. Give this file 30 s slack.
+vi.setConfig({ testTimeout: 30_000 });
 
 const KYIV: CityData = loadTiledCity('kyiv');
 const LONDON: CityData = loadTiledCity('london');
@@ -448,13 +452,17 @@ describe('applyLandmarks (Manhattan)', () => {
 describe('applyLandmarks (Tokyo)', () => {
   /** Global bridges + the two tower tiles only (avoids loading all ~30 MB). */
   function tokyoTowersCity(): CityData {
+    // Copy the memoized globals' arrays before appending tiles (T-0101
+    // returns them by reference) so the towers don't leak across tests.
     const globals = loadTiledGlobals('tokyo');
+    const buildings = [...globals.buildings];
+    const roads = [...globals.roads];
     for (const key of ['3_-4', '-2_2']) {
       const t = loadTiledTile('tokyo', key);
-      globals.buildings.push(...t.buildings);
-      globals.roads.push(...t.roads);
+      buildings.push(...t.buildings);
+      roads.push(...t.roads);
     }
-    return globals;
+    return { ...globals, buildings, roads };
   }
 
   it('sets both towers to shape tower, keeps Skytree 634, fixes Tokyo Tower 21 → 333 in international orange', () => {

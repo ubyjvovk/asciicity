@@ -3,7 +3,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   landmarkSpawn,
   parseAt,
@@ -24,6 +24,10 @@ import { deckHumps } from '../src/world/bridge';
 import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
 import { loadSfCity } from './sfCity';
 import { loadTiledCity, loadTiledGlobals, loadTiledIndex, loadTiledTile } from './tiledCity';
+
+// T-0101: dataset-heavy file — a cold-cache first load on a slow CI runner
+// can exceed vitest's default 5 s per test. Give this file 30 s slack.
+vi.setConfig({ testTimeout: 30_000 });
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -1489,7 +1493,14 @@ describe('Tokyo presets (wave 11)', () => {
     for (const key of TOKYO_KEYS) {
       const [si, sj] = CENTRE[key]!;
       // Assemble the preset's 3×3 tiles (buildings + roads) + global water.
-      const raw = loadTiledGlobals('tokyo');
+      // Copy the memoized globals' arrays before appending tiles (T-0101
+      // returns them by reference) so the per-key grid stays independent.
+      const globals = loadTiledGlobals('tokyo');
+      const raw = {
+        ...globals,
+        buildings: [...globals.buildings],
+        roads: [...globals.roads],
+      };
       for (let di = -1; di <= 1; di++) {
         for (let dj = -1; dj <= 1; dj++) {
           const tileKey = `${si + di}_${sj + dj}`;
@@ -1594,7 +1605,10 @@ describe('Tokyo presets (wave 11)', () => {
     it(`${key}: buildings-only sightline from the spawn to the Skytree anchor is clear (no foreground wall in the frame)`, () => {
       const TOKYO = loadTiledIndex('tokyo');
       const [si, sj] = CENTRE[key]!;
-      const raw = loadTiledGlobals('tokyo');
+      // Copy the memoized globals' roads before appending tiles (T-0101
+      // returns them by reference) so the sightline grid stays independent.
+      const globals = loadTiledGlobals('tokyo');
+      const raw = { ...globals, roads: [...globals.roads] };
       const buildings: CityData['buildings'] = [];
       for (let di = -1; di <= 1; di++) {
         for (let dj = -1; dj <= 1; dj++) {
