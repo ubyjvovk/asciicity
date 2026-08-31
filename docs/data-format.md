@@ -489,6 +489,43 @@ band ring; a CCW closed square → island ring emitted, and a parity check
 shows a point inside it is NOT flattened while a point between island and
 outer ring is; a bbox with no coastline → no rings.
 
+## Water relations: overlapping bodies + inner islands (`scripts/osm-convert.mjs`, T-0116)
+
+Rivers, docks, harbours and bays arrive as `natural=water` /
+`waterway=riverbank` multipolygon RELATIONS as well as standalone closed
+ways. OSM often maps a single body as several **overlapping** relations
+(Port Jackson ⊇ Sydney Harbour in the Sydney bbox) whose assembled outer
+rings overlap. Under the odd-parity water rule (above, wave 8/9) two
+overlapping outer rings count as LAND in their overlap — the player could
+walk on the harbour — and an island inside both (count 2) reads as land only
+by accident. The water-relation path therefore:
+
+1. **Assemble outer rings per body**: the standalone `natural=water` ways
+   form one group, each relation another, so every ring stays attributed to
+   the body it came from. (Stitching itself is unchanged —
+   `assembleRingsInternal`, the same helper the building-relation and woods
+   paths use.)
+2. **Dedup overlapping large bodies**: only outer rings with |area| ≥
+   0.1 km² are candidates (small ponds skip the O(n²) work). Sort by |area|
+   descending and walk down; for each candidate compute `coverage` = the
+   fraction of 50 m-grid cell centres over the candidate's bbox that lie
+   inside the candidate AND inside any already-KEPT ring. Drop the
+   candidate iff `coverage ≥ 0.85`, else keep it. Deterministic, no polygon
+   booleans. (Sydney: one harbour ring survives and the overlapping Sydney
+   Harbour duplicate drops; the eastern shoreline behaviour is under review
+   — see T-0116 block.) Do not tune the 0.85 / 50 m constants.
+3. **Inner members become island rings**: a relation's `role=inner` members
+   are assembled with the same stitcher and emitted as bare water rings
+   (islands — no names/landmarks) so an island reads as land via odd parity
+   (harbour(1) + island(1) = 2). Inners are emitted ONLY from relations at
+   least one of whose outer rings was KEPT — a dropped duplicate contributes
+   no islands, which kills most cross-relation island duplicates for free.
+   An open (unstitchable) inner chain is skipped and counted, never emitted
+   partially. Residual island duplicates are dropped when an inner ring's
+   centroid lies inside an already-emitted island ring. Islands ride the
+   existing wave-8/9 odd-parity conventions in collision and DEM flattening
+   unchanged.
+
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 
 Overpass union gains `node["natural"="tree"]`, `way["natural"="tree_row"]`,

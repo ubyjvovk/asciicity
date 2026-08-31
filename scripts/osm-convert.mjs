@@ -1152,6 +1152,94 @@ function thinFills(mapped, fills, cap) {
 }
 
 /**
+ * Dedup overlapping large water bodies (T-0116). OSM often maps one bay as
+ * two (or more) overlapping `natural=water` multipolygon relations (e.g.
+ * Port Jackson ⊇ Sydney Harbour in the Sydney bbox), whose assembled outer
+ * rings overlap. Under the odd-parity water rule (a point inside an odd
+ * number of rings is water) their overlap reads as LAND, letting the player
+ * walk on the harbour. Locked rule (PM, T-0116):
+ *   - only rings with |area| ≥ 0.1 km² are candidates (small ponds skip the
+ *     O(n²) work);
+ *   - sort candidates by |area| descending; walk down; for each candidate
+ *     compute `coverage` = the fraction of 50 m-grid cell centres over the
+ *     candidate's bbox that lie inside the candidate AND inside any
+ *     already-KEPT ring;
+ *   - drop the candidate iff `coverage ≥ 0.85`, else keep it.
+ * Deterministic; no polygon booleans. Kept rings keep their original order.
+ * @param {Array<{ring: Array<[number,number]>, relId: unknown}>} outers
+ *   projected outer rings plus the relation id they came from (null = a
+ *   standalone way)
+ * @returns {{keptOuter: Array<{ring: Array<[number,number]>, relId: unknown}>,
+ *   keptRelIds: Set<unknown>}} kept rings (original order) and the set of
+ *   relation ids with at least one kept outer ring
+ */
+function dedupWaterRings(outers) {
+  const AREA_MIN = 100000; // 0.1 km² in m²
+  const KEEP_COVERAGE = 0.85;
+  const CELL = 50;
+  const withArea = outers.map((o, i) => ({
+    ring: o.ring,
+    relId: o.relId,
+    area: ringArea(o.ring),
+    idx: i,
+  }));
+  const big = withArea
+    .filter((o) => o.area >= AREA_MIN)
+    .sort((a, b) => b.area - a.area);
+  const dropped = new Set();
+  const keptBig = [];
+  for (const cand of big) {
+    const coverage = ringCoverage(cand.ring, keptBig.map((k) => k.ring), CELL);
+    if (coverage >= KEEP_COVERAGE) dropped.add(cand.idx);
+    else keptBig.push(cand);
+  }
+  const keptOuter = [];
+  const keptRelIds = new Set();
+  for (let i = 0; i < outers.length; i++) {
+    if (dropped.has(i)) continue;
+    keptOuter.push({ ring: outers[i].ring, relId: outers[i].relId });
+    if (outers[i].relId != null) keptRelIds.add(outers[i].relId);
+  }
+  return { keptOuter, keptRelIds };
+}
+
+/**
+ * Fraction of 50 m-grid cell centres over `candRing`'s bbox that fall
+ * inside `candRing` AND inside at least one kept ring. Deterministic sample
+ * used by `dedupWaterRings` (T-0116), matching the locked parameter (50 m
+ * grid over the candidate's bbox).
+ * @param {Array<[number, number]>} candRing
+ * @param {Array<Array<[number, number]>>} keptRings
+ * @param {number} cell grid spacing in metres
+ * @returns {number} fraction in [0, 1]
+ */
+function ringCoverage(candRing, keptRings, cell) {
+  if (keptRings.length === 0) return 0;
+  const bb = ringBBox(candRing);
+  let inside = 0;
+  let covered = 0;
+  const cxMin = Math.floor(bb.minX / cell);
+  const cxMax = Math.floor(bb.maxX / cell);
+  const czMin = Math.floor(bb.minZ / cell);
+  const czMax = Math.floor(bb.maxZ / cell);
+  for (let cx = cxMin; cx <= cxMax; cx++) {
+    for (let cz = czMin; cz <= czMax; cz++) {
+      const px = cx * cell + cell / 2;
+      const pz = cz * cell + cell / 2;
+      if (!pointInPolygon([px, pz], candRing)) continue;
+      inside++;
+      for (const k of keptRings) {
+        if (pointInPolygon([px, pz], k)) {
+          covered++;
+          break;
+        }
+      }
+    }
+  }
+  return inside === 0 ? 0 : covered / inside;
+}
+
+/**
  * Convert an Overpass `[out:json]` response into a `CityData` object.
  * @param {{elements: unknown[]}} json Overpass response (`out geom;`)
  * @param {{origin: LatLon, bbox?: [number,number,number,number],
@@ -1180,29 +1268,51 @@ export function convertOverpass(json, opts) {
 
   let skippedRelations = 0;
 
-  // --- Water (the Thames, docks): standalone `natural=water`/`waterway`
-  // `riverbank` ways plus the outer members of water relations. All are
-  // assembled into closed rings, projected to local metres, clipped to the
-  // bbox expanded by 300 m (the Thames relation extends far beyond it) and
-  // cleaned/dropped like building rings.
-  const waterWays = [];
+  // --- Water (the Thames, docks, Sydney harbour). Standalone
+  // `natural=water`/`waterway` `riverbank` ways plus water relations: outer
+  // members become water rings, inner members become island rings so a hole
+  // carries the odd-parity count of a single water body correctly.
+  const waterStandaloneOuter = [];
+  const waterRelations = [];
   for (const el of elements) {
     if (!el || typeof el !== 'object') continue;
     const tags = el.tags || {};
     if (!(tags.natural === 'water' || tags.waterway === 'riverbank')) continue;
     if (el.type === 'way') {
-      waterWays.push({ id: el.id, geometry: el.geometry });
+      waterStandaloneOuter.push({ id: el.id, geometry: el.geometry });
     } else if (el.type === 'relation') {
       const members = Array.isArray(el.members) ? el.members : [];
+      const outer = [];
+      const inner = [];
       members.forEach((m, k) => {
-        if (m && typeof m === 'object' && m.role === 'outer') {
-          waterWays.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        if (!m || typeof m !== 'object') return;
+        if (m.role === 'outer') {
+          outer.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        } else if (m.role === 'inner') {
+          inner.push({ id: `${el.id}:i${k}`, geometry: m.geometry });
         }
       });
+      waterRelations.push({ id: el.id, outer, inner });
     }
   }
-  const { rings: waterRings, dropped: droppedOpenWaterChains } =
-    assembleRingsInternal(waterWays);
+  // Assemble outer rings per body: the standalone ways form one group, each
+  // relation another, so every ring stays attributed to the body it came
+  // from (needed to know which relation's inner islands are live after the
+  // dedup below). Stitching itself is unchanged (`assembleRingsInternal`).
+  let droppedOpenWaterChains = 0;
+  const outerGroups = [];
+  const standaloneAssembled = assembleRingsInternal(waterStandaloneOuter);
+  droppedOpenWaterChains += standaloneAssembled.dropped;
+  for (const ring of standaloneAssembled.rings) {
+    outerGroups.push({ relId: null, ring });
+  }
+  for (const rel of waterRelations) {
+    const assembled = assembleRingsInternal(rel.outer);
+    droppedOpenWaterChains += assembled.dropped;
+    for (const ring of assembled.rings) {
+      outerGroups.push({ relId: rel.id, ring });
+    }
+  }
 
   // Local-metre bbox of the source query, expanded by 300 m for clipping.
   const boxP = {
@@ -1217,10 +1327,11 @@ export function convertOverpass(json, opts) {
     maxX: boxP.maxX + 300,
     maxZ: boxP.maxZ + 300,
   };
-  const water = [];
-  for (const ring of waterRings) {
-    if (ring.length < 4) continue;
-    const poly = ring.slice(0, -1).map((p) => {
+  // Project + clip every assembled outer ring (same pipeline as before).
+  const projectedOuters = [];
+  for (const grp of outerGroups) {
+    if (grp.ring.length < 4) continue;
+    const poly = grp.ring.slice(0, -1).map((p) => {
       const [x, z] = project(p.lon, p.lat, origin);
       return [round1(x), round1(z)];
     });
@@ -1229,8 +1340,52 @@ export function convertOverpass(json, opts) {
     const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
     if (clipped.length < 3) continue;
     if (ringArea(clipped) < 25) continue; // degenerate / sliver
-    water.push(clipped);
+    projectedOuters.push({ ring: clipped, relId: grp.relId });
   }
+  // Dedup overlapping large water bodies (T-0116): one bay is often mapped
+  // as several overlapping `natural=water` relations whose outer rings
+  // overlap and read as LAND under the odd-parity rule.
+  const dedup = dedupWaterRings(projectedOuters);
+  const water = dedup.keptOuter.map((o) => o.ring);
+  const keptRelIds = dedup.keptRelIds;
+  // Inner members (islands) of bodies at least one of whose outer rings
+  // survived the dedup. Assembled with the same stitcher; an unstitchable
+  // inner chain is skipped and counted, never emitted partially. Residual
+  // island duplicates (the same island is often an inner of both overlapping
+  // relations) are dropped by centroid containment.
+  let droppedOpenInnerChains = 0;
+  const islands = [];
+  for (const rel of waterRelations) {
+    if (!keptRelIds.has(rel.id)) continue;
+    const assembled = assembleRingsInternal(rel.inner);
+    droppedOpenInnerChains += assembled.dropped;
+    for (const ring of assembled.rings) {
+      if (ring.length < 4) continue;
+      const poly = ring.slice(0, -1).map((p) => {
+        const [x, z] = project(p.lon, p.lat, origin);
+        return [round1(x), round1(z)];
+      });
+      const cleaned = cleanRing(poly);
+      if (cleaned.length < 3) continue;
+      const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+      if (clipped.length < 3) continue;
+      if (ringArea(clipped) < 25) continue;
+      islands.push(clipped);
+    }
+  }
+  const islandOut = [];
+  for (const iso of islands) {
+    const c = ringCentroid(iso);
+    let insideExisting = false;
+    for (const existing of islandOut) {
+      if (pointInPolygon(c, existing)) {
+        insideExisting = true;
+        break;
+      }
+    }
+    if (!insideExisting) islandOut.push(iso);
+  }
+  water.push(...islandOut);
 
   // Coastline (data-format.md "Coastline water" — bays/seas as OSM
   // `natural=coastline` ways, not polygons). Pipeline in lat/lon:
@@ -1532,6 +1687,11 @@ export function convertOverpass(json, opts) {
   });
   Object.defineProperty(result, 'skippedOpenWaterChains', {
     value: droppedOpenWaterChains,
+    writable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(result, 'droppedOpenInnerChains', {
+    value: droppedOpenInnerChains,
     writable: false,
     enumerable: false,
   });

@@ -728,6 +728,139 @@ describe('osm-convert water', () => {
   });
 });
 
+describe('osm-convert water relations — overlapping bodies + inner islands (T-0116)', () => {
+  const DEG = Math.PI / 180;
+  const COS = Math.cos(ORIGIN.lat * DEG);
+
+  function xzToLonLat(x: number, z: number) {
+    return {
+      lon: ORIGIN.lon + x / (COS * 111320),
+      lat: ORIGIN.lat - z / 110574,
+    };
+  }
+
+  /** A water-relation member whose geometry is a closed local-metre ring. */
+  function closedMember(role: 'outer' | 'inner', corners: Array<[number, number]>) {
+    const geometry = corners.map(([x, z]) => xzToLonLat(x, z));
+    geometry.push(geometry[0]); // close the ring
+    return { type: 'way' as const, role: role as 'outer' | 'inner', geometry };
+  }
+
+  /** A water-relation member whose geometry is an OPEN local-metre chain. */
+  function openMember(role: 'outer' | 'inner', pts: Array<[number, number]>) {
+    return {
+      type: 'way' as const,
+      role: role as 'outer' | 'inner',
+      geometry: pts.map(([x, z]) => xzToLonLat(x, z)),
+    };
+  }
+
+  /** Shoelace area (m²) of a projected local ring. */
+  function ringAreaLocal(ring: Array<[number, number]>): number {
+    let a = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const [x1, z1] = ring[i];
+      const [x2, z2] = ring[(i + 1) % ring.length];
+      a += x1 * z2 - x2 * z1;
+    }
+    return Math.abs(a) / 2;
+  }
+
+  function convertElements(elements: unknown[]) {
+    return convertOverpass({ elements }, { origin: ORIGIN });
+  }
+
+  const SQ = [...([[0, 0], [400, 0], [400, 400], [0, 400]] as Array<[number, number]>)]; // 0.16 km²
+  const ISLAND = [[150, 150], [250, 150], [250, 250], [150, 250]] as Array<[number, number]>; // 100×100 m
+
+  it('two overlapping same-body relations → one outer kept (dedup ≥ 0.1 km², coverage ≥ 0.85)', () => {
+    // Port Jackson ⊇ Sydney Harbour: two relations map the same 0.16 km² body;
+    // the dedup keeps the larger/first and drops the duplicate so the odd-parity
+    // rule reads it as a single water body, not as land in the overlap.
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 1001,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Port Jackson' },
+        members: [closedMember('outer', SQ)],
+      },
+      {
+        type: 'relation',
+        id: 1002,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Sydney Harbour' },
+        members: [closedMember('outer', SQ)],
+      },
+    ]);
+    const rings = city.water ?? [];
+    expect(rings).toHaveLength(1); // the duplicate is dropped
+    expect(ringAreaLocal(rings[0])).toBeGreaterThan(150000);
+  });
+
+  it('two adjacent low-overlap bodies → both kept', () => {
+    // Parramatta River / Lane Cove River: adjacent, non-overlapping bodies
+    // have ~0 coverage against each other, so neither is dropped.
+    const B = [[450, 0], [850, 0], [850, 400], [450, 400]] as Array<[number, number]>;
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 1001,
+        tags: { type: 'multipolygon', natural: 'water', name: 'A' },
+        members: [closedMember('outer', SQ)],
+      },
+      {
+        type: 'relation',
+        id: 1002,
+        tags: { type: 'multipolygon', natural: 'water', name: 'B' },
+        members: [closedMember('outer', B)],
+      },
+    ]);
+    const rings = city.water ?? [];
+    expect(rings).toHaveLength(2);
+    for (const ring of rings) expect(ringAreaLocal(ring)).toBeGreaterThan(150000);
+  });
+
+  it('a shared island inner → emitted once (the duplicate relation contributes no islands)', () => {
+    // Both overlapping relations carry the same inner island. After the outer
+    // dedup only the kept relation (Port Jackson) contributes its inner, so the
+    // island is emitted exactly once — the dropped relation adds nothing.
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 1001,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Port Jackson' },
+        members: [closedMember('outer', SQ), closedMember('inner', ISLAND)],
+      },
+      {
+        type: 'relation',
+        id: 1002,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Sydney Harbour' },
+        members: [closedMember('outer', SQ), closedMember('inner', ISLAND)],
+      },
+    ]);
+    const rings = city.water ?? [];
+    // 1 kept outer + the island, but only one island survives.
+    const islands = rings.filter((r) => ringAreaLocal(r) < 150000);
+    expect(rings).toHaveLength(2);
+    expect(islands).toHaveLength(1);
+    expect(ringAreaLocal(islands[0])).toBeGreaterThan(9000); // ~100×100 m
+  });
+
+  it('an open (unstitchable) inner chain is skipped and counted, never a partial island', () => {
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 1001,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Port Jackson' },
+        members: [closedMember('outer', SQ), openMember('inner', [[50, 50], [50, 100]])],
+      },
+    ]);
+    const rings = city.water ?? [];
+    expect(rings).toHaveLength(1); // only the outer; the broken inner is not emitted
+    expect(ringAreaLocal(rings[0])).toBeGreaterThan(150000);
+    expect(city.droppedOpenInnerChains).toBe(1);
+  });
+});
+
 describe('osm-convert assembleRings', () => {
   it('passes a closed way straight through as a ring', () => {
     const ways = [
