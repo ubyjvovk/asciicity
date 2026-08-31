@@ -1011,6 +1011,31 @@ Geometry (axis frame from `ends`, span `L`, `t ∈ [0, 1]` along it; local
   the drape.
 - Budget: < 25 k vertices, one draw call, no per-frame work.
 
+**As built (T-0112).**
+- Reconciled `ends`: south `[151.21073, −33.85212]`, north
+  `[151.21261, −33.84785]` — both SNAPPED to the chained `Bradfield
+  Highway` bridge polyline (the deck axis is the truth; wave-10 lesson).
+  The wave-14 initial values sat off the polyline by south 37 m, north
+  90 m: the two OSM `bridge:support` footprints (ways 1238822733/34,
+  centroids (53.5, −1479.0) and (65.5, −1480.6)) whose midpoint the
+  initial north was derived from actually sit ≈ 90 m WEST of the
+  chained deck centreline — anomalous OSM data, but their along-station
+  snaps cleanly onto the polyline. There is no south `bridge:support`
+  footprint pair in the shipped Sydney dataset (T-0110 report §b), so
+  south = polyline point at straight-line 503 m from the reconciled
+  north (main-arch-span length).
+- Cahill Walk chaining (§4.9): `chainBridgeRoads` produces THREE chains
+  for `Cahill Walk` on the Sydney data — the harbour crossing (1503 m,
+  from (151, −1620) to (−392, −252)), the Circular Quay elevated walkway
+  (661 m, from (−429, −84) to (210, 29)), and a 4 m stub. `deckHumps`
+  applies the arch spec's apex to any chain sharing the name, so the
+  Circular Quay stretch inherits the 49 m-ASL apex and visibly humps to
+  ≈ 45 m at its midpoint. This is a known data quirk (§4.16b Out of
+  scope: no data / chaining changes); a future ticket that renames the
+  approach walk or splits the humps by chain length can remove it.
+- No deviation from the numeric spec table (`archTopASL 134`, etc.);
+  `pylonSize` `[16, 22]` and `pylonOffset 30` are used as declared.
+
 ### 4.17 Bay shipping (wave 9) — `src/world/ships.ts`
 
 SF has no river centre-lines, so ships follow PM-curated **lanes**: WGS84

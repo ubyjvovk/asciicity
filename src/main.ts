@@ -28,7 +28,14 @@ import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
 import { CollisionGrid } from './world/collision';
 import { makeBuildingsObject } from './world/buildings';
-import { SUSPENSION_BRIDGES, bridgeAnchors, deckHumps, makeBridgesObject } from './world/bridge';
+import {
+  ARCH_BRIDGES,
+  SUSPENSION_BRIDGES,
+  archAnchors,
+  bridgeAnchors,
+  deckHumps,
+  makeBridgesObject,
+} from './world/bridge';
 import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
@@ -920,6 +927,9 @@ async function main(): Promise<void> {
         ...(SUSPENSION_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
           bridgeAnchors(spec, city, groundAt),
         ),
+        ...(ARCH_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
+          archAnchors(spec, city, groundAt),
+        ),
       ]
     : [];
   if (opts.tags) {
@@ -965,6 +975,9 @@ async function main(): Promise<void> {
         ...landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt),
         ...(SUSPENSION_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
           bridgeAnchors(spec, city, groundAt),
+        ),
+        ...(ARCH_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
+          archAnchors(spec, city, groundAt),
         ),
       ];
     }
