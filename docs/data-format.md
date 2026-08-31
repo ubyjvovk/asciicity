@@ -248,7 +248,16 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   --tiles 1 --out public/data/sydney` (`npm run fetch-data:sydney`).
 - **Size budget: 12 MB** for `index.json` + all tiles combined (counts are
   ~half of SF's building total; blocked question if over).
-- Shipped counts: (filled at accept).
+- Shipped counts (fetched 2026-08-31, T-0110, first S-hemisphere city):
+  **20 338 buildings** (max h 309 = Westfield Sydney tower block; Crown
+  Sydney 271, clamp 650) / 9 818 roads
+  (804 bridge roads global — the Harbour Bridge deck, Brisbane/Waterloo
+  overpasses) / 106 places / 89 water rings / 1 river / 28 962 trees
+  (17 333 filled) / 2 278 landmarks, terrain 291×347 @ 20 m (datum 3.9 m
+  ASL, 0 voids, tile S34E151, bare-earth), **57 tiles**, index 913 937 B +
+  tiles 5 877 059 B ≈ 6.5 MB (largest tile 292 600 B), zero bridge leaks
+  into tiles; Circular Quay origin confirmed ≈ 27 m from the OSM Circular
+  Quay place node (railway/ferry wharf, within the 100 m check).
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 

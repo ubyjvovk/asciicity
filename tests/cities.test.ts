@@ -26,13 +26,14 @@ function loadBbox(file: string): DatasetHeader['bbox'] {
 }
 
 describe('CITIES registry', () => {
-  it('lists london first (default), then kyiv, sf, nyc, tokyo', () => {
+  it('lists london first (default), then kyiv, sf, nyc, tokyo, sydney', () => {
     expect(CITIES.map((c) => c.id)).toEqual([
       'london',
       'kyiv',
       'sf',
       'nyc',
       'tokyo',
+      'sydney',
     ]);
   });
 
@@ -71,6 +72,16 @@ describe('CITIES registry', () => {
     expect(tokyo.defaultSpawn).toBe('shibuya');
     expect(tokyo.blurb).toBe('Shibuya Scramble to the Skytree · streamed');
     expect(tokyo.tiled).toBe(true);
+
+    const sydney = CITIES[5];
+    expect(sydney.label).toBe('SYDNEY');
+    expect(sydney.file).toBe('data/sydney/index.json');
+    expect(sydney.defaultSpawn).toBe('circularquay');
+    expect(sydney.blurb).toMatch(/[Hh]arbour/);
+    expect(sydney.blurb).toMatch(/Opera/);
+    expect(sydney.blurb).toMatch(/bridge/i);
+    expect(sydney.tiled).toBe(true);
+    expect(sydney.defaultRender).toBeUndefined();
   });
 
   it('every registry entry is tiled with a data/<id>/index.json path', () => {
@@ -130,6 +141,12 @@ describe('cityById', () => {
     expect(cityById('tokyo')?.id).toBe('tokyo');
     expect(cityById(' TOKYO ')?.id).toBe('tokyo');
     expect(cityById('Tokyo')?.label).toBe('TOKYO');
+  });
+
+  it("cityById('sydney') → the Sydney entry (resolvable, wave 14)", () => {
+    expect(cityById('sydney')?.id).toBe('sydney');
+    expect(cityById(' SYDNEY ')?.id).toBe('sydney');
+    expect(cityById('Sydney')?.label).toBe('SYDNEY');
   });
 });
 

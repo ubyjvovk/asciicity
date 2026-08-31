@@ -321,6 +321,7 @@ describe('resolveSpawn', () => {
       'brooklynbridge',
       'centralpark',
       'chrysler',
+      'circularquay',
       'coittower',
       'dumbo',
       'embankment',
@@ -409,7 +410,7 @@ describe('presetsFor', () => {
   });
 
   it('every preset carries a city and every city id occurs in its presets', () => {
-    const ALL_CITIES = ['london', 'kyiv', 'sf', 'nyc', 'tokyo'];
+    const ALL_CITIES = ['london', 'kyiv', 'sf', 'nyc', 'tokyo', 'sydney'];
     for (const [, p] of Object.entries(SPAWN_PRESETS)) {
       expect(ALL_CITIES).toContain(p.city);
     }
@@ -424,8 +425,9 @@ describe('presetsFor', () => {
   it("presetsFor('kyiv') labels are unique and non-empty (T-0061 LANDMARKS menu)", () => {
     // The fast-travel submenu (architecture.md §4.13) shows one row per
     // preset labelled from `preset.label`; empty/duplicate labels would make
-    // rows ambiguous. Same for London and San Francisco.
-    for (const cityId of ['kyiv', 'london', 'sf', 'nyc', 'tokyo']) {
+    // rows ambiguous. Same for London, San Francisco, Manhattan, Tokyo and
+    // Sydney.
+    for (const cityId of ['kyiv', 'london', 'sf', 'nyc', 'tokyo', 'sydney']) {
       const labels = presetsFor(cityId).map(([, p]) => p.label);
       expect(labels.length).toBeGreaterThan(0);
       for (const label of labels) {

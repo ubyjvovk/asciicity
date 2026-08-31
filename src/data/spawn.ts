@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -596,6 +596,17 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 30,
     label: 'Shinjuku East Exit, facing Kabukicho',
     city: 'tokyo',
+  },
+  // Sydney preset (wave 14, docs/integration.md §Sydney presets). The
+  // default spawn is `circularquay` — a fixed coordinate at Circular Quay
+  // (the city origin, `151.2110,-33.8613`), facing north toward the Opera
+  // House. T-0111 adds the full Sydney preset list later.
+  circularquay: {
+    lon: 151.211,
+    lat: -33.8613,
+    bearingDeg: 0,
+    label: 'CIRCULAR QUAY',
+    city: 'sydney',
   },
 };
 

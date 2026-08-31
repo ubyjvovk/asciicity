@@ -87,6 +87,15 @@ export const CITIES: readonly CityInfo[] = [
     tiled: true,
     defaultRender: 'matrix',
   },
+  {
+    id: 'sydney',
+    label: 'SYDNEY',
+    file: 'data/sydney/index.json',
+    defaultSpawn: 'circularquay',
+    blurb: 'Harbour, Opera House & the Bridge · southern hemisphere',
+    sizeBytes: 913937,
+    tiled: true,
+  },
 ];
 
 /**
