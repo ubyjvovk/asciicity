@@ -191,10 +191,20 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
 - Terrain: `--dem 1`, single SRTM tile `N35E139`; the bay/rivers come from
   the coastline + water rules above.
 - Command: `node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715
-  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles --out
-  public/data/tokyo` (`npm run fetch-data:tokyo`).
-- **Size budget: 60 MB** for `index.json` + all tiles combined (blocked
-  question if over). Counts/size recorded here at accept.
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles 1 --out
+  public/data/tokyo` (`npm run fetch-data:tokyo`). NOTE the `--tiles 1`
+  VALUE form: the arg parser does not read bare flags (T-0100) — bare
+  `--tiles` silently swallows the next arg and writes a monolithic
+  `city.json` to the default path.
+- **Size budget: 60 MB** for `index.json` + all tiles combined. Shipped
+  (fetched 2026-08-31, T-0097): **112 743 buildings** (max h 634 = Tokyo
+  Skytree, clamp 650) / 16 902 roads (1 712 bridge roads global — Sumida
+  crossings) / 847 places / 214 water rings / 111 rivers / 25 426 trees
+  (19 004 filled) / 11 528 landmarks (incl. exact `name:en` "Tokyo
+  Skytree", "Tokyo Tower"), terrain 411×391 @ 20 m (datum 9.5 m ASL, 0
+  voids, tile N35E139), **99 tiles**, index 1 979 748 B + tiles
+  16 650 053 B ≈ 17.8 MB (largest tile 646 790 B), zero bridge leaks into
+  tiles; origin confirmed 33 m from OSM's Tokyo Station node.
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
