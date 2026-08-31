@@ -1073,6 +1073,35 @@ heightAt(x, z) + 0`, `rotation.y = −heading` like `BoatFleet`):
 - Budget: ≤ 20 instances, 4 draw calls, no per-frame allocation, 60 fps on
   the GPU host.
 
+#### 4.17b Sydney harbour ferries (wave 14b)
+
+A third hull class, `kind: 'ferry'`, in the same table/instancing scheme
+(one hull + one lights `InstancedMesh` for the class; `ShipFleet` and
+`main.ts` are already city-generic, so Sydney needs zero wiring):
+
+- **ferry** (the Freshwater/Emerald silhouette, double-ended so
+  `reverseAtEnds` looks natural — the boat is fore-aft symmetric, never
+  flipped): hull 38 long × 9 wide, y −1…+2, dark green `0x2f5d46`; main
+  deck box 30 × 8, y 2…5, cream `0xf0e8d2`; upper deck box 22 × 7,
+  y 5…7.6, cream; a wheelhouse 4 × 6 × 2.2 at BOTH ends of the upper
+  deck, y 7.6…9.8, green trim `0x2f5d46`; a single funnel 2 × 2 from
+  y 7.6 to 11, yellow ochre `0xd8b23a`. `FERRY_SPEED_MPS = 6.5`.
+  Lights: two rows of warm 0.7 m window cubes (`0xffd98a`) down both
+  sides of each deck (spacing ≈ 4 m), a white masthead cube on the
+  funnel, red/green 0.6 m cubes at both ends (double-ended).
+- **Lanes** (`SHIP_LANES.sydney`): five ferry routes out of Circular Quay
+  (Manly reach east past Fort Denison to the bbox edge, count 2; Taronga
+  run NE, count 1; Parramatta River service W **under the Harbour
+  Bridge** past Goat Island, count 2; Darling Harbour service round
+  Barangaroo, count 1; Neutral Bay hop, count 1) plus one `sail` lane
+  east of the bridge (count 4). Waypoint coordinates in the ticket are
+  route INTENT; the binding contract is mechanical: **every lane vertex
+  and every 25 m sample along every segment lies in harbour water**
+  (odd-parity ring test on the committed dataset) — adjust waypoints
+  until the test passes without abandoning a route's intent.
+- Budget: ≤ 20 instances total for the city, 6 draw calls (3 classes ×
+  hull/lights), no per-frame allocation.
+
 ### 4.18 Loading indicator (wave 10) — `src/ui/loading.ts`
 
 SF is 14.7 MB and Manhattan ~20 MB; on a phone that is seconds of blank
@@ -1302,6 +1331,59 @@ Boxy ambient cars on the road network, with a toggle. Locked design:
   rebuilds (same `snapshot().version` trigger, seed `41 ^ version`);
   monolithic/synthetic build once at boot (seed `41`). Cars teleport on
   rebuild — same acceptance as buses (§4.19).
+
+### 4.22 Opera House shells (wave 14b) — `src/world/opera.ts`
+
+The OSM Opera House is a podium outline (+ possibly `building:part`s) —
+extruded prisms cannot read as the sails. A dedicated synthesised
+structure, spec-table-driven like the bridges (§4.16), supplies the roof;
+the OSM podium keeps rendering underneath it and keeps supplying the
+floating tag (the module adds NO anchor of its own).
+
+```ts
+export interface OperaShellGroup {
+  base: [number, number];   // WGS84 [lon, lat] of the group's landward sail base
+  bearingDeg: number;       // the direction the sails open toward (the harbour ≈ 23)
+  sails: number[];          // ridge-TIP heights ASL, landward → seaward
+  halfWidths: number[];     // per-sail half-width at the base (m)
+  spacing: number;          // consecutive sail bases along the axis (m)
+  backSails?: number[];     // smaller sails facing bearing + 180 at the landward end
+}
+export interface OperaHouseSpec {
+  groups: OperaShellGroup[];
+  podiumASL: number;        // sail bases sit here (≈ 8 — the podium deck)
+  sphereR: number;          // 75 — every face is a patch of the same-radius sphere
+  color: number;            // 0xf7f4ec gloss white
+  mouthColor: number;       // 0x2a2f36 — dark recessed glass closing each mouth
+}
+export const OPERA_HOUSES: Readonly<Record<string, OperaHouseSpec>>; // sydney only
+export function buildOperaHouse(spec, city: CityData, heightAt: HeightFn): MeshData; // pure
+export function makeOperaObject(cityId, city, heightAt): THREE.Object3D; // empty for other cities
+```
+
+- **Table (sydney)**: Concert Hall group (west): base ≈
+  `[151.21470, -33.85755]`, sails `[47, 58, 67]`, halfWidths
+  `[22, 25, 28]`, spacing 35, backSails `[24]`. Joan Sutherland group
+  (east, axis offset ≈ 45 m ENE of the CH axis): sails `[40, 48, 54]`,
+  halfWidths `[18, 21, 24]`, spacing 30, backSails `[20]`. Bennelong
+  Restaurant group (SE of the theatre): sails `[16]`, halfWidth 14.
+  Group bases/axes are hypotheses — reconcile against the podium
+  footprint in the committed tiles so every sail stands ON the podium.
+- **Sail geometry**: each sail = two mirrored patches of the `sphereR`
+  sphere meeting at a ridge great-circle arc that rises from the base to
+  the tip, the open mouth facing `bearingDeg`; triangulate at ≤ 4 m
+  resolution, both faces double-sided white; close the mouth with a flat
+  `mouthColor` wall inset 1 m. Successive sails nest (each base starts
+  `spacing` m along the axis, inside the previous sail's mouth), tips
+  leaning toward the harbour — the classic profile from Circular Quay /
+  Mrs Macquarie's is the acceptance look.
+- If the dataset carries `building:part`s that fake the roof over the
+  podium (T-0110's report says), suppress them via the sydney
+  `LANDMARK_FIXES` entry rather than letting prisms poke through the
+  shells; the outline itself stays (podium).
+- Wired in `main.ts` once at boot beside `makeBridgesObject` (the shells
+  are permanent, not tiled). Budget: < 20 k vertices, one draw call, no
+  per-frame work.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
