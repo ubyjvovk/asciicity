@@ -6,13 +6,38 @@
  */
 import { readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { project } from '../scripts/osm-convert';
-import { loadSfIndex } from './sfCity';
+import { loadSfCity, loadSfGlobals, loadSfIndex } from './sfCity';
+import { loadTiledCity, loadTiledGlobals, loadTiledIndex } from './tiledCity';
+
+// T-0101: dataset-heavy file — a cold-cache first load on a slow CI runner
+// can exceed vitest's default 5 s per test. Give this file 30 s slack.
+vi.setConfig({ testTimeout: 30_000 });
+
+// T-0101: the tiled loaders must memoize — two calls return the SAME object
+// reference (vitest runs each file in its own worker, so the cache is
+// per-file). That is what lets dataset-heavy files read each city's
+// index/globals/full reconstruction only once instead of per test.
+// Callers must treat the shared objects as read-only.
+describe('tiled loaders memoize (T-0101)', () => {
+  it('sf loaders return the same object reference across calls', () => {
+    expect(loadSfIndex()).toBe(loadSfIndex());
+    expect(loadSfGlobals()).toBe(loadSfGlobals());
+    expect(loadSfCity()).toBe(loadSfCity());
+  });
+
+  it('tiled loaders return the same object reference across calls per city', () => {
+    for (const id of ['kyiv', 'nyc'] as const) {
+      expect(loadTiledIndex(id), id).toBe(loadTiledIndex(id));
+      expect(loadTiledGlobals(id), id).toBe(loadTiledGlobals(id));
+      expect(loadTiledCity(id), id).toBe(loadTiledCity(id));
+    }
+  });
+});
 
 const SF = loadSfIndex();
 
-// SF fetch origin (package.json `fetch-data:sf`).
 const ORIGIN = { lon: -122.4075, lat: 37.788 };
 // SF bbox (minLon,minLat,maxLon,maxLat) — same as the fetch CLI.
 const BBOX = [-122.487, 37.764, -122.383, 37.835];
