@@ -946,6 +946,71 @@ polygon is ≥ 1.5 m from the east-sidewalk line; hanger count ≈ span/16 ± 2
 per cable; no NaN in positions; London/Kyiv → empty `MeshData` and no
 anchors.
 
+#### 4.16b Synthesised arch bridge (wave 14) — Sydney Harbour Bridge
+
+A second structure kind in `src/world/bridge.ts`, spec-table-driven like
+the suspension one. The deck (roadway + walkways) still arrives from OSM
+and drapes via §4.9 chaining + humps; everything above and below it is
+synthesised:
+
+```ts
+export interface ArchBridgeSpec {
+  name: string;                       // 'Sydney Harbour Bridge'
+  sidewalks: [string, string] | [string]; // same semantics as SuspensionBridgeSpec
+  deckWidth?: number;                 // required with one walkway (SHB: axis = 'Bradfield Highway', 49)
+  deckApexASL: number;                // 49
+  deckRoads: string[];                // other roads riding the deck (humps: sidewalks ∪ deckRoads)
+  ends: [[number, number], [number, number]]; // WGS84 [lon, lat] arch springing centres (south, north)
+  archTopASL: number;                 // 134 — top-chord crown
+  archBottomASL: number;              // 116 — bottom-chord crown
+  springASL: number;                  // 12 — both chords converge here at each end
+  ribSep: number;                     // 30 — the two truss ribs, at ±ribSep/2 across the axis
+  pylonTopASL: number;                // 89
+  pylonSize: [number, number];        // [16, 22] footprint across × along
+  pylonOffset: number;                // 30 — pylon centres beyond each springing along the axis
+  color: number;                      // 0x878c91 steel grey (arch, hangers, deck box)
+  pylonColor: number;                 // 0xb5a98f granite (the four pylons)
+}
+export const ARCH_BRIDGES: Readonly<Record<string, readonly ArchBridgeSpec[]>>; // sydney only
+export function buildArchBridge(spec, city: CityData, heightAt: HeightFn): MeshData; // pure, unit-testable
+export function archAnchors(spec, city, heightAt): TagAnchor[]; // ONE tag: `name` at mid-span, y = archTopY + 6
+```
+
+`makeBridgesObject` and `deckHumps` iterate **both** tables (their
+signatures are unchanged); `main.ts` adds the `archAnchors` flatMap beside
+the existing `bridgeAnchors` ones (initial build + `rebuildFromTiles`).
+
+Geometry (axis frame from `ends`, span `L`, `t ∈ [0, 1]` along it; local
+`y` = ASL − datum throughout; all parts are `MeshBuilder` prisms):
+
+- **Chords.** Per rib (2) and per chord (2): parabola
+  `y(t) = spring + (crown − spring)·4t(1−t)` (crown = `archTopASL` /
+  `archBottomASL`), sampled every ≤ 15 m, each segment a 2.5 m-square box
+  beam. Both chords of a rib meet at `springASL` at both ends — the arch
+  visibly closes at its bearings, and the deck passes *through* the rib
+  (the bottom chord crosses deck level near t ≈ 0.1 / 0.9).
+- **Truss verticals.** Per rib every ~24 m: a 1.2 m-square post from the
+  bottom to the top chord.
+- **Hangers.** Every 15 m where the bottom chord is ≥ 2 m ABOVE the deck:
+  a 0.8 m-square bar from deck level up to the bottom chord, at both deck
+  edges (±deckWidth/2).
+- **Struts.** Every 15 m where the bottom chord is ≥ 2 m BELOW the deck:
+  the same bar from the bottom chord up to deck level (the end sections
+  ride on top of the arch).
+- **Cross-bracing.** Transverse box beams (0.8 m) between the two ribs'
+  top chords and between their bottom chords, every ~48 m.
+- **Deck box.** 6 m tall × full `deckWidth`, top at deck level, in ≤ 25 m
+  sloped pieces (the §4.16 T-0084 rule) along the humped deck.
+- **Pylons** (4): at each end, two `pylonSize` granite boxes flanking the
+  deck at ±(ribSep/2 + pylonSize[0]/2 + 2) across the axis, centred
+  `pylonOffset` beyond the springing, from `heightAt` ground up to
+  `pylonTopASL − datum`. Visual-only, like every other part (no
+  collision).
+- Deck level along the axis is derived exactly as the suspension builder
+  derives it (same humped-deck helper) so hanger/strut/box bottoms track
+  the drape.
+- Budget: < 25 k vertices, one draw call, no per-frame work.
+
 ### 4.17 Bay shipping (wave 9) — `src/world/ships.ts`
 
 SF has no river centre-lines, so ships follow PM-curated **lanes**: WGS84

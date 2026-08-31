@@ -214,6 +214,42 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   16 650 053 B ≈ 17.8 MB (largest tile 646 790 B), zero bridge leaks into
   tiles; origin confirmed 33 m from OSM's Tokyo Station node.
 
+### Sydney (`data/sydney/`, wave 14) — the first southern-hemisphere city
+
+- **bbox**: `151.183, -33.895, 151.245, -33.833` ≈ 5.7 km × 6.9 km: the
+  CBD, Circular Quay, the Opera House, the Harbour Bridge, The Rocks,
+  Darling Harbour, Barangaroo (Crown Sydney 271 m), the Royal Botanic
+  Garden, Mrs Macquarie's Point, Woolloomooloo, Kings Cross, Central
+  Station, and across the water Luna Park, Kirribilli and the North Sydney
+  CBD. Fort Denison and Goat Island are coastline islands (odd-parity
+  land, wave 9 rules).
+- **origin**: Circular Quay, `lon 151.2110, lat -33.8613` — verify within
+  100 m of the OSM Circular Quay railway station / ferry wharf and correct
+  if further.
+- Overpass counts at boarding (2026-08-31): **19 815 `building` ways**,
+  934 `building:part` ways (Sydney Tower is a part, `height=270`),
+  27 485 highway ways.
+- **Southern hemisphere**: the DEM tile is **`S34E151`** — the first
+  `S`-prefixed tile this project fetches. `hgtTileName`, `fetchDemTiles`'s
+  tile loop and `elevationAt`'s row math were sign-verified against the
+  live skadi mirror by a PM probe (2026-08-31: Observatory Hill 24.5 m,
+  North Sydney ridge 78.4 m, Mrs Macquarie's Point 4.8 m, 0 voids). No
+  code change is expected; a dataset transect must confirm it end-to-end.
+- **`--dem-bare 1` is required** (step 3b): the raw tile reads ~79 m at
+  the Sydney Tower block (real street ≈ 20–30 m) — CBD roofs contaminate
+  the surface model exactly as in Tokyo.
+- Water: the harbour, Darling Harbour and the Parramatta River arm are
+  `natural=coastline` ways → the wave-8 clip → stitch → clockwise-closure
+  rules; expect several independent chains (south shore, north shore) plus
+  island rings.
+- Names: `--lang en`.
+- Command: `node scripts/fetch-osm.mjs --bbox 151.183,-33.895,151.245,-33.833
+  --origin 151.2110,-33.8613 --lang en --dem 1 --dem-bare 1 --chunks 2x2
+  --tiles 1 --out public/data/sydney` (`npm run fetch-data:sydney`).
+- **Size budget: 12 MB** for `index.json` + all tiles combined (counts are
+  ~half of SF's building total; blocked question if over).
+- Shipped counts: (filled at accept).
+
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
 Tall buildings are mapped as an outline (`building=*`) plus `building:part`
