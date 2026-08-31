@@ -20,16 +20,27 @@ conversion rules, and the fetch script. Producers: `scripts/fetch-osm.mjs`
 - Numbers are rounded to 0.1 m (`Math.round(v * 10) / 10`) to keep the file
   small. The fetch output is minified JSON (no pretty print).
 
-## Datasets (one file per city)
+## Datasets (one tiled directory per city — wave 11, T-0095/96)
 
-| id (`?city=`) | file                      | origin                         | terrain |
-|---------------|---------------------------|--------------------------------|---------|
-| `london`      | `public/data/city.json`   | Bank junction                  | none (flat) |
-| `kyiv`        | `public/data/kyiv.json`   | Maidan Nezalezhnosti `lat 50.4501, lon 30.5234` | SRTM 1″ grid, step 20 m |
+Every shipped city is TILED since wave 11: `public/data/<id>/index.json` +
+`tiles/<i>_<j>.json` (see "Tiled datasets" below). The monolithic
+`city.json`/`kyiv.json`/`sf.json`/`nyc.json` files are gone; the
+monolithic schema survives as the tiler's input (a fetch without `--tiles`)
+and the `?synthetic=1`/unit-test path.
 
-Every file obeys the same schema; `terrain`/`waterLevels` are simply absent
-for London. The registry the app uses is `src/data/cities.ts`
-(architecture.md §4.10). Size budget per file: **under 10 MB** minified.
+| id (`?city=`) | origin | terrain | tiles | index.json B | dir total B |
+|---|---|---|---|---|---|
+| `london` | Bank junction | none (flat) | 22 | 256 785 | 3 434 093 |
+| `kyiv` | Maidan Nezalezhnosti `50.4501, 30.5234` | SRTM 1″, step 20 m | 57 | 634 133 | 3 605 753 |
+| `sf` | Union Square `-122.4075, 37.788` | SRTM 1″, step 20 m | 69 | 1 273 711 | 14 968 348 |
+| `nyc` | Union Square `-73.9905, 40.7359` | SRTM 1″, step 20 m | 77 | 920 302 | 10 430 168 |
+
+Migration counts (tiler input → tiles, T-0096): london 9 061 buildings /
+8 115 roads (381 bridge roads global) / 2 413 landmarks; kyiv 8 183 /
+6 746 (87) / 936; nyc 41 140 / 10 482 (586) / 2 681; sf (T-0095) 44 181 /
+11 267 (343) / 2 161. Zero `bridge: true` roads inside any tile file.
+The registry the app uses is `src/data/cities.ts` (architecture.md
+§4.10/§4.19); each entry's `sizeBytes` is the exact committed index size.
 
 ### Central Kyiv (`kyiv.json`, wave 5)
 
@@ -41,8 +52,8 @@ for London. The registry the app uses is `src/data/cities.ts`
   ASL; the Dnipro is ≈ 94 m, Pechersk/Sophia hills ≈ 190–200 m).
 - Names: fetched with `--lang en` so `name:en` wins over the Cyrillic `name`
   when present (buildings, roads, places alike).
-- Command: `node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --out public/data/kyiv.json`
-  (`npm run fetch-data:kyiv`).
+- Command: `node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --tiles --out public/data/kyiv`
+  (`npm run fetch-data:kyiv`; tiled since wave 11).
 
 ### San Francisco (`sf.json`, wave 8)
 
