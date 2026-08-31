@@ -162,6 +162,20 @@ function isBuildingPart(tags) {
 }
 
 /**
+ * True when tags describe a horizontal ROOF part, not volumetric massing:
+ * `building:part=roof`. OSM maps the podium fill / canopies of an actual
+ * structure (notably the Sydney Opera House) as such sheets; treating them as
+ * `building:part` massing makes them replace the authoritative multipolygon
+ * outline via building-parts replacement (T-0116), leaving only a flat slab.
+ * They are skipped as PARTS so the real outline survives. (`building=roof`
+ * outlines are left untouched — their suppression is a landmark-fix concern,
+ * architecture §4.22.)
+ */
+function isRoofPart(tags) {
+  return tags['building:part'] === 'roof';
+}
+
+/**
  * True when the element is below grade — an OSM subway-station footprint or
  * similar underground structure. Data-format.md "Building parts" rule 3b:
  * such elements are not buildings for our render (they would surface as boxes
@@ -1327,7 +1341,7 @@ export function convertOverpass(json, opts) {
 
     if (el.type === 'way') {
       if (isBuildingPart(tags)) {
-        if (isBelowGrade(tags)) continue;
+        if (isBelowGrade(tags) || isRoofPart(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) parts.push(buildPartEntry(el.id, tags, poly));
       } else if (tags.building !== undefined) {
@@ -1383,7 +1397,7 @@ export function convertOverpass(json, opts) {
       }
     } else if (el.type === 'relation') {
       if (isBuildingPart(tags) && tags['type'] === 'multipolygon') {
-        if (isBelowGrade(tags)) continue;
+        if (isBelowGrade(tags) || isRoofPart(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
@@ -1398,21 +1412,31 @@ export function convertOverpass(json, opts) {
         if (emitted === 0) skippedRelations++;
       } else if (tags.building !== undefined && tags['type'] === 'multipolygon') {
         if (isBelowGrade(tags)) continue;
+        // Assemble the outer members into closed rings exactly like the
+        // water/woods paths (data-format.md "Building relations"): an outer
+        // boundary may be a single closed way or several open ways stitched
+        // end-to-end (the Sydney Opera House is 16 separate outer ways).
+        // Each assembled ring becomes one building; an outer boundary that
+        // cannot be closed stays skipped — a partial ring is never emitted.
+        // Inner rings (courtyards, role=inner) are ignored.
+        const outer = (el.members || []).filter(
+          (m) => m && typeof m === 'object' && m.role === 'outer',
+        );
+        const { rings } = assembleRingsInternal(
+          outer.map((m, k) => ({ id: `${el.id}:${k}`, geometry: m.geometry })),
+        );
         let emitted = 0;
-        for (const m of el.members || []) {
-          if (m.role === 'outer') {
-            const poly = toRing(m.geometry, origin);
-            if (poly) {
-              // A relation may hold several disjunct outer rings; give each a
-              // unique id (the first keeps the relation id) so all emitted
-              // rings pass `validateCity`'s per-array id-uniqueness rule.
-              const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
-              outlines.push(buildEntry(id, tags, poly));
-              emitted++;
-            }
-          }
+        for (const ring of rings) {
+          const poly = toRing(ring, origin);
+          if (!poly) continue;
+          // A relation may hold several disjunct outer rings; give each a
+          // unique id (the first keeps the relation id) so all emitted
+          // rings pass `validateCity`'s per-array id-uniqueness rule.
+          const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
+          outlines.push(buildEntry(id, tags, poly));
+          emitted++;
         }
-        if (emitted === 0) skippedRelations++; // ring assembly across ways not done
+        if (emitted === 0) skippedRelations++;
       }
     } else if (el.type === 'node') {
       if (tags.natural === 'tree') {

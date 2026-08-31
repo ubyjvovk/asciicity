@@ -248,16 +248,19 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   --tiles 1 --out public/data/sydney` (`npm run fetch-data:sydney`).
 - **Size budget: 12 MB** for `index.json` + all tiles combined (counts are
   ~half of SF's building total; blocked question if over).
-- Shipped counts (fetched 2026-08-31, T-0110, first S-hemisphere city):
-  **20 338 buildings** (max h 309 = Westfield Sydney tower block; Crown
-  Sydney 271, clamp 650) / 9 818 roads
-  (804 bridge roads global — the Harbour Bridge deck, Brisbane/Waterloo
-  overpasses) / 106 places / 89 water rings / 1 river / 28 962 trees
-  (17 333 filled) / 2 278 landmarks, terrain 291×347 @ 20 m (datum 3.9 m
-  ASL, 0 voids, tile S34E151, bare-earth), **57 tiles**, index 913 937 B +
-  tiles 5 877 059 B ≈ 6.5 MB (largest tile 292 600 B), zero bridge leaks
-  into tiles; Circular Quay origin confirmed ≈ 27 m from the OSM Circular
-  Quay place node (railway/ferry wharf, within the 100 m check).
+- Shipped counts (refetched 2026-08-31, T-0116 — multi-way building
+  relations now assembled): **20 322 buildings** (incl. the Sydney Opera
+  House as its own relation footprint, id 9596872, h 18.5 from
+  `building:levels=5`, ~180 m long — its `building:part=roof` sheets are
+  skipped as parts so the real outline survives; max h 309 = Westfield Sydney
+  9 818 roads (804 bridge roads global — the Harbour Bridge deck,
+  Brisbane/Waterloo overpasses) / 106 places / 89 water rings / 1 river /
+  28 962 trees (17 333 filled) / 2 278 landmarks, terrain 291×347 @ 20 m
+  (datum 3.9 m ASL, 0 voids, tile S34E151, bare-earth), **57 tiles**, index
+  914 166 B + tiles 5 875 407 B ≈ 6.5 MB (largest tile 0_-3.json 292 600 B),
+  zero bridge leaks into tiles; Circular Quay origin confirmed ≈ 27 m from
+  the OSM Circular Quay place node (railway/ferry wharf, within the 100 m
+  check).
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
@@ -380,10 +383,18 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 - `way` with `building` tag and a closed geometry (first == last node) → one
   building; drop the repeated closing point. Skip `building=no` and
   `building:part` ways.
-- `relation` multipolygon: emit one building per member with `role=outer`
-  whose own geometry is a closed ring (ring assembly across several outer
-  ways is NOT done — document the count of skipped relations in the
-  script's summary line). Inner rings (courtyards) are ignored.
+- `relation` multipolygon: assemble the `role=outer` members into closed
+  rings exactly like the water/woods paths (rings end-to-start on
+  coinciding endpoints, either orientation, order-independent). A member
+  that is itself a closed way becomes a ring directly; several open ways
+  are stitched (T-0116 — the Sydney Opera House's outer boundary is 16
+  separate ways). Each assembled ring becomes one building; the first ring
+  keeps the relation id, later rings get `id*1000+1`, `+2`, … so ids stay
+  unique. An open (unstitchable) outer boundary stays skipped and counted;
+  a partial ring is never emitted. Tags (name, height, …) come from the
+  relation. Inner rings (courtyards) are ignored. `building:part=roof`
+  sheets are skipped as parts (a horizontal roof is not volumetric massing)
+  so they cannot replace the authoritative multipolygon outline.
 - Height, first rule that applies:
   1. `height` tag: parse leading number; if the string ends in `ft` multiply
      by 0.3048.

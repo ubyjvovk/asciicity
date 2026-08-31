@@ -131,6 +131,126 @@ describe('osm-convert building selection', () => {
   });
 });
 
+describe('osm-convert building relations — multi-way outer rings (T-0116)', () => {
+  const DEG = Math.PI / 180;
+  const COS = Math.cos(ORIGIN.lat * DEG);
+
+  function xzToLonLat(x: number, z: number): { lon: number; lat: number } {
+    return {
+      lon: ORIGIN.lon + x / (COS * 111320),
+      lat: ORIGIN.lat - z / 110574,
+    };
+  }
+
+  /** A relation-outer member whose geometry is an open local-metre polyline. */
+  function outer(ref: number, pts: Array<[number, number]>) {
+    return {
+      type: 'way' as const,
+      role: 'outer' as const,
+      ref,
+      geometry: pts.map(([x, z]) => xzToLonLat(x, z)),
+    };
+  }
+
+  function convertElements(elements: unknown[]) {
+    return convertOverpass({ elements }, { origin: ORIGIN });
+  }
+
+  it('stitches out-of-order, one-reversed outer ways into one closed ring → 1 building via relation tags', () => {
+    // Ring A corners (0,0),(10,0),(10,10),(0,10), broken into 3 open ways with
+    // way `Ab` reversed and the members listed out of order (like the Opera
+    // House's 16 ways). The single assembled ring keeps the relation id.
+    const members = [
+      outer(1, [[0, 0], [10, 0]]), // bottom edge, left→right
+      outer(2, [[10, 10], [10, 0]]), // right edge, REVERSED (top→bottom)
+      outer(3, [[10, 10], [0, 10], [0, 0]]), // top + left edge
+    ];
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 500,
+        tags: { type: 'multipolygon', building: 'yes', name: 'Sydney Opera House', height: '50' },
+        members,
+      },
+    ]);
+    expect(city.buildings).toHaveLength(1);
+    const b = city.buildings[0];
+    expect(b.id).toBe(500);
+    expect(b.name).toBe('Sydney Opera House');
+    expect(b.h).toBeCloseTo(50, 5);
+    expect(b.poly.length).toBeGreaterThanOrEqual(4);
+    // Closed ring: first point is not repeated last.
+    expect(b.poly[0]).not.toEqual(b.poly[b.poly.length - 1]);
+  });
+
+  it('two disjoint outer rings (each multi-way) → two buildings with unique ids', () => {
+    // Ring A (0,0)-(10,0)-(10,10)-(0,10) and Ring B (20,0)-(30,0)-(30,10)-(20,10),
+    // members interleaved and out of order. The first assembled ring keeps the
+    // relation id, the second gets `id*1000+1`.
+    const members = [
+      outer(1, [[0, 0], [10, 0]]), // A bottom
+      outer(4, [[20, 0], [30, 0]]), // B bottom
+      outer(5, [[30, 10], [30, 0]]), // B right, reversed
+      outer(3, [[10, 10], [0, 10], [0, 0]]), // A top + left
+      outer(2, [[10, 10], [10, 0]]), // A right, reversed
+      outer(6, [[30, 10], [20, 10], [20, 0]]), // B top + left
+    ];
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 700,
+        tags: { type: 'multipolygon', building: 'yes', name: 'Twin Halls', height: '60' },
+        members,
+      },
+    ]);
+    expect(city.buildings).toHaveLength(2);
+    const ids = city.buildings.map((b) => b.id).sort((a, b) => a - b);
+    // The first ring keeps the relation id; the second must be `id*1000+1`.
+    expect(ids).toEqual([700, 700001]);
+    for (const b of city.buildings) {
+      expect(b.name).toBe('Twin Halls');
+      expect(b.h).toBeCloseTo(60, 5);
+      expect(b.poly.length).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('an open (unstitchable) outer boundary is skipped and counted, never a partial ring', () => {
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 600,
+        tags: { type: 'multipolygon', building: 'yes', name: 'Broken', height: '30' },
+        members: [
+          outer(1, [[0, 0], [10, 0]]),
+          outer(2, [[20, 0], [30, 0]]),
+        ],
+      },
+    ]);
+    expect(city.buildings.some((b) => b.id === 600)).toBe(false);
+    expect(city.buildings).toHaveLength(0);
+    expect(city.skippedRelations).toBe(1);
+  });
+
+  it('a single closed-way outer member still emits exactly one building (T-0110 behaviour unchanged)', () => {
+    // Guildhall: a relation whose only outer member is already a closed way —
+    // assembleRingsInternal passes closed ways straight through as rings.
+    const closed = outer(1, [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]);
+    const city = convertElements([
+      {
+        type: 'relation',
+        id: 900,
+        tags: { type: 'multipolygon', building: 'yes', name: 'Guildhall', height: '20' },
+        members: [closed, { type: 'way', role: 'inner', ref: 902, geometry: [] }],
+      },
+    ]);
+    expect(city.buildings).toHaveLength(1);
+    const b = city.buildings[0];
+    expect(b.id).toBe(900);
+    expect(b.name).toBe('Guildhall');
+    expect(b.h).toBeCloseTo(20, 5);
+  });
+});
+
 describe('osm-convert building parts', () => {
   const DEG = Math.PI / 180;
   const COS = Math.cos(ORIGIN.lat * DEG);
@@ -1095,5 +1215,34 @@ describe('committed public/data/london', () => {
 
   it('passes validateCity with no throw', () => {
     expect(() => validateTileIndex(index)).not.toThrow();
+  });
+});
+
+describe('committed public/data/sydney (T-0116)', () => {
+  const SYD_ORIGIN = { lat: -33.8613, lon: 151.2110 };
+  const city = loadTiledCity('sydney');
+
+  it('Sydney Opera House is a single ≥ 100 m building named exactly, near 151.2153,-33.8568', () => {
+    // T-0116: the Opera House is an OSM building RELATION whose 16 outer ways
+    // are assembled into one ring (previously the relation was skipped).
+    // Assert the assembled footprint via the memoized tile loader: exact name,
+    // near the advertised local coords, long axis ≥ 100 m.
+    const opera = city.buildings.filter((b) => b.name === 'Sydney Opera House');
+    expect(opera).toHaveLength(1);
+    const poly = opera[0].poly;
+    const xs = poly.map((p) => p[0]);
+    const zs = poly.map((p) => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minZ = Math.min(...zs);
+    const maxZ = Math.max(...zs);
+    // The advertised point (151.2153, -33.8568) projects into its bbox (it
+    // sits near the sails' centroid); the Opera House is ~180 m long.
+    const [tx, tz] = project(151.2153, -33.8568, SYD_ORIGIN);
+    expect(tx).toBeGreaterThanOrEqual(minX);
+    expect(tx).toBeLessThanOrEqual(maxX);
+    expect(tz).toBeGreaterThanOrEqual(minZ);
+    expect(tz).toBeLessThanOrEqual(maxZ);
+    expect(Math.max(maxX - minX, maxZ - minZ)).toBeGreaterThanOrEqual(100);
   });
 });
