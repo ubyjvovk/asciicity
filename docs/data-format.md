@@ -479,6 +479,31 @@ The converter (`--dem 1`, default off) builds `terrain` as follows:
    `rows = ceil((maxZ − z0) / step) + 2` (one cell of margin all round).
 3. `datum = round1(dem(origin))`. For every node: `heights[r·cols + c] =
    round1(dem(unproject(x0 + c·step, z0 + r·step)) − datum)`.
+
+3b. **Bare-earth filter (wave 13, `--dem-bare`, default off).** SRTM is a
+   radar SURFACE model: in dense cities (Japan — the AWS mosaic uses
+   bare-earth lidar only for the US) roofs contaminate street elevation,
+   so Tokyo's flat Shibuya valley read as a ±10 m lumpy hill at ~2× its
+   real height. With `--dem-bare` (boolean flag like `--tiles`), the
+   ABSOLUTE height grid (datum not yet subtracted) is filtered between
+   steps 3 and 4, in exactly this order:
+   - **Erode**: `H1(n)` = the SECOND-SMALLEST value in the (up to) 5×5
+     node window centred on `n` (windows clip at grid borders; with < 2
+     values use the minimum). Second-smallest, not min, so one anomalous
+     low node cannot dig a 100 m crater; roofs (which bias HIGH) are
+     floored.
+   - **Smooth**: `H2(n)` = the arithmetic mean of the (up to) 3×3 window
+     of `H1` centred on `n`.
+   - `datum` is then `round1(H2(origin node))` and per-node heights are
+     `round1(H2 − datum)` — grid dims, step and rounding unchanged.
+   Both passes are pure array→array functions over `(heights, cols,
+   rows)` — deterministic, order-independent (each output node reads only
+   the INPUT grid), unit-tested. Water levels (step 4) are computed AFTER
+   filtering, from the filtered grid, so shorelines stay consistent.
+   Genuine relief survives: any hill wider than the 100 m window keeps
+   its height minus ≤ smoothing loss; single-node spikes vanish. Existing
+   datasets are untouched (flag default off; only Tokyo refetches with
+   it — wave-13 T-0107/T-0108).
 4. **Water flattening**: for each (clipped) water ring `i`, sample the raw
    DEM (minus datum) at every ring vertex, sort ascending, take the 10th
    percentile (`sorted[floor(0.1 · (n − 1))]`) → `waterLevels[i]`
