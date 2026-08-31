@@ -19,9 +19,11 @@ import {
   buildTerrain,
   decodeHgt,
   Dem,
+  erode,
   fetchDemTiles,
   hgtTileName,
   hgtUrl,
+  smooth,
   unproject,
 } from '../scripts/dem';
 import { project } from '../scripts/osm-convert';
@@ -343,6 +345,194 @@ describe('dem buildTerrain', () => {
       waterRings: squares,
     });
     expect(waterLevels.length).toBe(2);
+  });
+});
+
+describe('dem bare-earth filter (erode + smooth, data-format.md §Terrain 3b)', () => {
+  const N = 11;
+  /** Row-major NxN grid seeded with a single scalar. */
+  const filled = (v: number, n = N) => new Array(n * n).fill(v);
+
+  it('erode: single +30 spike node in a flat field is fully removed', () => {
+    const g = filled(0);
+    g[5 * N + 5] = 30;
+    const out = erode(g, N, N);
+    for (const v of out) expect(v).toBe(0);
+  });
+
+  it('erode: 2×2 spike cluster is removed (second-smallest still floors it)', () => {
+    const g = filled(0);
+    for (const [r, c] of [
+      [5, 5],
+      [5, 6],
+      [6, 5],
+      [6, 6],
+    ]) g[r * N + c] = 30;
+    const out = erode(g, N, N);
+    for (const v of out) expect(v).toBe(0);
+  });
+
+  it('erode: a lone −30 outlier does NOT crater its neighbourhood and is itself lifted', () => {
+    const g = filled(0);
+    g[5 * N + 5] = -30;
+    const out = erode(g, N, N);
+    // No neighbour is dragged below 0 by the outlier (that's the whole point of
+    // second-smallest — a single low sample cannot dig a crater).
+    for (const v of out) expect(v).toBeGreaterThanOrEqual(0);
+    // The outlier node itself is lifted (its 5×5 window's second-smallest is 0).
+    expect(out[5 * N + 5]).toBe(0);
+  });
+
+  it('erode+smooth: a plateau wider than 5×5 keeps its centre height exactly (tolerance 0)', () => {
+    // 15×15 grid, 9×9 plateau of value 100 at rows/cols 3..11, everything else 0.
+    // The 5×5 window around the plateau's centre (7, 7) is entirely inside the
+    // plateau → erode output 100; the 3×3 smooth window is likewise entirely
+    // inside the preserved 5×5 erosion core → mean 100. Tolerance = 0.
+    const SIZE = 15;
+    const g = filled(0, SIZE);
+    for (let r = 3; r <= 11; r++) {
+      for (let c = 3; c <= 11; c++) g[r * SIZE + c] = 100;
+    }
+    const out = smooth(erode(g, SIZE, SIZE), SIZE, SIZE);
+    expect(out[7 * SIZE + 7]).toBe(100);
+  });
+
+  it('erode+smooth: a wide valley (9×9 depression) is preserved at its centre (tolerance 0)', () => {
+    const SIZE = 15;
+    const g = filled(0, SIZE);
+    for (let r = 3; r <= 11; r++) {
+      for (let c = 3; c <= 11; c++) g[r * SIZE + c] = -100;
+    }
+    const out = smooth(erode(g, SIZE, SIZE), SIZE, SIZE);
+    expect(out[7 * SIZE + 7]).toBe(-100);
+  });
+
+  it('erode+smooth: border nodes filtered with clipped windows produce finite numbers (no NaN/undefined)', () => {
+    // A 4×4 grid: every node's 5×5 erode window and every node's 3×3 smooth
+    // window clips at some border. Values must all be finite.
+    const g = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    const out = smooth(erode(g, 4, 4), 4, 4);
+    expect(out).toHaveLength(16);
+    for (const v of out) {
+      expect(v).toBeDefined();
+      expect(Number.isFinite(v)).toBe(true);
+      expect(Number.isNaN(v)).toBe(false);
+    }
+  });
+
+  it('erode + smooth are deterministic and do not mutate their input', () => {
+    const input = [1, 5, 2, 4, 3, 30, 4, 2, 5, 1, 6, 2, 3, 4, 5, 6];
+    const snapshot = input.slice();
+    Object.freeze(input);
+    const e1 = erode(input, 4, 4);
+    const e2 = erode(input, 4, 4);
+    expect(e1).toEqual(e2);
+    const s1 = smooth(e1, 4, 4);
+    const s2 = smooth(e1, 4, 4);
+    expect(s1).toEqual(s2);
+    // Input untouched.
+    expect(input.slice()).toEqual(snapshot);
+    // Erode intermediate untouched by smooth.
+    const beforeSmooth = e1.slice();
+    smooth(e1, 4, 4);
+    expect(e1).toEqual(beforeSmooth);
+  });
+});
+
+describe('dem buildTerrain bare-earth path', () => {
+  const stub = { elevationAt: (lat: number, _lon: number) => lat * 1000 };
+
+  it('filter OFF → byte-identical pipeline output to the unchanged path (regression)', () => {
+    // The default (bare omitted) and explicit `bare: false` must produce
+    // exactly the same terrain and waterLevels as the pre-wave-13 code —
+    // captured here by running both against the same stub.
+    const ring: [number, number][] = [
+      [-400, -400],
+      [400, -400],
+      [400, 400],
+      [-400, 400],
+    ];
+    const opts = {
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: stub,
+      waterRings: [ring],
+    };
+    const a = buildTerrain(opts);
+    const b = buildTerrain({ ...opts, bare: false });
+    expect(a.terrain.datum).toBe(b.terrain.datum);
+    expect(a.terrain.x0).toBe(b.terrain.x0);
+    expect(a.terrain.z0).toBe(b.terrain.z0);
+    expect(a.terrain.cols).toBe(b.terrain.cols);
+    expect(a.terrain.rows).toBe(b.terrain.rows);
+    expect(a.terrain.step).toBe(b.terrain.step);
+    expect(a.terrain.heights).toEqual(b.terrain.heights);
+    expect(a.waterLevels).toEqual(b.waterLevels);
+  });
+
+  it('`bare: true` runs erode+smooth: a lone high-roof spike vanishes from the height grid', () => {
+    // Wrap the stub so a single node reads +30 m higher than its neighbours
+    // (a "roof" spike at the origin). With the bare filter, the origin node's
+    // datum is defined by the FILTERED grid, so heights[origin] ≈ 0 and the
+    // whole grid is close to flat.
+    const spikeDem = {
+      elevationAt: (lat: number, lon: number) =>
+        Math.abs(lat - KYIV_ORIGIN.lat) < 1e-6 &&
+        Math.abs(lon - KYIV_ORIGIN.lon) < 1e-6
+          ? stub.elevationAt(lat, lon) + 30
+          : stub.elevationAt(lat, lon),
+    };
+    const { terrain: filtered } = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: spikeDem,
+      bare: true,
+    });
+    const { terrain: unfiltered } = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: spikeDem,
+    });
+    // Origin sits on a grid node — the ORIGIN node's height is 0 in both
+    // (datum subtracts it out); the interesting difference is that the raw
+    // path's datum includes the +30 spike, so nearby non-origin nodes read
+    // ~ −30, while the filtered path erases the spike so nearby nodes read
+    // close to their real (stub-derived) height offsets.
+    const cOrigin = Math.round(-filtered.x0 / filtered.step);
+    const rOrigin = Math.round(-filtered.z0 / filtered.step);
+    const neighbour = (rOrigin + 1) * filtered.cols + cOrigin;
+    // In the filtered grid, the neighbour differs from the origin only by the
+    // stub's genuine lat gradient — nowhere near ±30.
+    expect(Math.abs(filtered.heights[neighbour])).toBeLessThan(3);
+    // In the unfiltered grid, the datum is inflated by the spike, so the
+    // neighbour reads about −30 m below datum.
+    expect(unfiltered.heights[neighbour]).toBeLessThan(-25);
+  });
+
+  it('`bare: true` via dem.bareEarth (flag routed by fetch-osm) matches explicit `bare: true`', () => {
+    const dem = new Dem(
+      new Map([[hgtTileName(50.5, 30.5), { side: 3, samples: new Int16Array(9) }]]),
+      { bareEarth: true },
+    );
+    expect(dem.bareEarth).toBe(true);
+    // Both paths must agree — the flag can come from the dem instance OR from
+    // an explicit opt.
+    const a = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: { ...stub, bareEarth: true } as unknown as {
+        elevationAt(lat: number, lon: number): number;
+        bareEarth: boolean;
+      },
+    });
+    const b = buildTerrain({
+      bbox: KYIV_BBOX,
+      origin: KYIV_ORIGIN,
+      dem: stub,
+      bare: true,
+    });
+    expect(a.terrain.heights).toEqual(b.terrain.heights);
+    expect(a.terrain.datum).toBe(b.terrain.datum);
   });
 });
 

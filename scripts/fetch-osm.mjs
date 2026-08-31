@@ -68,8 +68,8 @@ function buildQuery(bbox, timeoutSec = 180) {
 out geom;`;
 }
 
-/** CLI flags that may appear bare (or with `1`/`true`); `--tiles` is the only one. */
-const BOOLEAN_FLAGS = new Set(['tiles']);
+/** CLI flags that may appear bare (or with `1`/`true`). */
+const BOOLEAN_FLAGS = new Set(['tiles', 'dem-bare']);
 
 /** Parse CLI argv into a record; `--tiles` is a boolean flag, other `--key`s require a value. */
 export function parseArgs(argv) {
@@ -256,6 +256,10 @@ async function main() {
   const useDem = args.dem === '1' || args.dem === 'true';
   const tiles =
     args.tiles === true || args.tiles === '1' || args.tiles === 'true';
+  const demBare =
+    args['dem-bare'] === true ||
+    args['dem-bare'] === '1' ||
+    args['dem-bare'] === 'true';
   const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
@@ -272,7 +276,7 @@ async function main() {
     // half-downloaded cache; both errors are equally fatal (non-zero exit).
     let dem;
     if (useDem) {
-      dem = await fetchDemTiles(bbox);
+      dem = await fetchDemTiles(bbox, { bareEarth: demBare });
     }
     // Chunked fetch: sequential sub-bboxes (5 s pause, same endpoint fallback
     // as a single query), concatenated and deduped by type+id BEFORE

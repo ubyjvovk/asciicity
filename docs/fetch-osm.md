@@ -23,6 +23,7 @@ node scripts/fetch-osm.mjs \
   [--out public/data/city.json] \
   [--lang en] \
   [--dem 1] \
+  [--dem-bare] \
   [--step 20] \
   [--tiles] \
   [--chunks NxM]
@@ -41,6 +42,15 @@ Flags:
   1-arc-second tiles fetched from the AWS Terrain Tiles "skadi" mirror
   (cached under `.cache/dem/`). The Overpass timeout is bumped from 180 s to
   300 s to give the larger Kyiv box a chance to complete.
+- `--dem-bare` — apply the wave-13 bare-earth filter to the DEM before the
+  datum/height step (data-format.md §Terrain step 3b). SRTM is a radar
+  surface model, so in dense cities (Tokyo) roof heights contaminate the
+  street elevation; the filter erodes (second-smallest of a 5×5 window) then
+  smooths (mean of a 3×3 window) the absolute-height grid, so single-node
+  roof spikes vanish while relief wider than the 100 m window is preserved.
+  Off by default (existing datasets are unchanged); requires `--dem 1`. Bare
+  `--dem-bare` and the value forms `--dem-bare 1` / `--dem-bare true` all
+  enable it.
 - `--step <m>` — DEM grid spacing in metres (default 20).
 - `--tiles` — ship the city as a **tiled dataset** (sector streaming, wave
   11): `--out` then names a city DIRECTORY holding `index.json` plus

@@ -20,7 +20,11 @@ export function decodeHgt(
 ): { side: number; samples: Int16Array };
 
 export class Dem {
-  constructor(tiles: Map<string, { side: number; samples: Int16Array }>);
+  constructor(
+    tiles: Map<string, { side: number; samples: Int16Array }>,
+    opts?: { bareEarth?: boolean },
+  );
+  bareEarth: boolean;
   elevationAt(lat: number, lon: number): number;
   get voids(): number;
 }
@@ -32,15 +36,21 @@ export function fetchDemTiles(
     fetchImpl?: (
       url: string,
     ) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+    bareEarth?: boolean;
   },
 ): Promise<Dem>;
 
 export function buildTerrain(opts: {
   bbox: Bbox;
   origin: Origin;
-  dem: { elevationAt(lat: number, lon: number): number };
+  dem: { elevationAt(lat: number, lon: number): number; bareEarth?: boolean };
   step?: number;
   waterRings?: Vec2[][];
+  bare?: boolean;
 }): { terrain: TerrainData; waterLevels: number[] };
 
 export function unproject(x: number, z: number, origin: Origin): [number, number];
+
+export function erode(heights: number[], cols: number, rows: number): number[];
+
+export function smooth(heights: number[], cols: number, rows: number): number[];

@@ -121,12 +121,17 @@ function sampleTile(samples, side, row, col) {
 export class Dem {
   /**
    * @param {Map<string, {side: number, samples: Int16Array}>} tiles decoded tiles
+   * @param {{bareEarth?: boolean}} [opts] `bareEarth` — data-format.md 3b: when
+   *   set, `buildTerrain` runs the erode + smooth bare-earth filter before
+   *   computing datum/heights.
    */
-  constructor(tiles) {
+  constructor(tiles, { bareEarth = false } = {}) {
     /** @type {Map<string, {side: number, samples: Int16Array}>} */
     this.tiles = tiles;
     /** @private count of void corners substituted so far */
     this._voids = 0;
+    /** Enables the bare-earth filter in `buildTerrain` (data-format.md 3b). */
+    this.bareEarth = bareEarth;
   }
 
   /** Number of void corners substituted during lookups so far. */
@@ -173,7 +178,7 @@ export class Dem {
  */
 export async function fetchDemTiles(
   bbox,
-  { cacheDir = '.cache/dem', fetchImpl = fetch } = {},
+  { cacheDir = '.cache/dem', fetchImpl = fetch, bareEarth = false } = {},
 ) {
   const [minLon, minLat, maxLon, maxLat] = bbox;
   mkdirSync(cacheDir, { recursive: true });
@@ -200,7 +205,7 @@ export async function fetchDemTiles(
       tiles.set(name, { side, samples });
     }
   }
-  return new Dem(tiles);
+  return new Dem(tiles, { bareEarth });
 }
 
 /**
@@ -243,16 +248,129 @@ export function unproject(x, z, origin) {
 }
 
 /**
+ * Bare-earth erode: `out[n]` = second-smallest value in the (up to) 5×5
+ * window centred on `n` (windows clip at grid borders; with < 2 values in
+ * the window, fall back to the minimum). Pure — returns a new array of the
+ * same length; the input is never mutated and each output node reads only
+ * the input grid (data-format.md §Terrain step 3b).
+ * @param {number[]} heights row-major grid, length `cols * rows`
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {number[]} eroded grid, same length as input
+ */
+export function erode(heights, cols, rows) {
+  const out = new Array(cols * rows);
+  const R = 2; // 5×5 window
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let s1 = Infinity;
+      let s2 = Infinity;
+      let count = 0;
+      const r0 = Math.max(0, r - R);
+      const r1 = Math.min(rows - 1, r + R);
+      const c0 = Math.max(0, c - R);
+      const c1 = Math.min(cols - 1, c + R);
+      for (let rr = r0; rr <= r1; rr++) {
+        const row = rr * cols;
+        for (let cc = c0; cc <= c1; cc++) {
+          const v = heights[row + cc];
+          count++;
+          if (v <= s1) {
+            s2 = s1;
+            s1 = v;
+          } else if (v < s2) {
+            s2 = v;
+          }
+        }
+      }
+      // < 2 values in the clipped window (only possible on a degenerate
+      // 1-node grid): fall back to the minimum, which is `s1`.
+      out[r * cols + c] = count < 2 ? s1 : s2;
+    }
+  }
+  return out;
+}
+
+/**
+ * Bare-earth smooth: `out[n]` = arithmetic mean of the (up to) 3×3 window
+ * centred on `n` (windows clip at grid borders). Pure — returns a new array;
+ * the input is never mutated and each output node reads only the input grid
+ * (data-format.md §Terrain step 3b).
+ * @param {number[]} heights row-major grid, length `cols * rows`
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {number[]} smoothed grid, same length as input
+ */
+export function smooth(heights, cols, rows) {
+  const out = new Array(cols * rows);
+  const R = 1; // 3×3 window
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let sum = 0;
+      let n = 0;
+      const r0 = Math.max(0, r - R);
+      const r1 = Math.min(rows - 1, r + R);
+      const c0 = Math.max(0, c - R);
+      const c1 = Math.min(cols - 1, c + R);
+      for (let rr = r0; rr <= r1; rr++) {
+        const row = rr * cols;
+        for (let cc = c0; cc <= c1; cc++) {
+          sum += heights[row + cc];
+          n++;
+        }
+      }
+      out[r * cols + c] = sum / n;
+    }
+  }
+  return out;
+}
+
+/**
+ * Bilinear sample of a row-major grid at a continuous `(x, z)` local-metres
+ * point; clips to the grid's outer cells (mirrors `sampleTile`).
+ * @private
+ */
+function sampleGridBilinear(grid, cols, rows, x0, z0, step, x, z) {
+  const fc = (x - x0) / step;
+  const fr = (z - z0) / step;
+  const c0 = Math.min(cols - 2, Math.max(0, Math.floor(fc)));
+  const r0 = Math.min(rows - 2, Math.max(0, Math.floor(fr)));
+  const u = fc - c0;
+  const v = fr - r0;
+  const g00 = grid[r0 * cols + c0];
+  const g01 = grid[r0 * cols + (c0 + 1)];
+  const g10 = grid[(r0 + 1) * cols + c0];
+  const g11 = grid[(r0 + 1) * cols + (c0 + 1)];
+  return (
+    (1 - u) * (1 - v) * g00 +
+    u * (1 - v) * g01 +
+    (1 - u) * v * g10 +
+    u * v * g11
+  );
+}
+
+/**
  * Build the `terrain` grid (+ per-ring `waterLevels`) from a DEM sample,
  * exactly per data-format.md steps 1–4: project + margin the bbox, sample at
  * every `step`-spaced node relative to `datum`, then flatten every node inside
  * each (already clipped) water ring to that ring's 10th-percentile level.
+ * With `bare: true` (or `dem.bareEarth`) the absolute grid is filtered
+ * between steps 3 and 4 (erode → smooth); datum and water levels then derive
+ * from the FILTERED grid (data-format.md §Terrain step 3b).
  * @param {{bbox: [number,number,number,number], origin: {lat:number,lon:number},
- *   dem: {elevationAt(lat:number, lon:number): number}, step?: number,
- *   waterRings?: Array<Array<[number,number]>>}} opts
+ *   dem: {elevationAt(lat:number, lon:number): number, bareEarth?: boolean},
+ *   step?: number, waterRings?: Array<Array<[number,number]>>, bare?: boolean}} opts
  * @returns {{terrain: Object, waterLevels: number[]}} `{terrain, waterLevels}`
  */
-export function buildTerrain({ bbox, origin, dem, step = 20, waterRings = [] }) {
+export function buildTerrain({
+  bbox,
+  origin,
+  dem,
+  step = 20,
+  waterRings = [],
+  bare,
+}) {
+  const useBare = bare ?? Boolean(dem && dem.bareEarth);
   const [minLon, minLat, maxLon, maxLat] = bbox;
   const corners = [
     project(minLon, minLat, origin),
@@ -272,27 +390,60 @@ export function buildTerrain({ bbox, origin, dem, step = 20, waterRings = [] }) 
   const cols = Math.ceil((maxX - x0) / step) + 2;
   const rows = Math.ceil((maxZ - z0) / step) + 2;
 
-  const datum = round1(dem.elevationAt(origin.lat, origin.lon));
-
+  let datum;
   const heights = new Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const [lon, lat] = unproject(x0 + c * step, z0 + r * step, origin);
-      heights[r * cols + c] = round1(dem.elevationAt(lat, lon) - datum);
-    }
-  }
-
   const waterLevels = new Array(waterRings.length);
-  for (let i = 0; i < waterRings.length; i++) {
-    const ring = waterRings[i];
-    const raw = ring.map(([x, z]) => {
-      const [lon, lat] = unproject(x, z, origin);
-      return dem.elevationAt(lat, lon) - datum;
-    });
-    raw.sort((a, b) => a - b);
-    const n = raw.length;
-    const level = n > 0 ? raw[Math.floor(0.1 * (n - 1))] : 0;
-    waterLevels[i] = round1(level);
+
+  if (useBare) {
+    // Absolute grid (no datum subtraction, no rounding) — then erode + smooth,
+    // and only after that pick the datum from the filtered origin node.
+    const absolute = new Array(cols * rows);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const [lon, lat] = unproject(x0 + c * step, z0 + r * step, origin);
+        absolute[r * cols + c] = dem.elevationAt(lat, lon);
+      }
+    }
+    const eroded = erode(absolute, cols, rows);
+    const smoothed = smooth(eroded, cols, rows);
+    // The origin sits at local (0, 0); `x0`/`z0` are step-aligned so the
+    // origin lands on an exact grid node.
+    const cOrigin = Math.round(-x0 / step);
+    const rOrigin = Math.round(-z0 / step);
+    datum = round1(smoothed[rOrigin * cols + cOrigin]);
+    for (let i = 0; i < heights.length; i++) {
+      heights[i] = round1(smoothed[i] - datum);
+    }
+    for (let i = 0; i < waterRings.length; i++) {
+      const ring = waterRings[i];
+      const raw = ring.map(
+        ([x, z]) =>
+          sampleGridBilinear(smoothed, cols, rows, x0, z0, step, x, z) - datum,
+      );
+      raw.sort((a, b) => a - b);
+      const n = raw.length;
+      const level = n > 0 ? raw[Math.floor(0.1 * (n - 1))] : 0;
+      waterLevels[i] = round1(level);
+    }
+  } else {
+    datum = round1(dem.elevationAt(origin.lat, origin.lon));
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const [lon, lat] = unproject(x0 + c * step, z0 + r * step, origin);
+        heights[r * cols + c] = round1(dem.elevationAt(lat, lon) - datum);
+      }
+    }
+    for (let i = 0; i < waterRings.length; i++) {
+      const ring = waterRings[i];
+      const raw = ring.map(([x, z]) => {
+        const [lon, lat] = unproject(x, z, origin);
+        return dem.elevationAt(lat, lon) - datum;
+      });
+      raw.sort((a, b) => a - b);
+      const n = raw.length;
+      const level = n > 0 ? raw[Math.floor(0.1 * (n - 1))] : 0;
+      waterLevels[i] = round1(level);
+    }
   }
   // Flatten by odd-parity (data-format.md "Coastline water" rule 6, which
   // amends Terrain step 4): a node is flattened only when it lies inside an
