@@ -46,11 +46,11 @@ Flags:
   11): `--out` then names a city DIRECTORY holding `index.json` plus
   `tiles/<i>_<j>.json`. Format contract: docs/data-format.md "Tiled datasets".
   `--tiles` is orthogonal to every other flag (including `--chunks`).
-  > **Known parser wart (T-0093, not fixed here — scripts are out of scope):**
-  > `parseArgs` only consumes `--key value` pairs, so the bare boolean `--tiles`
-  > is **silently dropped** and swallows the next argument as its value. Tokyo
-  > was fetched with the value form `--tiles 1`; a bare `--tiles` falls
-  > through to `DEFAULT_OUT` and writes a monolithic `city.json`.
+  Bare `--tiles` (followed by another `--flag` or end of argv) and the value
+  forms `--tiles 1` / `--tiles true` all enable tiling. Other flags still
+  require a value — a valueless `--bbox` / `--out` / etc. errors with
+  `unknown or valueless flag --<key>` instead of silently swallowing the
+  next token.
 - `--chunks <NxM>` — split the bbox into an N×M grid of sub-bboxes fetched
   sequentially (5 s pause between requests, same endpoint fallback as a
   single query) and concatenate the responses, deduplicating elements by
@@ -86,8 +86,8 @@ Dnipro reads as a flat sheet ~60 m below Maidan.
 
 The first streamed-only city ships as a **tiled** directory
 (`public/data/tokyo/index.json` + `tiles/<i>_<j>.json`). Fetched command,
-mirroring docs/data-format.md "Central Tokyo" (note the value form `--tiles 1`
-— see the parser wart under `--tiles` above):
+mirroring docs/data-format.md "Central Tokyo" (bare `--tiles` and
+`--tiles 1` / `--tiles true` are equivalent; npm aliases use `--tiles 1`):
 
 ```
 node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715 \
