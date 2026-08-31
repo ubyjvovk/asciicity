@@ -24,3 +24,9 @@ export function splitBbox(
  * original order preserved) — a seam element is returned by every chunk.
  */
 export function dedupeElements(elements: OsmElement[]): OsmElement[];
+
+/**
+ * Parse CLI argv into a record. `--tiles` is a boolean flag (bare ⇒ true);
+ * every other `--key` requires a value.
+ */
+export function parseArgs(argv: string[]): Record<string, string | true>;

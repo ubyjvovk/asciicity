@@ -68,16 +68,27 @@ function buildQuery(bbox, timeoutSec = 180) {
 out geom;`;
 }
 
-/** Parse `--k v` style CLI args into a record (duplicates → later wins). */
-function parseArgs(argv) {
+/** CLI flags that may appear bare (or with `1`/`true`); `--tiles` is the only one. */
+const BOOLEAN_FLAGS = new Set(['tiles']);
+
+/** Parse CLI argv into a record; `--tiles` is a boolean flag, other `--key`s require a value. */
+export function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
-    const key = argv[i];
-    const val = argv[i + 1];
-    if (key.startsWith('--') && val !== undefined) {
-      out[key.slice(2)] = val;
-      i++;
+    const tok = argv[i];
+    if (!tok.startsWith('--')) continue;
+    const name = tok.slice(2);
+    const next = argv[i + 1];
+    const nextIsFlag = next === undefined || next.startsWith('--');
+    if (BOOLEAN_FLAGS.has(name) && nextIsFlag) {
+      out[name] = true;
+      continue;
     }
+    if (nextIsFlag) {
+      throw new Error(`unknown or valueless flag --${name}`);
+    }
+    out[name] = next;
+    i++;
   }
   return out;
 }
@@ -243,7 +254,8 @@ async function main() {
   const out = args.out || DEFAULT_OUT;
   const lang = args.lang || undefined;
   const useDem = args.dem === '1' || args.dem === 'true';
-  const tiles = args.tiles === '1' || args.tiles === 'true';
+  const tiles =
+    args.tiles === true || args.tiles === '1' || args.tiles === 'true';
   const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
@@ -340,7 +352,7 @@ async function main() {
 }
 
 // Run the CLI only when this file is the entry point (not when imported by
-// the tests for `splitBbox` / `dedupeElements`).
+// the tests for `parseArgs` / `splitBbox` / `dedupeElements`).
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main();
 }
