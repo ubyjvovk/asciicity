@@ -67,6 +67,15 @@ for (const id of TILED_CITIES) {
   });
 }
 
+// §4.21 CARS toggle: ?cars=0 boots to `ready` without exercising the fleet's
+// visible update path, so the toggle is at least exercised headlessly.
+test('tiles: boot ?city=london&tileradius=600&cars=0 → ready', async ({ page }) => {
+  await page.goto('/?city=london&tileradius=600&cars=0');
+  await waitReady(page);
+  const tiles = await readTiles(page);
+  expect(tiles.loaded.length).toBeGreaterThan(0);
+});
+
 test('tiles: boot ?city=sf&tileradius=600, pending drains, crossing a tile unloads', async ({
   page,
 }) => {

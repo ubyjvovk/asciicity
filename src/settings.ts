@@ -15,6 +15,8 @@ export interface Settings {
   minimap: boolean;
   /** CRT scanline overlay visible. */
   crt: boolean;
+  /** Ambient car traffic (`CarFleet`) visible (architecture.md §4.21). */
+  cars: boolean;
   /** Render-style id (`?render=`). */
   render: string;
   /** Last city id, or `null` if unset (show the picker). */
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hud: true,
   minimap: true,
   crt: true,
+  cars: true,
   render: 'ascii',
   city: null,
 };
@@ -49,6 +52,7 @@ export function loadSettings(
         if (typeof o.hud === 'boolean') out.hud = o.hud;
         if (typeof o.minimap === 'boolean') out.minimap = o.minimap;
         if (typeof o.crt === 'boolean') out.crt = o.crt;
+        if (typeof o.cars === 'boolean') out.cars = o.cars;
         if (typeof o.render === 'string') out.render = resolveRenderId(o.render);
         if (typeof o.city === 'string' || o.city === null) out.city = o.city;
       }
@@ -63,6 +67,8 @@ export function loadSettings(
   if (minimap !== null) out.minimap = minimap !== '0';
   const crt = url.get('crt');
   if (crt !== null) out.crt = crt !== '0';
+  const cars = url.get('cars');
+  if (cars !== null) out.cars = cars !== '0';
 
   const fromUrl = renderFromUrl(url);
   if (fromUrl !== undefined) out.render = fromUrl;
@@ -81,15 +87,16 @@ export function saveSettings(storage: Pick<Storage, 'setItem'>, s: Settings): vo
 }
 
 /**
- * Rewrite only `hud` / `minimap` / `crt` / `render` on `search`. Booleans are
- * `1`/`0`; a key equal to its default is removed so the URL stays short.
- * Every other parameter (city, at, synthetic, …) is kept.
+ * Rewrite only `hud` / `minimap` / `crt` / `cars` / `render` on `search`.
+ * Booleans are `1`/`0`; a key equal to its default is removed so the URL stays
+ * short. Every other parameter (city, at, synthetic, …) is kept.
  */
 export function applySettingsToUrl(search: string, s: Settings): string {
   const params = new URLSearchParams(search);
   setBoolParam(params, 'hud', s.hud, DEFAULT_SETTINGS.hud);
   setBoolParam(params, 'minimap', s.minimap, DEFAULT_SETTINGS.minimap);
   setBoolParam(params, 'crt', s.crt, DEFAULT_SETTINGS.crt);
+  setBoolParam(params, 'cars', s.cars, DEFAULT_SETTINGS.cars);
   if (s.render === DEFAULT_SETTINGS.render) params.delete('render');
   else params.set('render', s.render);
   const qs = params.toString();

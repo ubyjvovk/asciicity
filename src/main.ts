@@ -37,7 +37,7 @@ import { makeWindowTexture } from './world/textures';
 import { makeSky, updateSky, sunPosition } from './world/sky';
 import { ShipFleet } from './world/ships';
 import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/terrain';
-import { BoatFleet, BusFleet } from './world/traffic';
+import { BoatFleet, BusFleet, CarFleet } from './world/traffic';
 import {
   Controls,
   EYE_HEIGHT,
@@ -623,14 +623,20 @@ async function main(): Promise<void> {
     scene.add(makeRoadsObject(tileIndex.bridgeRoads, groundAt, humps));
   }
 
-  // TRAFFIC — red buses on the primaries + grey Thames boats. Pure ambience.
-  // Tiled cities rebuild the bus fleet from snapshot()+bridgeRoads after the
-  // spawn 3×3 (seed `9 ^ version`); boats are global and never rebuild.
+  // TRAFFIC — red buses on the primaries + grey Thames boats + boxy cars on
+  // the whole drivable network (architecture.md §4.21). Pure ambience. Tiled
+  // cities rebuild the bus fleet from snapshot()+bridgeRoads after the spawn
+  // 3×3 (seed `9 ^ version`) and the car fleet at seed `41 ^ version`; boats
+  // are global and never rebuild.
   await buildStep('TRAFFIC');
   let fleet: BusFleet | undefined;
+  let cars: CarFleet | undefined;
   if (!tileIndex) {
     fleet = new BusFleet(city.roads, 12, 9, groundAt);
     scene.add(fleet.object);
+    cars = new CarFleet(city.roads, 41, groundAt);
+    cars.object.visible = settings.cars;
+    scene.add(cars.object);
   }
   const boats = city.rivers?.length
     ? new BoatFleet(city.rivers, 4, 17, terrain ? terrain.heightAt : FLAT_HEIGHT)
@@ -823,6 +829,9 @@ async function main(): Promise<void> {
     city = assembleTiledCity(tileIndex, snap0.buildings, snap0.roads);
     fleet = new BusFleet(city.roads, 12, 9 ^ snap0.version, groundAt);
     scene.add(fleet.object);
+    cars = new CarFleet(city.roads, 41 ^ snap0.version, groundAt);
+    cars.object.visible = settings.cars;
+    scene.add(cars.object);
     tilesDebug.loaded = tileMgr.loadedKeys();
     tilesDebug.pending = tileMgr.pending();
     tilesDebug.version = snap0.version;
@@ -834,6 +843,11 @@ async function main(): Promise<void> {
   if (!fleet) {
     fleet = new BusFleet(city.roads, 12, 9, groundAt);
     scene.add(fleet.object);
+  }
+  if (!cars) {
+    cars = new CarFleet(city.roads, 41, groundAt);
+    cars.object.visible = settings.cars;
+    scene.add(cars.object);
   }
 
   let zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
@@ -935,6 +949,13 @@ async function main(): Promise<void> {
     disposeObject3D(fleet.object);
     fleet = new BusFleet(city.roads, 12, 9 ^ snap.version, groundAt);
     scene.add(fleet.object);
+    if (cars) {
+      scene.remove(cars.object);
+      disposeObject3D(cars.object);
+    }
+    cars = new CarFleet(city.roads, 41 ^ snap.version, groundAt);
+    cars.object.visible = settings.cars;
+    scene.add(cars.object);
   };
 
   const state: PlayerState = {
@@ -1036,6 +1057,7 @@ async function main(): Promise<void> {
   let hudBtn: HTMLButtonElement | undefined;
   let miniBtn: HTMLButtonElement | undefined;
   let crtBtn: HTMLButtonElement | undefined;
+  let carsBtn: HTMLButtonElement | undefined;
   let styleBtn: HTMLButtonElement | undefined;
   let flyBtn: HTMLButtonElement | undefined;
 
@@ -1046,6 +1068,7 @@ async function main(): Promise<void> {
     if (hudBtn) hudBtn.textContent = labelOnOff('HUD', settings.hud);
     if (miniBtn) miniBtn.textContent = labelOnOff('MINIMAP', settings.minimap);
     if (crtBtn) crtBtn.textContent = labelOnOff('CRT', settings.crt);
+    if (carsBtn) carsBtn.textContent = labelOnOff('CARS', settings.cars);
     if (styleBtn) styleBtn.textContent = `STYLE: ${post.style.label} ▸`;
     if (flyBtn) flyBtn.textContent = labelOnOff('FLY', state.fly);
   };
@@ -1065,6 +1088,12 @@ async function main(): Promise<void> {
   const setCrtVisible = (on: boolean): void => {
     settings.crt = on;
     setCrt(crtEl, on);
+    persist();
+    relabelMenu();
+  };
+  const setCarsVisible = (on: boolean): void => {
+    settings.cars = on;
+    if (cars) cars.object.visible = on;
     persist();
     relabelMenu();
   };
@@ -1186,7 +1215,7 @@ async function main(): Promise<void> {
     if (!(menuRoot instanceof HTMLElement)) return;
     menuRoot.textContent = '';
     menuRoot.classList.remove('landmarks');
-    hudBtn = miniBtn = crtBtn = styleBtn = flyBtn = undefined;
+    hudBtn = miniBtn = crtBtn = carsBtn = styleBtn = flyBtn = undefined;
     if (mode === 'none') return;
     if (mode === 'landmarks') {
       menuRoot.classList.add('landmarks');
@@ -1221,6 +1250,9 @@ async function main(): Promise<void> {
     });
     crtBtn = menuButton(labelOnOff('CRT', settings.crt), () => {
       setCrtVisible(!settings.crt);
+    });
+    carsBtn = menuButton(labelOnOff('CARS', settings.cars), () => {
+      setCarsVisible(!settings.cars);
     });
     styleBtn = menuButton(`STYLE: ${post.style.label} ▸`, () => {
       post.next(1);
@@ -1284,6 +1316,7 @@ async function main(): Promise<void> {
       hudBtn,
       miniBtn,
       crtBtn,
+      carsBtn,
       styleBtn,
       savePngBtn,
       saveGifBtn,
@@ -1508,6 +1541,7 @@ async function main(): Promise<void> {
     }
 
     fleet?.update(dt);
+    if (cars && cars.object.visible) cars.update(dt);
     boats?.update(dt);
     ships.update(dt);
 

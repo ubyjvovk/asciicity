@@ -27,6 +27,71 @@ const BUS_CLASSES: RoadClass[] = ['primary', 'secondary'];
 const BUS_HEIGHT = 4.3;
 const BUS_HALF_HEIGHT = BUS_HEIGHT / 2;
 
+/**
+ * Road classes that carry passenger cars — the whole drivable network:
+ * primary/secondary/tertiary/residential (§4.21).
+ */
+export const CAR_CLASSES: readonly RoadClass[] = [
+  'primary',
+  'secondary',
+  'tertiary',
+  'residential',
+];
+
+/**
+ * Six-colour car palette (§4.21): white, silver, near-black, brick-red,
+ * indigo, forest-green — the fleet's per-car colour is drawn from this
+ * list by the walker's own PRNG.
+ */
+export const CAR_PALETTE: readonly number[] = [
+  0xffffff,
+  0xc0c0c0,
+  0x111111,
+  0xc0392b,
+  0x27427a,
+  0x1f6f43,
+];
+
+/** Per-car speed range in m/s (§4.21): each car draws uniform in [8, 14]. */
+export const CAR_SPEED_MIN = 8;
+export const CAR_SPEED_MAX = 14;
+
+/** Boxy car dimensions (m). Centre y sits at `heightAt + CAR_HALF_HEIGHT`. */
+const CAR_WIDTH = 1.8;
+const CAR_HEIGHT = 1.5;
+const CAR_LENGTH = 4.5;
+const CAR_HALF_HEIGHT = CAR_HEIGHT / 2;
+
+/**
+ * Total eligible road length in kilometres — the denominator of the density
+ * formula (§4.21). Sums polyline lengths of every road whose class is in
+ * `classes`; short polylines (< 2 points) are skipped.
+ */
+export function eligibleRoadKm(
+  roads: Road[],
+  classes: readonly RoadClass[] = CAR_CLASSES,
+): number {
+  let m = 0;
+  for (const r of roads) {
+    if (!classes.includes(r.cls)) continue;
+    if (r.pts.length < 2) continue;
+    m += polylineLength(r.pts);
+  }
+  return m / 1000;
+}
+
+/**
+ * §4.21 density formula: `clamp(round(km / 0.35), 30, 250)`. Roughly one car
+ * per 350 m of eligible road, floored at 30 and capped at 250 — the same
+ * numbers `CarFleet` uses at boot.
+ */
+export function carCount(roadKm: number): number {
+  const n = Math.round(roadKm / 0.35);
+  if (n < 30) return 30;
+  if (n > 250) return 250;
+  return n;
+}
+
 /** Endpoint node graph of a road network. Nodes are quantised 2 m endpoints. */
 export interface RoadGraph {
   /** Node key "x,z" → quantised endpoint coordinate. */
@@ -369,6 +434,97 @@ export class BoatFleet {
       const w = this.walkers[i];
       w.advance(dt * BOAT_SPEED_MPS);
       this.dummy.position.set(w.x, this.heightAt(w.x, w.z) + BOAT_Y, w.z);
+      this.dummy.rotation.y = -w.heading;
+      this.dummy.updateMatrix();
+      this.mesh!.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.mesh!.instanceMatrix.needsUpdate = true;
+  }
+}
+
+/**
+ * Ambient passenger cars driving the whole drivable road network (§4.21).
+ * Density = {@link carCount}({@link eligibleRoadKm}), each car draws its own
+ * speed (uniform in `[CAR_SPEED_MIN, CAR_SPEED_MAX]`) and colour (from
+ * {@link CAR_PALETTE}) from the walker's own `mulberry32(seed + i)` PRNG, so
+ * the same `(roads, seed)` pair yields the same fleet byte-identically —
+ * unit-testable in node. One instanced mesh, no per-frame allocation.
+ * Empty/ineligible network → `count 0` and an inert object whose `update`
+ * is a no-op.
+ */
+export class CarFleet {
+  /** The three.js object to add to the scene (an InstancedMesh, or a Group when idle). */
+  readonly object: THREE.Object3D;
+  /** Number of cars currently driving (0 when no eligible roads exist). */
+  readonly count: number;
+  /** Per-car speeds in m/s, index-aligned with the instanced mesh. */
+  readonly speeds: readonly number[];
+  /** Per-car RGB (0xRRGGBB), index-aligned with the instanced mesh — drawn from {@link CAR_PALETTE}. */
+  readonly colors: readonly number[];
+  private walkers: PathWalker[];
+  private mesh: THREE.InstancedMesh | null;
+  private dummy: THREE.Object3D;
+  private readonly heightAt: HeightFn;
+  private readonly _speeds: number[];
+
+  /**
+   * Build the fleet over `roads` filtered by {@link CAR_CLASSES}. `seed` is
+   * the base for `mulberry32(seed + i)` (tiled cities pass `41 ^ version`, so
+   * every tile-set has its own deterministic fleet). Empty eligible graph
+   * yields `count 0` — no walkers, no mesh, safe to `update()`.
+   */
+  constructor(roads: Road[], seed = 41, heightAt: HeightFn = FLAT_HEIGHT) {
+    this.heightAt = heightAt;
+    const graph = buildRoadGraph(roads, CAR_CLASSES as RoadClass[]);
+    const km = eligibleRoadKm(roads);
+    const n = graph.edges.length > 0 ? carCount(km) : 0;
+    this.count = n;
+    this._speeds = [];
+    const cols: number[] = [];
+    this.dummy = new THREE.Object3D();
+    if (n === 0) {
+      this.walkers = [];
+      this.mesh = null;
+      this.object = new THREE.Group();
+      this.speeds = this._speeds;
+      this.colors = cols;
+      return;
+    }
+    this.walkers = [];
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH),
+      new THREE.MeshLambertMaterial(),
+      n,
+    );
+    const tint = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      const rand = mulberry32(seed + i);
+      this.walkers.push(new PathWalker(graph, rand));
+      const s = CAR_SPEED_MIN + rand() * (CAR_SPEED_MAX - CAR_SPEED_MIN);
+      this._speeds.push(s);
+      const c = CAR_PALETTE[Math.floor(rand() * CAR_PALETTE.length)];
+      cols.push(c);
+      tint.setHex(c);
+      mesh.setColorAt(i, tint);
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.mesh = mesh;
+    this.object = mesh;
+    this.speeds = this._speeds;
+    this.colors = cols;
+  }
+
+  /**
+   * Advance every car by `dt · speeds[i]` metres and write its matrix via a
+   * single reused dummy — no per-frame allocation (mirrors {@link BusFleet}).
+   * No-op when no cars exist.
+   */
+  update(dt: number): void {
+    if (this.walkers.length === 0) return;
+    for (let i = 0; i < this.walkers.length; i++) {
+      const w = this.walkers[i];
+      w.advance(dt * this._speeds[i]);
+      this.dummy.position.set(w.x, this.heightAt(w.x, w.z) + CAR_HALF_HEIGHT, w.z);
       this.dummy.rotation.y = -w.heading;
       this.dummy.updateMatrix();
       this.mesh!.setMatrixAt(i, this.dummy.matrix);
