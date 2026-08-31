@@ -1,10 +1,17 @@
 # AsciiCity
 
-![AsciiCity on Westminster Bridge, facing Big Ben](docs/screenshot.png)
+![Facing the Tokyo Skytree across the Kita-Jūkken canal](docs/skytree.png)
 
-A static browser minigame: walk around the City of London in first person,
-rendered as coloured ASCII glyphs with a green NAVIGATION HUD. Built with Vite,
-TypeScript and three.js; deployed as static files to GitHub Pages.
+A static browser minigame: walk around real cities — London, Kyiv,
+San Francisco, Manhattan and central Tokyo — in first person, rendered as
+coloured ASCII glyphs with a green NAVIGATION HUD. Streets stream in
+1 km tiles around you; Tokyo boots in the matrix style at the Shibuya
+Scramble Crossing:
+
+![Walking the Shibuya Scramble in the matrix render style](docs/tokyo-matrix.gif)
+
+Built with Vite, TypeScript and three.js; deployed as static files to
+GitHub Pages.
 
 ## Running
 
