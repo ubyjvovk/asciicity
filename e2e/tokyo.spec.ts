@@ -43,9 +43,38 @@ test('tokyo: boots ?city=tokyo&tileradius=600 at the default spawn → ready wit
   });
   expect(tiles.loaded.length).toBeGreaterThan(0);
 
-  // The default spawn is `tokyostation` — the player is on the ground and the
-  // HUD must show the BEARING row (part of the navigation HUD).
+  // The default spawn is `shibuya` (T-0103, wave 12) — the player is on the
+  // ground and the HUD must show the BEARING row (part of the navigation HUD).
   await expect(page.locator('#hud')).toContainText('BEARING');
+});
+
+test('tokyo: plain ?city=tokyo (no at) resolves the shibuya default spawn — WORLD row within 60 m of the Scramble vertex, tiles loaded', async ({
+  page,
+}) => {
+  // Default-spawn proof: `cityById('tokyo').defaultSpawn === 'shibuya'` so a
+  // plain `?city=tokyo` boot must land the player on the Shibuya Scramble
+  // Crossing vertex derived in `SPAWN_PRESETS.shibuya` — local metres
+  // (−6015.50, 2419.70) at Tokyo Station's origin (see the T-0103 unit tests
+  // in `tests/spawn.test.ts` for the derivation).
+  await page.goto('/?city=tokyo&tileradius=600');
+  await waitReady(page);
+  const info = await page.evaluate(() => {
+    const api = (window as unknown as {
+      __asciicity?: {
+        state?: { x: number; z: number };
+        tiles?: { loaded: string[] };
+      };
+    }).__asciicity;
+    return {
+      x: api?.state?.x ?? NaN,
+      z: api?.state?.z ?? NaN,
+      loaded: api?.tiles?.loaded ?? [],
+    };
+  });
+  const EXPECTED_X = -6015.5;
+  const EXPECTED_Z = 2419.7;
+  expect(Math.hypot(info.x - EXPECTED_X, info.z - EXPECTED_Z)).toBeLessThan(60);
+  expect(info.loaded.length).toBeGreaterThan(0);
 });
 
 test('tokyo: booting the skytree preset resolves to the east-side vantage on tile 4_-3 with the spawn tile loaded', async ({

@@ -11,6 +11,7 @@ import {
   resolveSpawn,
   SPAWN_PRESETS,
 } from '../src/data/spawn';
+import { cityById } from '../src/data/cities';
 import type { CityData, Vec2 } from '../src/data/types';
 import { project, unproject } from '../src/geo';
 import {
@@ -357,6 +358,8 @@ describe('resolveSpawn', () => {
       'rada',
       'rockefeller',
       'salesforce',
+      'shibuya',
+      'shinjuku',
       'skytree',
       'sophia',
       'stpatricks',
@@ -1407,6 +1410,9 @@ describe('Tokyo presets (wave 11)', () => {
     'akihabara',
     'imperialpalace',
     'sumida',
+    // Wave 12 (T-0103) west-Tokyo presets on the bbox v2 dataset.
+    'shibuya',
+    'shinjuku',
   ];
 
   it('every new Tokyo preset key parses to its preset', () => {
@@ -1480,6 +1486,11 @@ describe('Tokyo presets (wave 11)', () => {
     akihabara: [0, -2],
     imperialpalace: [-1, 0],
     sumida: [4, -4],
+    // Wave 12 (T-0103): each vertex sits in its own tile.
+    // shibuya vertex (-6015.5, 2419.7) → tile -7_2.
+    shibuya: [-7, 2],
+    // shinjuku vertex (-5918.8, -941.3) → tile -6_-1.
+    shinjuku: [-6, -1],
   };
 
   /** Anchor (local metres) of each tower's `index.landmarks` first entry. */
@@ -1643,4 +1654,123 @@ describe('Tokyo presets (wave 11)', () => {
       }
     });
   }
+});
+
+// Wave 12 west-Tokyo presets (T-0103): shibuya + shinjuku on the bbox v2
+// dataset (T-0102), plus the Tokyo registry entry's `defaultSpawn` flipped
+// to 'shibuya' so entering Tokyo starts at the Shibuya Scramble.
+describe('Tokyo wave-12 west presets (T-0103)', () => {
+  /** The two new presets, each with its station-anchor name and the
+   *  ticket's distance-to-station cap. Coordinates are DERIVED FROM the
+   *  committed dataset (T-0102 anchors + 3×3-tile road vertices) — never
+   *  hand-typed; see the block comment on each preset in
+   *  `src/data/spawn.ts` for the derivation. */
+  const CASES = [
+    {
+      key: 'shibuya',
+      anchorName: 'Shibuya',
+      centre: [-7, 2] as [number, number],
+      maxAnchorDist: 120,
+    },
+    {
+      key: 'shinjuku',
+      anchorName: 'Shinjuku',
+      centre: [-6, -1] as [number, number],
+      maxAnchorDist: 150,
+    },
+  ];
+
+  it('both presets exist, are fixed-coordinate, city=tokyo, non-empty label', () => {
+    for (const { key } of CASES) {
+      const p = SPAWN_PRESETS[key];
+      expect(p, key).toBeDefined();
+      expect('building' in p, `${key} is a fixed-coordinate preset`).toBe(false);
+      expect(p.city, key).toBe('tokyo');
+      expect(p.label.trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it('both presets sit inside the committed tokyo.json bbox v2', () => {
+    const TOKYO = loadTiledIndex('tokyo');
+    for (const { key } of CASES) {
+      const p = SPAWN_PRESETS[key] as { lon: number; lat: number };
+      expect(p.lon, `${key} lon`).toBeGreaterThanOrEqual(TOKYO.bbox[0]);
+      expect(p.lon, `${key} lon`).toBeLessThanOrEqual(TOKYO.bbox[2]);
+      expect(p.lat, `${key} lat`).toBeGreaterThanOrEqual(TOKYO.bbox[1]);
+      expect(p.lat, `${key} lat`).toBeLessThanOrEqual(TOKYO.bbox[3]);
+    }
+  });
+
+  it("both presets fall within the ticket's distance bound of their station anchor (shibuya ≤ 120 m, shinjuku ≤ 150 m)", () => {
+    const TOKYO = loadTiledIndex('tokyo');
+    for (const { key, anchorName, maxAnchorDist } of CASES) {
+      const anchor = TOKYO.landmarks.find((a) => a.name === anchorName);
+      expect(anchor, `${anchorName} index.landmarks anchor`).toBeDefined();
+      const p = SPAWN_PRESETS[key] as { lon: number; lat: number };
+      const [x, z] = project(p.lon, p.lat, TOKYO.origin);
+      const dist = Math.hypot(x - anchor!.x, z - anchor!.z);
+      expect(dist, `${key} distance to ${anchorName}`).toBeLessThanOrEqual(maxAnchorDist);
+    }
+  });
+
+  it('shinjuku sits east of its station anchor (the East Exit vantage the ticket calls for)', () => {
+    const TOKYO = loadTiledIndex('tokyo');
+    const anchor = TOKYO.landmarks.find((a) => a.name === 'Shinjuku')!;
+    const p = SPAWN_PRESETS.shinjuku as { lon: number; lat: number };
+    const [x] = project(p.lon, p.lat, TOKYO.origin);
+    expect(x, 'shinjuku vertex is east of the Shinjuku anchor').toBeGreaterThan(anchor.x);
+  });
+
+  it('both presets resolve unblocked on their 3×3-tile CollisionGrid (shibuya ≥ 6 m, shinjuku ≥ 6 m; ticket requires ≥ 2 m)', () => {
+    // The two picked vertices achieve WELL above the 2 m minimum the ticket
+    // requires — shibuya on the wide Scramble Crossing (Jingu-dori × Old
+    // Ōyama Kaidō / Center-gai) and shinjuku on the East Exit pedestrian
+    // block. Assert both at 6 m so any future refetch that erodes clearance
+    // fails loudly.
+    const TOKYO = loadTiledIndex('tokyo');
+    for (const { key, centre } of CASES) {
+      const globals = loadTiledGlobals('tokyo');
+      const raw = {
+        ...globals,
+        buildings: [...globals.buildings],
+        roads: [...globals.roads],
+      };
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const tileKey = `${centre[0] + di}_${centre[1] + dj}`;
+          if (!(tileKey in TOKYO.tiles)) continue;
+          const t = loadTiledTile('tokyo', tileKey);
+          raw.buildings.push(...t.buildings);
+          raw.roads.push(...t.roads);
+        }
+      }
+      const collision = new CollisionGrid(
+        raw.water?.length
+          ? [...raw.buildings, ...raw.water.map((poly, i) => ({ id: -1 - i, h: 1, poly }))]
+          : raw.buildings,
+        25,
+        raw.roads
+          .filter((r) => r.bridge)
+          .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+      );
+      const p = SPAWN_PRESETS[key] as { lon: number; lat: number };
+      const [x, z] = project(p.lon, p.lat, TOKYO.origin);
+      // Plain walkability.
+      expect(collision.blocked([x, z]), `${key} walkability`).toBe(false);
+      // Ticket ≥ 2 m; both achieve ≥ 6 m in the derivation (shibuya 8 m,
+      // shinjuku 6 m under this exact grid).
+      expect(collision.blocked([x, z], 2), `${key} 2 m clearance`).toBe(false);
+      expect(collision.blocked([x, z], 6), `${key} 6 m clearance`).toBe(false);
+    }
+  });
+
+  it("cityById('tokyo').defaultSpawn === 'shibuya'", () => {
+    const tokyo = cityById('tokyo');
+    expect(tokyo).toBeDefined();
+    expect(tokyo!.defaultSpawn).toBe('shibuya');
+    // And 'shibuya' must be a real preset belonging to Tokyo, otherwise the
+    // registry points to a phantom key.
+    expect(SPAWN_PRESETS.shibuya).toBeDefined();
+    expect(SPAWN_PRESETS.shibuya.city).toBe('tokyo');
+  });
 });

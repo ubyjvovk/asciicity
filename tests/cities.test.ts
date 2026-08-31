@@ -63,8 +63,8 @@ describe('CITIES registry', () => {
     const tokyo = CITIES[4];
     expect(tokyo.label).toBe('TOKYO');
     expect(tokyo.file).toBe('data/tokyo/index.json');
-    expect(tokyo.defaultSpawn).toBe('tokyostation');
-    expect(tokyo.blurb).toBe('Imperial Palace to the Skytree · streamed');
+    expect(tokyo.defaultSpawn).toBe('shibuya');
+    expect(tokyo.blurb).toBe('Shibuya Scramble to the Skytree · streamed');
     expect(tokyo.tiled).toBe(true);
   });
 
