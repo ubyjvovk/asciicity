@@ -177,10 +177,19 @@ changes fetching only — conversion sees one merged element list.
 `types.ts` alike. Tokyo Skytree is 634 m; no existing dataset has a
 building over 600, so London/Kyiv/SF/NYC stay byte-identical.
 
-### Central Tokyo (`data/tokyo/`, wave 11) — the first streamed-only city
+### Central Tokyo (`data/tokyo/`, wave 11; bbox v2 wave 12) — the first streamed-only city
 
-- **bbox**: `139.730, 35.645, 139.820, 35.715` — ≈ 8.1 km × 7.8 km:
-  Imperial Palace, Tokyo Station, Ginza, Akihabara, Tokyo Tower
+- **bbox v2 (wave 12, T-0102)**: `139.692, 35.645, 139.820, 35.715` —
+  ≈ 11.6 km × 7.8 km: the v1 box plus the WEST strip covering Shibuya
+  (the Scramble Crossing, ≈ `139.7016, 35.6595`) and Shinjuku (station
+  ≈ `139.7005, 35.690`; Kabukicho). West-strip Overpass counts at
+  boarding (2026-08-31): 57 539 buildings, 17 230 highways → v2 total
+  ≈ 170 k buildings expected. Origin, tile grid and every existing local
+  coordinate are UNCHANGED (the origin stays Tokyo Station), so v1 tiles
+  keep their keys and the wave-11 presets stay valid; new tiles appear at
+  `i ≤ −6`-ish west. Fetch with `--chunks 4x3`.
+- **bbox v1 (wave 11)**: `139.730, 35.645, 139.820, 35.715` — ≈ 8.1 km ×
+  7.8 km: Imperial Palace, Tokyo Station, Ginza, Akihabara, Tokyo Tower
   (verified in OSM at ≈ `139.747, 35.658`) and Tokyo Skytree (≈ `139.808,
   35.710`), plus the Sumida riverfront between them.
 - **origin**: Tokyo Station, `lon 139.7671, lat 35.6812` — verify against
@@ -191,12 +200,10 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   never transliterate).
 - Terrain: `--dem 1`, single SRTM tile `N35E139`; the bay/rivers come from
   the coastline + water rules above.
-- Command: `node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715
-  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles 1 --out
-  public/data/tokyo` (`npm run fetch-data:tokyo`). NOTE the `--tiles 1`
-  VALUE form: the arg parser does not read bare flags (T-0100) — bare
-  `--tiles` silently swallows the next arg and writes a monolithic
-  `city.json` to the default path.
+- Command (v2): `node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 4x3 --tiles 1 --out
+  public/data/tokyo` (`npm run fetch-data:tokyo`). (Bare `--tiles` also
+  works since T-0100; the aliases keep the value form.)
 - **Size budget: 60 MB** for `index.json` + all tiles combined. Shipped
   (fetched 2026-08-31, T-0097): **112 743 buildings** (max h 634 = Tokyo
   Skytree, clamp 650) / 16 902 roads (1 712 bridge roads global — Sumida

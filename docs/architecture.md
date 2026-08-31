@@ -1174,6 +1174,41 @@ fine at the ≤ 640×360 scene target (§7 amended; the per-frame cost that
 matters stays "≤ 1 tile build per frame, zero allocations in the loop
 outside tile transitions").
 
+### 4.20 Per-city default render style & the matrix katakana atlas (wave 12)
+
+**Per-city default render.** `CityInfo` (src/data/cities.ts) gains
+`defaultRender?: string` — a `STYLE_ORDER` id. Boot style precedence
+(locked): `renderFromUrl(location.search)` (an explicit `?render=`) →
+`city.defaultRender` → persisted `settings.render` → `'ascii'`.
+`settings.ts` already exports the URL parser; `main.ts` picks the initial
+style AFTER the city is known and passes it to `StyleRenderer` as today.
+Everything else is unchanged: `R` cycles and persists exactly as before
+(the city default applies at boot only), the share-URL rewrite rules of
+`settings.ts` are untouched, `?synthetic=1` has no city default. Tokyo
+sets `defaultRender: 'matrix'` — entering Tokyo without `?render=` boots
+in matrix.
+
+**Matrix katakana atlas.** The film's digital rain is MIRRORED half-width
+katakana + digits; our matrix style currently reuses the shared ASCII
+atlas. Locked changes to `src/render/styles/matrix.ts`:
+- A matrix-specific atlas: the half-width katakana block `U+FF66–U+FF9D`
+  (56 glyphs) plus digits `0–9`. Glyphs are EMBEDDED 8×16 bitmaps
+  (per-glyph hex row constants derived from GNU Unifont) rasterised onto
+  the atlas canvas at build — zero dependence on installed fonts, so the
+  atlas is deterministic on any machine (CI, worker image, user browsers
+  without CJK fonts). Nearest-neighbour scaling to the cell (the chunky
+  pixel look is wanted); each glyph blitted HORIZONTALLY MIRRORED (the
+  film look).
+- Glyph order in the atlas = ink coverage ascending (count of set bits in
+  the bitmap), computed at build time — `matrixGlyph`'s density mapping
+  then works unchanged; only the glyph `count` uniform changes.
+- `hash3` / `matrixGlyph` / `rainIntensity` / `matrixBrightness` keep
+  their signatures and stay pure/node-testable; the green
+  phosphor/rain-head look is unchanged.
+- `src/credits.ts` gains a Unifont attribution line (GNU Unifont is
+  dual-licensed SIL OFL 1.1 / GPL v2+ with font-embedding exception —
+  cite it as the bitmap source).
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
 1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
