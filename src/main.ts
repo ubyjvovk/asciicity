@@ -17,7 +17,7 @@ import {
   type TileIndexData,
   type Vec2,
 } from './data/types';
-import { validateCity, validateTileIndex } from './data/validate';
+import { validateTileIndex } from './data/validate';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
 import { dueRebuild, loadTile, parseTileRadius, type RebuildClock } from './data/load';
@@ -339,22 +339,6 @@ function applyBuildingFixes(buildings: Building[], cityId: string): Building[] {
 }
 
 /**
- * Fetch, stream-report progress on, and validate the city JSON for `info` —
- * the streaming path used by the loading indicator (T-0085, architecture.md
- * §4.18). Calls `onProgress` on every download tick, then `parse`, then
- * returns the validated `CityData`. On any failure the caller falls back to
- * `syntheticCity(seed)` (same behaviour as the pre-T-0085 `chooseCity`).
- */
-async function fetchCity(
-  info: CityInfo,
-  onProgress: (p: LoadProgress) => void,
-): Promise<CityData> {
-  const url = import.meta.env.BASE_URL + info.file;
-  const raw = await loadCityJson(url, info.sizeBytes, onProgress);
-  return validateCity(raw);
-}
-
-/**
  * Render the start-overlay city picker (T-0046) and resolve with the chosen
  * `CityInfo`. Shows the plain overlay (title + `CHOOSE A CITY`) with one
  * `.city` button per `CITIES` entry (label + blurb); keys `1`…`9` select by
@@ -542,7 +526,9 @@ async function main(): Promise<void> {
     city = syntheticCity(opts.seed, 12, opts.hills);
     cityId = 'synthetic';
     cityInfo = undefined;
-  } else if (initialInfo.tiled) {
+  } else {
+    // Every registry city is tiled (architecture.md §4.19). `loadCity` +
+    // `validateCity` remain for unit tests; `?synthetic=1` never fetches.
     try {
       const url = import.meta.env.BASE_URL + initialInfo.file;
       const raw = await loadCityJson(url, initialInfo.sizeBytes, onFetchProgress);
@@ -557,17 +543,6 @@ async function main(): Promise<void> {
       cityId = 'synthetic';
       cityInfo = undefined;
       tileIndex = undefined;
-    }
-  } else {
-    try {
-      city = await fetchCity(initialInfo, onFetchProgress);
-      cityId = initialInfo.id;
-      cityInfo = initialInfo;
-    } catch (err) {
-      console.warn(`${initialInfo.file} load failed, using synthetic city:`, err);
-      city = syntheticCity(opts.seed);
-      cityId = 'synthetic';
-      cityInfo = undefined;
     }
   }
 

@@ -28,15 +28,17 @@ describe('CITIES registry', () => {
   it('carries the expected labels, files and blurbs', () => {
     const london = CITIES[0];
     expect(london.label).toBe('LONDON');
-    expect(london.file).toBe('data/city.json');
+    expect(london.file).toBe('data/london/index.json');
     expect(london.defaultSpawn).toBe('bigben');
     expect(london.blurb).toBe('City of London & Westminster · flat');
+    expect(london.tiled).toBe(true);
 
     const kyiv = CITIES[1];
     expect(kyiv.label).toBe('KYIV');
-    expect(kyiv.file).toBe('data/kyiv.json');
+    expect(kyiv.file).toBe('data/kyiv/index.json');
     expect(kyiv.defaultSpawn).toBe('maidan');
     expect(kyiv.blurb).toBe('Central Kyiv · Dnipro hills, 120 m of relief');
+    expect(kyiv.tiled).toBe(true);
 
     const sf = CITIES[2];
     expect(sf.label).toBe('SAN FRANCISCO');
@@ -47,9 +49,17 @@ describe('CITIES registry', () => {
 
     const nyc = CITIES[3];
     expect(nyc.label).toBe('MANHATTAN');
-    expect(nyc.file).toBe('data/nyc.json');
+    expect(nyc.file).toBe('data/nyc/index.json');
     expect(nyc.defaultSpawn).toBe('brooklynbridge');
     expect(nyc.blurb).toBe('Battery to Central Park · skyscrapers & bridges');
+    expect(nyc.tiled).toBe(true);
+  });
+
+  it('every registry entry is tiled with a data/<id>/index.json path', () => {
+    for (const city of CITIES) {
+      expect(city.tiled).toBe(true);
+      expect(city.file).toBe(`data/${city.id}/index.json`);
+    }
   });
 });
 
@@ -111,13 +121,12 @@ describe("every CITIES entry's defaultSpawn is a fixed-coordinate preset inside 
   }
 });
 
-describe('every city sizeBytes matches the committed file within 1 %', () => {
+describe('every city sizeBytes equals the committed index.json size', () => {
   for (const city of CITIES) {
     it(`${city.id}.sizeBytes (${city.sizeBytes}) is within 1 % of stat(public/${city.file})`, () => {
       const actual = statSync(resolve(__dirname, '..', 'public', city.file)).size;
       expect(actual).toBeGreaterThan(0);
-      const tolerance = actual * 0.01;
-      expect(Math.abs(city.sizeBytes - actual)).toBeLessThanOrEqual(tolerance);
+      expect(city.sizeBytes).toBe(actual);
     });
   }
 });

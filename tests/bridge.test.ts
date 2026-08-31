@@ -2,8 +2,6 @@
  * Unit tests for the Golden Gate Bridge structure (`src/world/bridge.ts`,
  * architecture.md §4.16). Case names match the ticket fixtures verbatim.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from '../src/data/types';
@@ -19,11 +17,10 @@ import {
 import type { MeshData } from '../src/world/mesh';
 import { BridgeDecks, Terrain, chainBridgeRoads, makeGroundAt } from '../src/world/terrain';
 import { loadSfGlobals } from './sfCity';
+import { loadTiledGlobals } from './tiledCity';
 
 const SF: CityData = loadSfGlobals();
-const NYC: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-);
+const NYC: CityData = loadTiledGlobals('nyc');
 
 const SPEC = SUSPENSION_BRIDGES.sf[0]!;
 

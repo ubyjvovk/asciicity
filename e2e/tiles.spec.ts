@@ -1,8 +1,9 @@
 /**
- * Sector-streaming e2e (architecture.md §4.19, T-0095). Boots tiled SF with a
- * small `?tileradius=` so a short teleport crosses a tile boundary, then
- * asserts `__asciicity.tiles` residency (`loaded` / `pending` / `version` /
- * `disposed`). Never edits smoke/sf/ships/loading specs.
+ * Sector-streaming e2e (architecture.md §4.19, T-0095 / T-0096). Boots every
+ * shipped city tiled with a small `?tileradius=` and asserts
+ * `__asciicity.tiles.loaded` is non-empty at `ready`. The SF case also
+ * teleports across a tile boundary and checks `loaded` / `pending` /
+ * `version` / `disposed`. Never edits smoke/sf/ships/loading specs.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -45,6 +46,19 @@ async function readTiles(page: Page): Promise<{
       version: api?.tiles?.version ?? -1,
       disposed: api?.tiles?.disposed ?? -1,
     };
+  });
+}
+
+const TILED_CITIES = ['london', 'kyiv', 'sf', 'nyc'] as const;
+
+for (const id of TILED_CITIES) {
+  test(`tiles: boot ?city=${id}&tileradius=600 at default spawn → ready with loaded tiles`, async ({
+    page,
+  }) => {
+    await page.goto(`/?city=${id}&tileradius=600`);
+    await waitReady(page);
+    const tiles = await readTiles(page);
+    expect(tiles.loaded.length).toBeGreaterThan(0);
   });
 }
 

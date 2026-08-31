@@ -2,8 +2,6 @@
  * Unit tests for landmark fixes / extra buildings (`src/world/landmarks.ts`)
  * and their palette integration (docs/architecture.md §4.13).
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Building, CityData } from '../src/data/types';
 import { project } from '../src/geo';
@@ -11,17 +9,12 @@ import { applyLandmarks, LANDMARK_FIXES } from '../src/world/landmarks';
 import { colorFor } from '../src/world/palette';
 import { landmarkAnchors } from '../src/hud/tags';
 import { loadSfCity } from './sfCity';
+import { loadTiledCity } from './tiledCity';
 
-const KYIV: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
-);
-const LONDON: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'city.json'), 'utf8'),
-);
+const KYIV: CityData = loadTiledCity('kyiv');
+const LONDON: CityData = loadTiledCity('london');
 const SF: CityData = loadSfCity();
-const NYC: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-);
+const NYC: CityData = loadTiledCity('nyc');
 
 function byName(buildings: Building[]): Record<string, Building> {
   const out: Record<string, Building> = {};

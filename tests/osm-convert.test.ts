@@ -1,10 +1,10 @@
 /**
  * Unit tests for `scripts/osm-convert.mjs` (pure OSM→JSON conversion) and for
- * the committed `public/data/city.json` dataset. Covers the cases listed in
+ * the committed `public/data/london` tiled dataset. Covers the cases listed in
  * T-0003's acceptance criteria, by name.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -18,7 +18,8 @@ import {
   TREE_CAP,
 } from '../scripts/osm-convert';
 import type { Vec2 } from '../src/data/types';
-import { validateCity } from '../src/data/validate';
+import { validateCity, validateTileIndex } from '../src/data/validate';
+import { loadTiledCity, loadTiledIndex } from './tiledCity';
 import { distToSegment, pointInPolygon } from '../src/world/collision';
 
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -988,9 +989,9 @@ describe('osm-convert output invariants', () => {
   });
 });
 
-describe('committed public/data/city.json', () => {
-  const raw = readFileSync(resolve(__dirname, '../public/data/city.json'), 'utf8');
-  const city = JSON.parse(raw);
+describe('committed public/data/london', () => {
+  const city = loadTiledCity('london');
+  const index = loadTiledIndex('london');
 
   it('has v === 1', () => {
     expect(city.v).toBe(1);
@@ -1031,8 +1032,13 @@ describe('committed public/data/city.json', () => {
   it('counts are within ±5 % of the Westminster dataset baseline', () => {
     expect(city.buildings.length).toBeGreaterThanOrEqual(Math.round(9061 * 0.95));
     expect(city.buildings.length).toBeLessThanOrEqual(Math.round(9061 * 1.05));
-    expect(city.roads.length).toBeGreaterThanOrEqual(Math.round(7803 * 0.95));
-    expect(city.roads.length).toBeLessThanOrEqual(Math.round(7803 * 1.05));
+    // Tiling splits non-bridge roads at 1000 m boundaries, so array length is
+    // not stable — unique OSM ids still match the monolithic count.
+    const uniqueRoads = new Set(
+      (city.roads as Array<{ id: number }>).map((r) => r.id),
+    ).size;
+    expect(uniqueRoads).toBeGreaterThanOrEqual(Math.round(7803 * 0.95));
+    expect(uniqueRoads).toBeLessThanOrEqual(Math.round(7803 * 1.05));
     expect(city.places.length).toBeGreaterThanOrEqual(Math.round(99 * 0.95));
     expect(city.places.length).toBeLessThanOrEqual(Math.round(99 * 1.05));
     const water = city.water ?? [];
@@ -1042,8 +1048,8 @@ describe('committed public/data/city.json', () => {
 
   it('has a building named Palace of Westminster', () => {
     const names = city.buildings
-      .filter((b: { name?: string }) => b.name && /westminster/i.test(b.name))
-      .map((b: { name: string }) => b.name);
+      .map((b) => b.name)
+      .filter((n): n is string => n !== undefined && /westminster/i.test(n));
     expect(names).toContain('Palace of Westminster');
   });
 
@@ -1079,10 +1085,15 @@ describe('committed public/data/city.json', () => {
   });
 
   it('file size is under 10 MB', () => {
-    expect(raw.length).toBeLessThan(10 * 1024 * 1024);
+    const dir = resolve(__dirname, '../public/data/london');
+    let total = statSync(join(dir, 'index.json')).size;
+    for (const name of readdirSync(join(dir, 'tiles'))) {
+      total += statSync(join(dir, 'tiles', name)).size;
+    }
+    expect(total).toBeLessThan(10 * 1024 * 1024);
   });
 
   it('passes validateCity with no throw', () => {
-    expect(() => validateCity(city)).not.toThrow();
+    expect(() => validateTileIndex(index)).not.toThrow();
   });
 });
