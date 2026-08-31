@@ -154,10 +154,14 @@ interface Seg {
   b: Vec2;
 }
 
-interface Frame {
+/** Shared deck-frame basis used by every prism/box/beam helper. */
+interface AxisFrame {
   origin: Vec2;
   along: Vec2;
   across: Vec2;
+}
+
+interface Frame extends AxisFrame {
   span: number;
   sep: number;
   halfW: number;
@@ -282,7 +286,7 @@ function concatAlong(pieces: Vec2[][], origin: Vec2, along: Vec2): Vec2[] {
 }
 
 /** Deck-axis point at along-distance `s` from the south tower. */
-function axisXZ(frame: Frame, s: number): Vec2 {
+function axisXZ(frame: AxisFrame, s: number): Vec2 {
   return [frame.origin[0] + frame.along[0] * s, frame.origin[1] + frame.along[1] * s];
 }
 
@@ -387,7 +391,7 @@ function makeFrame(spec: SuspensionBridgeSpec, city: CityData): Frame | null {
  */
 function box(
   mesh: MeshBuilder,
-  frame: Frame,
+  frame: AxisFrame,
   s0: number,
   s1: number,
   a0: number,
@@ -455,7 +459,7 @@ function box(
  */
 function prism(
   mesh: MeshBuilder,
-  frame: Frame,
+  frame: AxisFrame,
   s0: number,
   s1: number,
   a0: number,
@@ -827,27 +831,399 @@ export function makeBridgesObject(
   for (const spec of SUSPENSION_BRIDGES[cityId] ?? []) {
     appendSuspensionBridge(mesh, spec, city, heightAt);
   }
+  for (const spec of ARCH_BRIDGES[cityId] ?? []) {
+    appendArchBridge(mesh, spec, city, heightAt);
+  }
   const geom = toGeometry(mesh.build());
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   return new THREE.Mesh(geom, mat);
 }
 
 /**
- * Deck humps for `cityId`: one per spec, `names = sidewalks ∪ deckRoads`,
- * `apexY = deckApexASL − datum` (flat cities: `apexY = deckApexASL`).
+ * Deck humps for `cityId`: one per spec (suspension + arch), `names =
+ * sidewalks ∪ deckRoads`, `apexY = deckApexASL − datum` (flat cities:
+ * `apexY = deckApexASL`).
  */
 export function deckHumps(cityId: string, city: CityData): DeckHump[] {
   const datum = city.terrain?.datum ?? 0;
   const out: DeckHump[] = [];
-  for (const spec of SUSPENSION_BRIDGES[cityId] ?? []) {
+  const collect = (
+    sidewalks: readonly string[],
+    deckRoads: readonly string[],
+    apexASL: number,
+  ): void => {
     const names: string[] = [];
-    for (const n of spec.sidewalks) {
-      if (!names.includes(n)) names.push(n);
-    }
-    for (const n of spec.deckRoads) {
-      if (!names.includes(n)) names.push(n);
-    }
-    out.push({ names, apexY: spec.deckApexASL - datum });
+    for (const n of sidewalks) if (!names.includes(n)) names.push(n);
+    for (const n of deckRoads) if (!names.includes(n)) names.push(n);
+    out.push({ names, apexY: apexASL - datum });
+  };
+  for (const spec of SUSPENSION_BRIDGES[cityId] ?? []) {
+    collect(spec.sidewalks, spec.deckRoads, spec.deckApexASL);
+  }
+  for (const spec of ARCH_BRIDGES[cityId] ?? []) {
+    collect(spec.sidewalks, spec.deckRoads, spec.deckApexASL);
   }
   return out;
+}
+
+// -- Arch bridges (architecture.md §4.16b) ---------------------------------
+
+/** Chord sample spacing (m). */
+const ARCH_STEP = 15;
+/** Truss vertical spacing along the arch (m). */
+const ARCH_TRUSS_STEP = 24;
+/** Cross-bracing spacing along the arch (m). */
+const ARCH_BRACE_STEP = 48;
+/** Chord box-beam square-section side (m). */
+const CHORD_W = 2.5;
+/** Truss vertical square-section side (m). */
+const TRUSS_W = 1.2;
+/** Hanger / strut square-section side (m). */
+const HANGER_ARCH_W = 0.8;
+/** Cross-brace square-section side (m). */
+const BRACE_ARCH_W = 0.8;
+/** Minimum |bottom-chord − deck| for a hanger or a strut (m). */
+const ARCH_CLEAR_MIN = 2;
+/** Deck box depth below the deck (m). */
+const ARCH_DECK_DEPTH = 6;
+/** Max deck-box piece length before sloped subdivision (m; same T-0084 rule). */
+const ARCH_DECK_MAX_PIECE = 25;
+/** Pylon-to-arch across-clearance (m). */
+const PYLON_AXIS_CLEARANCE = 2;
+/** Tag lift above the arch crown (m). */
+const ARCH_TAG_LIFT = 6;
+
+/** Spec for a synthesised arch bridge (architecture.md §4.16b). */
+export interface ArchBridgeSpec {
+  /** Display name, e.g. `'Sydney Harbour Bridge'`. */
+  name: string;
+  /**
+   * Exact road names of the deck-edge walkway polylines (`bridge: true`).
+   * One name = the walkway IS the deck axis and `deckWidth` is required.
+   */
+  sidewalks: [string, string] | [string];
+  /** Full deck width in metres; required with one walkway. */
+  deckWidth?: number;
+  /** Deck height at mid-span, metres above sea level. */
+  deckApexASL: number;
+  /** Other roads riding this deck (humps: sidewalks ∪ deckRoads). */
+  deckRoads: string[];
+  /** WGS84 `[lon, lat]` arch springing centres (south, then north). */
+  ends: [[number, number], [number, number]];
+  /** Top-chord crown (m ASL). */
+  archTopASL: number;
+  /** Bottom-chord crown (m ASL). */
+  archBottomASL: number;
+  /** Both chords converge to this y (m ASL) at each end. */
+  springASL: number;
+  /** Two truss ribs at `±ribSep/2` across the axis (m). */
+  ribSep: number;
+  /** Pylon top y (m ASL). */
+  pylonTopASL: number;
+  /** Pylon footprint `[across, along]` in metres. */
+  pylonSize: [number, number];
+  /** Pylon centre offset along the axis, beyond each springing (m). */
+  pylonOffset: number;
+  /** Hex colour for arch, hangers, truss, deck box. */
+  color: number;
+  /** Hex colour for the four pylons (granite). */
+  pylonColor: number;
+}
+
+/** Per-city arch-bridge table (`sydney` only). */
+export const ARCH_BRIDGES: Readonly<Record<string, readonly ArchBridgeSpec[]>> = {
+  sydney: [
+    {
+      name: 'Sydney Harbour Bridge',
+      // Motorway = deck axis (§4.16b one-walkway mode); deck width 49 m from
+      // real-world specs (four traffic lanes + two rail tracks + walkways).
+      sidewalks: ['Bradfield Highway'],
+      deckWidth: 49,
+      deckApexASL: 49,
+      deckRoads: ['Harbour Bridge Cycleway', 'Cahill Walk'],
+      // Ends derived from the two crossings of the LONGEST `Bradfield
+      // Highway` bridge-piece chain with the boundary of the LARGEST water
+      // ring by |polygon area| (docs §4.16b as-built (T-0112 rework)), each
+      // extended 21 m LAND-ward along the local chain direction so the
+      // springings sit just onshore. The wave-14 initial values placed the
+      // arch ~400 m too far north — the OSM `bridge:support` pair at
+      // z ≈ −1479 is the NORTHERN APPROACH VIADUCT'S support, not the main
+      // pylons; anchoring to it put the south springing in open water and
+      // the northern half over Milsons Point streets. The largest-ring rule
+      // stays correct even after the T-0116 coastline-duplication fix
+      // (the two current giant rings, 12.6 + 13.3 km², agree on both
+      // crossings; a plain odd-parity test would call their overlap land).
+      // Water crossings (probed on this dataset): land→water at
+      // (80.85, −1198.79) [north shore], water→land at (−131.41, −792.77)
+      // [south shore]; span between the two extended ends 500 m
+      // (real SHB main span 503 m).
+      ends: [
+        [151.20947, -33.85430],
+        [151.21198, -33.85029],
+      ],
+      archTopASL: 134,
+      archBottomASL: 116,
+      springASL: 12,
+      ribSep: 30,
+      pylonTopASL: 89,
+      pylonSize: [16, 22],
+      pylonOffset: 30,
+      color: 0x878c91,
+      pylonColor: 0xb5a98f,
+    },
+  ],
+};
+
+/** Deck-axis frame for an arch bridge. */
+interface ArchFrame extends AxisFrame {
+  /** Straight-line span between the two springings (m). */
+  span: number;
+  /** Chained walkway polyline, used for deck-height lookup along the axis. */
+  deckLine: Vec2[];
+  /** Full deck width (m). */
+  deckWidth: number;
+}
+
+/** Build the arch frame, or `null` when the axis walkway is missing. */
+function makeArchFrame(spec: ArchBridgeSpec, city: CityData): ArchFrame | null {
+  const south = project(spec.ends[0][0], spec.ends[0][1], city.origin);
+  const north = project(spec.ends[1][0], spec.ends[1][1], city.origin);
+  const dx = north[0] - south[0];
+  const dz = north[1] - south[1];
+  const span = Math.hypot(dx, dz);
+  if (span < 1) return null;
+  const along: Vec2 = [dx / span, dz / span];
+  // +across = along rotated +90° ccw (no orientation cue with one walkway).
+  const across: Vec2 = [-along[1], along[0]];
+  const deckWidth = spec.deckWidth;
+  if (deckWidth === undefined || deckWidth < 1) return null;
+  const axisName = spec.sidewalks[0];
+  const pieces = city.roads.filter((r) => r.name === axisName && r.bridge).map((r) => r.pts);
+  const deckLine = concatAlong(pieces, south, along);
+  if (deckLine.length < 2) return null;
+  return { origin: south, along, across, span, deckLine, deckWidth };
+}
+
+/**
+ * Deck y at along-distance `s`: `heightAt` of the nearest point on the
+ * chained axis walkway to the axis point at `s`. The walkway ride includes
+ * the deck hump (§4.9), so hanger/strut/box bottoms track the drape.
+ */
+function archDeckY(frame: ArchFrame, s: number, heightAt: HeightFn): number {
+  const q = axisXZ(frame, s);
+  let bestD = Infinity;
+  let bestQ: Vec2 = q;
+  for (let i = 0; i < frame.deckLine.length - 1; i++) {
+    const r = nearestOnSegment(q, frame.deckLine[i]!, frame.deckLine[i + 1]!);
+    if (r.d < bestD) {
+      bestD = r.d;
+      bestQ = r.q;
+    }
+  }
+  return heightAt(bestQ[0], bestQ[1]);
+}
+
+/** Emit chords + truss + hangers + struts + bracing + deck box + pylons. */
+function appendArchBridge(
+  mesh: MeshBuilder,
+  spec: ArchBridgeSpec,
+  city: CityData,
+  heightAt: HeightFn,
+): void {
+  const frame = makeArchFrame(spec, city);
+  if (!frame) return;
+  const datum = city.terrain?.datum ?? 0;
+  const color = linearRgb(spec.color);
+  const pylonColor = linearRgb(spec.pylonColor);
+  const yTopCrown = spec.archTopASL - datum;
+  const yBotCrown = spec.archBottomASL - datum;
+  const yS = spec.springASL - datum;
+  const yP = spec.pylonTopASL - datum;
+
+  const chordY = (crown: number, t: number): number =>
+    yS + (crown - yS) * 4 * t * (1 - t);
+
+  const lateral: Vec3 = [frame.across[0], 0, frame.across[1]];
+  const halfRib = spec.ribSep / 2;
+
+  // Chords: per rib (2), per chord (top/bot), sampled every ≤ ARCH_STEP m.
+  const nChord = Math.max(2, Math.ceil(frame.span / ARCH_STEP));
+  for (const rib of [-1, 1]) {
+    const aC = rib * halfRib;
+    for (const crown of [yTopCrown, yBotCrown]) {
+      let prev: Vec3 | null = null;
+      for (let i = 0; i <= nChord; i++) {
+        const s = (frame.span * i) / nChord;
+        const t = i / nChord;
+        const y = chordY(crown, t);
+        const xz = axisXZ(frame, s);
+        const pt: Vec3 = [
+          xz[0] + aC * frame.across[0],
+          y,
+          xz[1] + aC * frame.across[1],
+        ];
+        if (prev) beam(prev, pt, lateral, CHORD_W, CHORD_W, color, mesh);
+        prev = pt;
+      }
+    }
+  }
+
+  // Truss verticals per rib, every ~ARCH_TRUSS_STEP m; skip endpoints where
+  // the two chords have already met at yS.
+  const nTruss = Math.max(2, Math.round(frame.span / ARCH_TRUSS_STEP));
+  for (const rib of [-1, 1]) {
+    const aC = rib * halfRib;
+    for (let i = 1; i < nTruss; i++) {
+      const s = (frame.span * i) / nTruss;
+      const t = i / nTruss;
+      const yT = chordY(yTopCrown, t);
+      const yB = chordY(yBotCrown, t);
+      if (yT - yB < 0.5) continue;
+      box(mesh, frame, s - TRUSS_W / 2, s + TRUSS_W / 2, aC - TRUSS_W / 2, aC + TRUSS_W / 2, yB, yT, color);
+    }
+  }
+
+  // Hangers where the bottom chord is ≥ 2 m ABOVE the deck; struts where
+  // it is ≥ 2 m BELOW. Both are 0.8 m-square posts at each deck edge.
+  // `frame.deckWidth` mirrors `spec.deckWidth` after the make-frame check.
+  const halfDeck = frame.deckWidth / 2;
+  const nHang = Math.max(2, Math.round(frame.span / ARCH_STEP));
+  for (let i = 1; i < nHang; i++) {
+    const s = (frame.span * i) / nHang;
+    const t = i / nHang;
+    const yB = chordY(yBotCrown, t);
+    const yD = archDeckY(frame, s, heightAt);
+    const above = yB - yD;
+    if (above >= ARCH_CLEAR_MIN) {
+      for (const edge of [-halfDeck, halfDeck]) {
+        box(
+          mesh,
+          frame,
+          s - HANGER_ARCH_W / 2,
+          s + HANGER_ARCH_W / 2,
+          edge - HANGER_ARCH_W / 2,
+          edge + HANGER_ARCH_W / 2,
+          yD,
+          yB,
+          color,
+        );
+      }
+    } else if (-above >= ARCH_CLEAR_MIN) {
+      for (const edge of [-halfDeck, halfDeck]) {
+        box(
+          mesh,
+          frame,
+          s - HANGER_ARCH_W / 2,
+          s + HANGER_ARCH_W / 2,
+          edge - HANGER_ARCH_W / 2,
+          edge + HANGER_ARCH_W / 2,
+          yB,
+          yD,
+          color,
+        );
+      }
+    }
+  }
+
+  // Cross-bracing between ribs: transverse posts between top chords and
+  // between bottom chords, every ~ARCH_BRACE_STEP m.
+  const nBrace = Math.max(2, Math.round(frame.span / ARCH_BRACE_STEP));
+  const aInner = -halfRib + TRUSS_W / 2;
+  const aOuter = halfRib - TRUSS_W / 2;
+  for (let i = 1; i < nBrace; i++) {
+    const s = (frame.span * i) / nBrace;
+    const t = i / nBrace;
+    const yT = chordY(yTopCrown, t);
+    const yB = chordY(yBotCrown, t);
+    box(
+      mesh,
+      frame,
+      s - BRACE_ARCH_W / 2,
+      s + BRACE_ARCH_W / 2,
+      aInner,
+      aOuter,
+      yT - BRACE_ARCH_W,
+      yT,
+      color,
+    );
+    box(
+      mesh,
+      frame,
+      s - BRACE_ARCH_W / 2,
+      s + BRACE_ARCH_W / 2,
+      aInner,
+      aOuter,
+      yB,
+      yB + BRACE_ARCH_W,
+      color,
+    );
+  }
+
+  // Deck box: full deck width, 6 m deep, top at deck level, in ≤ 25 m sloped
+  // pieces (T-0084 rule shared with the suspension deck).
+  const nDeck = Math.max(1, Math.ceil(frame.span / ARCH_DECK_MAX_PIECE));
+  for (let i = 0; i < nDeck; i++) {
+    const s0 = (frame.span * i) / nDeck;
+    const s1 = (frame.span * (i + 1)) / nDeck;
+    const y0 = archDeckY(frame, s0, heightAt);
+    const y1 = archDeckY(frame, s1, heightAt);
+    prism(mesh, frame, s0, s1, -halfDeck, halfDeck, y0, y1, ARCH_DECK_DEPTH, color);
+  }
+
+  // Four granite pylons flanking each end.
+  const [pW, pL] = spec.pylonSize;
+  const pylonAcross = halfRib + pW / 2 + PYLON_AXIS_CLEARANCE;
+  for (const endS of [-spec.pylonOffset, frame.span + spec.pylonOffset]) {
+    for (const side of [-1, 1]) {
+      const aCentre = side * pylonAcross;
+      const xz: Vec2 = [
+        frame.origin[0] + frame.along[0] * endS + frame.across[0] * aCentre,
+        frame.origin[1] + frame.along[1] * endS + frame.across[1] * aCentre,
+      ];
+      const yBot = heightAt(xz[0], xz[1]);
+      box(
+        mesh,
+        frame,
+        endS - pL / 2,
+        endS + pL / 2,
+        aCentre - pW / 2,
+        aCentre + pW / 2,
+        yBot,
+        yP,
+        pylonColor,
+      );
+    }
+  }
+}
+
+/** Build one arch bridge's geometry as a triangle soup. */
+export function buildArchBridge(
+  spec: ArchBridgeSpec,
+  city: CityData,
+  heightAt: HeightFn = FLAT_HEIGHT,
+): MeshData {
+  const mesh = new MeshBuilder();
+  appendArchBridge(mesh, spec, city, heightAt);
+  return mesh.build();
+}
+
+/** ONE tag at mid-span, `y = (archTopASL − datum) + 6`. */
+export function archAnchors(
+  spec: ArchBridgeSpec,
+  city: CityData,
+  _heightAt: HeightFn = FLAT_HEIGHT,
+): TagAnchor[] {
+  const frame = makeArchFrame(spec, city);
+  if (!frame) return [];
+  const datum = city.terrain?.datum ?? 0;
+  const mid = axisXZ(frame, frame.span / 2);
+  return [
+    {
+      name: spec.name,
+      label: spec.name,
+      x: mid[0],
+      y: spec.archTopASL - datum + ARCH_TAG_LIFT,
+      z: mid[1],
+    },
+  ];
 }

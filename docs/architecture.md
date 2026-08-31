@@ -1011,6 +1011,48 @@ Geometry (axis frame from `ends`, span `L`, `t ∈ [0, 1]` along it; local
   the drape.
 - Budget: < 25 k vertices, one draw call, no per-frame work.
 
+**As built (T-0112, rework attempt 2).**
+- Reconciled `ends`: south `[151.20947, −33.85430]`, north
+  `[151.21198, −33.85029]` — derived by the shoreline-crossing rule
+  below (see the ticket for the full rework rationale). Attempt 1
+  anchored the arch to the OSM `bridge:support` pair (ways
+  1238822733/34) at z ≈ −1479 and snapped the north end to the
+  polyline near that latitude; the GPU review found the arch stood
+  ~400 m too far north (south springing in open water, northern half
+  over Milsons Point streets). The `bridge:support` pair is in fact
+  the NORTHERN APPROACH VIADUCT'S support, not the main pylons; the
+  original "ends within 20 m of the polyline" check was satisfiable
+  anywhere along the 1.6 km chain and nothing caught the mistake.
+- **`ends` derivation (mechanical rule; test replays it):**
+  1. Chain `Bradfield Highway` bridge pieces; take the LONGEST chain
+     (this dataset: 36 pts, 1635 m, from (97, −1740) to (−413, −248)).
+  2. Walk it and find its two crossings with the boundary of the
+     LARGEST water ring in `city.water` BY |POLYGON AREA| (NOT the
+     odd-parity multi-ring test — the shipped Sydney dataset contains
+     two near-duplicate giant harbour rings, 12.6 + 13.3 km², a
+     coastline-closure bug handled in the T-0116 line of work; odd
+     parity would call their overlap land. Both giant rings agree on
+     both crossings, so the largest-ring rule stays correct before
+     and after that data fix). Probed crossings (this dataset):
+     land→water at (80.85, −1198.79) [north shore], water→land at
+     (−131.41, −792.77) [south shore]; water gap 461 m.
+  3. `ends` = each crossing extended 21 m LAND-ward along the local
+     chain direction (springings sit just onshore). Straight-line
+     span between the two extended ends = 500 m (real SHB main span
+     503 m). Midpoint = (−25.3, −995.8) local ≈ (151.2107, −33.8524)
+     WGS84 — matches the real bridge centre (−33.85225, 151.21058)
+     to within ~20 m.
+- Cahill Walk chaining (§4.9): `chainBridgeRoads` produces THREE chains
+  for `Cahill Walk` on the Sydney data — the harbour crossing (1503 m,
+  from (151, −1620) to (−392, −252)), the Circular Quay elevated walkway
+  (661 m, from (−429, −84) to (210, 29)), and a 4 m stub. `deckHumps`
+  applies the arch spec's apex to any chain sharing the name, so the
+  Circular Quay stretch inherits the 49 m-ASL apex and visibly humps to
+  ≈ 45 m at its midpoint. This is a known data quirk (§4.16b Out of
+  scope: no data / chaining changes); T-0118 (queued) fixes it.
+- No deviation from the numeric spec table (`archTopASL 134`, etc.);
+  `pylonSize` `[16, 22]` and `pylonOffset 30` are used as declared.
+
 ### 4.17 Bay shipping (wave 9) — `src/world/ships.ts`
 
 SF has no river centre-lines, so ships follow PM-curated **lanes**: WGS84
