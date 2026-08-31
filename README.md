@@ -84,6 +84,9 @@ The `matrix` render style's katakana glyphs are 8×16 bitmaps derived from
 [GNU Unifont](https://unifoundry.com/unifont/) (dual-licensed SIL OFL 1.1 /
 GPL v2+ with the font-embedding exception).
 
+© 2026 [@ubyjvovk](https://github.com/ubyjvovk). All rights reserved —
+license to be decided.
+
 ## Tests
 
 ```sh
