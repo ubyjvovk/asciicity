@@ -4,6 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadSfGlobals } from './sfCity';
+import { loadTiledGlobals } from './tiledCity';
+import { deckHumps } from '../src/world/bridge';
 import type { CityData, HeightFn, Road, TerrainData, Vec2 } from '../src/data/types';
 import {
   BridgeDecks,
@@ -11,6 +13,7 @@ import {
   bridgeProfile,
   buildTerrainGeometry,
   chainBridgeRoads,
+  chainHumpApex,
   makeGroundAt,
   terrainHeightAt,
   type DeckHump,
@@ -379,6 +382,59 @@ describe('BridgeDecks', () => {
     // Unnamed-in-hump road keeps the straight lerp (0 throughout).
     expect(decks.deckAt([20, 20])).toBeCloseTo(0, 12);
   });
+
+  it('a hump named on two disconnected same-name chains applies only to the LONGEST chain (T-0118, Cahill Walk fix)', () => {
+    // Two `Humped` bridges that never touch (z separation 200 m ≫ 0.5 m
+    // chaining threshold) — so `chainBridgeRoads` returns two chains. The
+    // long chain (100 m) is at z = 0; the short chain (20 m) is at z = 200.
+    // T-0118 rule: apex only shapes the longer chain; the shorter keeps the
+    // plain abutment lerp (flat ground → deck = 0 everywhere).
+    const heightAt: HeightFn = () => 0;
+    const humps: DeckHump[] = [{ names: ['Humped'], apexY: 10 }];
+    const long: Road = makeRoad({
+      id: 1,
+      name: 'Humped',
+      bridge: true,
+      pts: [[0, 0], [50, 0], [100, 0]],
+    });
+    const short: Road = makeRoad({
+      id: 2,
+      name: 'Humped',
+      bridge: true,
+      pts: [[0, 200], [10, 200], [20, 200]],
+    });
+    const decks = new BridgeDecks([long, short], heightAt, 25, humps);
+    // Long chain: humped — abutments at 0, apex 10 at mid-span.
+    expect(decks.deckAt([50, 0])!).toBeCloseTo(10, 6);
+    expect(decks.deckAt([0, 0])!).toBeCloseTo(0, 6);
+    expect(decks.deckAt([100, 0])!).toBeCloseTo(0, 6);
+    // Short chain: plain lerp — 0 throughout, well under apexY.
+    expect(decks.deckAt([10, 200])!).toBeCloseTo(0, 6);
+    expect(decks.deckAt([0, 200])!).toBeCloseTo(0, 6);
+    expect(decks.deckAt([20, 200])!).toBeCloseTo(0, 6);
+    // Direct helper: only the long chain returns apexY; the short returns undefined.
+    const chains = chainBridgeRoads([long, short]);
+    const longChain = chains.find((c) => c.pts.length === 3 && c.pts[0]![1] === 0)!;
+    const shortChain = chains.find((c) => c.pts.length === 3 && c.pts[0]![1] === 200)!;
+    expect(chainHumpApex(longChain, chains, humps)).toBe(10);
+    expect(chainHumpApex(shortChain, chains, humps)).toBeUndefined();
+  });
+
+  it('a hump on a single-chain name behaves exactly as pre-T-0118 (backwards compatible)', () => {
+    // Same expectation as the pre-T-0118 test above: one chain, one hump,
+    // apex applied throughout.
+    const heightAt: HeightFn = () => 0;
+    const humps: DeckHump[] = [{ names: ['Solo'], apexY: 7 }];
+    const roads: Road[] = [
+      makeRoad({ id: 1, name: 'Solo', bridge: true, pts: [[0, 0], [40, 0], [80, 0]] }),
+    ];
+    const decks = new BridgeDecks(roads, heightAt, 25, humps);
+    expect(decks.deckAt([40, 0])!).toBeCloseTo(7, 6);
+    expect(decks.deckAt([0, 0])!).toBeCloseTo(0, 6);
+    expect(decks.deckAt([80, 0])!).toBeCloseTo(0, 6);
+    const chains = chainBridgeRoads(roads);
+    expect(chainHumpApex(chains[0]!, chains, humps)).toBe(7);
+  });
 });
 
 describe('chainBridgeRoads', () => {
@@ -486,6 +542,74 @@ describe('Golden Gate Bridge chaining (sf.json)', () => {
       const wg = groundAt(wp[0], wp[1]);
       expect(Math.abs(eg - wg)).toBeLessThanOrEqual(4);
     }
+  });
+});
+
+describe('Sydney Cahill Walk longest-chain rule (T-0118)', () => {
+  it('the arch apex lands on the 1503 m harbour crossing; the 661 m Circular Quay chain keeps its plain lerp', () => {
+    const syd: CityData = loadTiledGlobals('sydney');
+    const datum = syd.terrain!.datum;
+    const terrain = new Terrain(syd.terrain!);
+    const humps = deckHumps('sydney', syd);
+    const decks = new BridgeDecks(syd.roads, terrain.heightAt, 25, humps);
+
+    const chains = chainBridgeRoads(syd.roads).filter(
+      (r) => r.name === 'Cahill Walk' && r.bridge === true,
+    );
+    expect(chains.length, 'need ≥ 2 Cahill Walk chains for this test').toBeGreaterThanOrEqual(2);
+    const polyLen = (pts: Vec2[]): number => {
+      let s = 0;
+      for (let i = 1; i < pts.length; i++) {
+        s += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+      }
+      return s;
+    };
+    const byLen = chains.slice().sort((a, b) => polyLen(b.pts) - polyLen(a.pts));
+    const longChain = byLen[0]!;
+    const shortChain = byLen[1]!;
+    // Guardrails: T-0112's report measured 1503 m and 661 m.
+    expect(polyLen(longChain.pts)).toBeGreaterThan(1400);
+    expect(polyLen(shortChain.pts)).toBeGreaterThan(500);
+    expect(polyLen(shortChain.pts)).toBeLessThan(900);
+
+    // Midpoint (by arc length) of a polyline; also returns the plain-profile
+    // deck y at that point (linear interpolation between per-vertex ys).
+    const midpoint = (pts: Vec2[], ys: number[]): { mid: Vec2; y: number } => {
+      const total = polyLen(pts);
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const seg = Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+        if (acc + seg >= total / 2) {
+          const t = seg > 0 ? (total / 2 - acc) / seg : 0;
+          return {
+            mid: [
+              pts[i - 1]![0] + (pts[i]![0] - pts[i - 1]![0]) * t,
+              pts[i - 1]![1] + (pts[i]![1] - pts[i - 1]![1]) * t,
+            ],
+            y: ys[i - 1]! + (ys[i]! - ys[i - 1]!) * t,
+          };
+        }
+        acc += seg;
+      }
+      return { mid: pts[pts.length - 1]!, y: ys[ys.length - 1]! };
+    };
+
+    // Long chain midpoint: arch apex, deck y = (49 − datum) ± 1.
+    const longYs = bridgeProfile(longChain.pts, terrain.heightAt);
+    const longMid = midpoint(longChain.pts, longYs).mid;
+    const longDeck = decks.deckAt(longMid);
+    expect(longDeck, 'long chain midpoint on deck').toBeDefined();
+    expect(Math.abs(longDeck! - (49 - datum))).toBeLessThanOrEqual(1);
+
+    // Short chain midpoint: plain lerp, deck y ≈ bridgeProfile no-apex value.
+    const shortYs = bridgeProfile(shortChain.pts, terrain.heightAt);
+    const { mid: shortMid, y: shortExpected } = midpoint(shortChain.pts, shortYs);
+    const shortDeck = decks.deckAt(shortMid);
+    expect(shortDeck, 'short chain midpoint on deck').toBeDefined();
+    expect(
+      Math.abs(shortDeck! - shortExpected),
+      `Circular Quay midpoint deck ${shortDeck!.toFixed(2)} vs plain ${shortExpected.toFixed(2)}`,
+    ).toBeLessThanOrEqual(3);
   });
 });
 

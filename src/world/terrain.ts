@@ -217,13 +217,52 @@ export function bridgeProfile(
   return ys;
 }
 
-/** Apex of the hump that names `roadName`, or `undefined` when none matches. */
-function humpApex(roadName: string | undefined, humps: readonly DeckHump[]): number | undefined {
-  if (roadName === undefined) return undefined;
-  for (const h of humps) {
-    if (h.names.includes(roadName)) return h.apexY;
+/** Polyline arc length in metres (0 for a single-vertex polyline). */
+function polylineLength(pts: readonly Vec2[]): number {
+  let s = 0;
+  for (let i = 1; i < pts.length; i++) {
+    s += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
   }
-  return undefined;
+  return s;
+}
+
+/**
+ * Apex to apply to `chain` from `humps` — the hump matching `chain.name`, but
+ * ONLY when `chain` is the longest same-name bridge chain in `chains` (by
+ * polyline arc length; ties: the first encountered wins). Returns `undefined`
+ * when the name is unmapped or when another chain of the same name is longer,
+ * so shorter chains keep the plain abutment lerp (T-0118: Sydney's
+ * `Cahill Walk` names both the harbour-crossing walkway and the disconnected
+ * Circular Quay walkway — only the harbour crossing should hump to 49 m).
+ * A name that appears in exactly one chain behaves identically to the pre-
+ * T-0118 lookup.
+ */
+export function chainHumpApex(
+  chain: Road,
+  chains: readonly Road[],
+  humps: readonly DeckHump[],
+): number | undefined {
+  const name = chain.name;
+  if (name === undefined) return undefined;
+  let apex: number | undefined;
+  for (const h of humps) {
+    if (h.names.includes(name)) {
+      apex = h.apexY;
+      break;
+    }
+  }
+  if (apex === undefined) return undefined;
+  let longestLen = -1;
+  let longest: Road | undefined;
+  for (const c of chains) {
+    if (c.bridge !== true || c.name !== name) continue;
+    const len = polylineLength(c.pts);
+    if (len > longestLen) {
+      longestLen = len;
+      longest = c;
+    }
+  }
+  return longest === chain ? apex : undefined;
 }
 
 /**
@@ -338,9 +377,10 @@ export class BridgeDecks {
     // Chain same-name bridge pieces into one polyline first, so a multi-piece
     // bridge (e.g. the Golden Gate Bridge East Sidewalk) is profiled between
     // its true abutments instead of between each piece's own water-level ends.
-    for (const road of chainBridgeRoads(roads)) {
+    const chains = chainBridgeRoads(roads);
+    for (const road of chains) {
       if (road.bridge !== true) continue;
-      const apex = humpApex(road.name, humps);
+      const apex = chainHumpApex(road, chains, humps);
       const pts = apex === undefined ? road.pts : densifyPts(road.pts);
       if (pts.length < 2) continue;
       const ys = bridgeProfile(pts, heightAt, apex);
