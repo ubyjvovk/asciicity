@@ -74,7 +74,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/tokyo/index.json',
     defaultSpawn: 'tokyostation',
     blurb: 'Imperial Palace to the Skytree · streamed',
-    sizeBytes: 1979748,
+    sizeBytes: 2701381,
     tiled: true,
   },
 ];
