@@ -19,9 +19,14 @@ export interface CityInfo {
   /**
    * Committed size of `public/<file>` in bytes — the fallback denominator for
    * the loading bar when Content-Length is absent (gzip). Update after a
-   * re-fetch (`stat -c %s`).
+   * re-fetch (`stat -c %s`). For a tiled city this is the `index.json` size.
    */
   sizeBytes: number;
+  /**
+   * When true, `file` names `data/<id>/index.json` and the app boots the
+   * sector-streaming path (architecture.md §4.19). Absent on monolithic cities.
+   */
+  tiled?: true;
 }
 
 /** Datasets shipped in `public/data/`. Order = picker order. */
@@ -45,10 +50,11 @@ export const CITIES: readonly CityInfo[] = [
   {
     id: 'sf',
     label: 'SAN FRANCISCO',
-    file: 'data/sf.json',
+    file: 'data/sf/index.json',
     defaultSpawn: 'ggb',
     blurb: 'Downtown to the Golden Gate · hills & bay',
-    sizeBytes: 14691673,
+    sizeBytes: 1273711,
+    tiled: true,
   },
   {
     id: 'nyc',

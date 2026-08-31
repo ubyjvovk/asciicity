@@ -44,6 +44,30 @@ describe('formatLoading', () => {
     expect(formatLoading('San Francisco', p)).toBe('BUILDING SAN FRANCISCO · TREES');
   });
 
+  it('tiled-boot loading phase sequence via formatLoading fixtures (TILE steps)', () => {
+    const label = 'San Francisco';
+    const seq: LoadProgress[] = [
+      { phase: 'download', received: 0, total: 1_273_711 },
+      { phase: 'parse', received: 1_273_711, total: 1_273_711 },
+      { phase: 'build', received: 0, total: 400_000, step: 'TERRAIN' },
+      { phase: 'build', received: 0, total: 400_000, step: 'WATER' },
+      { phase: 'build', received: 80_000, total: 400_000, step: 'TILE -7_-3' },
+      { phase: 'build', received: 180_000, total: 400_000, step: 'TILE -7_-2' },
+      { phase: 'build', received: 400_000, total: 400_000, step: 'TILE -6_-3' },
+      { phase: 'ready', received: 400_000, total: 400_000 },
+    ];
+    expect(seq.map((p) => formatLoading(label, p))).toEqual([
+      'LOADING SAN FRANCISCO\n[....................] 0% · 0.0 / 1.3 MB',
+      'PARSING SAN FRANCISCO',
+      'BUILDING SAN FRANCISCO · TERRAIN',
+      'BUILDING SAN FRANCISCO · WATER',
+      'BUILDING SAN FRANCISCO · TILE -7_-3',
+      'BUILDING SAN FRANCISCO · TILE -7_-2',
+      'BUILDING SAN FRANCISCO · TILE -6_-3',
+      '',
+    ]);
+  });
+
   it("ready → ''", () => {
     const p: LoadProgress = { phase: 'ready', received: SF_TOTAL, total: SF_TOTAL };
     expect(formatLoading('San Francisco', p)).toBe('');

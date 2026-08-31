@@ -1,9 +1,8 @@
 /**
  * Unit tests for `buildRoadsMesh` / `ROAD_WIDTH` (T-0005).
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadSfGlobals } from './sfCity';
 import * as THREE from 'three';
 import type { CityData, HeightFn, Road, RoadClass } from '../src/data/types';
 import { buildRoadsMesh, ROAD_LIFT, ROAD_WIDTH } from '../src/world/roads';
@@ -263,9 +262,7 @@ describe('buildRoadsMesh', () => {
   });
 
   it('sf.json: every Golden Gate Bridge ribbon vertex is above 25 m', () => {
-    const SF: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-    );
+    const SF: CityData = loadSfGlobals();
     const terrain = SF.terrain ? new Terrain(SF.terrain) : undefined;
     const decks = terrain ? new BridgeDecks(SF.roads, terrain.heightAt) : undefined;
     const groundAt = makeGroundAt(terrain, decks);

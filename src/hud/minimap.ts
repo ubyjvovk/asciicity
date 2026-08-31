@@ -126,6 +126,15 @@ export class Minimap {
     this.bucket(city);
   }
 
+  /**
+   * Rebuild the spatial buckets from a new `CityData` (ctor unchanged).
+   * Tiled cities call this when `snapshot().version` changes.
+   */
+  setCity(city: CityData): void {
+    this.buckets.clear();
+    this.bucket(city);
+  }
+
   /** Redraw nearby roads, buildings, the player arrow, and the north letter. */
   update(player: { x: number; z: number; yaw: number }): void {
     const ctx = this.ctx;

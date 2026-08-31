@@ -7,11 +7,22 @@
  */
 import './style.css';
 import * as THREE from 'three';
-import { FLAT_HEIGHT, type CityData, type HeightFn, type Vec2 } from './data/types';
-import { validateCity } from './data/validate';
+import {
+  FLAT_HEIGHT,
+  type Building,
+  type CityData,
+  type HeightFn,
+  type Road,
+  type TileData,
+  type TileIndexData,
+  type Vec2,
+} from './data/types';
+import { validateCity, validateTileIndex } from './data/validate';
 import { syntheticCity } from './data/synthetic';
 import { CITIES, cityById, type CityInfo } from './data/cities';
+import { dueRebuild, loadTile, parseTileRadius, type RebuildClock } from './data/load';
 import { formatLoading, loadCityJson, type LoadProgress } from './ui/loading';
+import { TileManager, type TileEvent } from './world/tiles';
 import { createPostcard } from './export/postcard';
 import { SPAWN_PRESETS, presetsFor, resolveSpawn } from './data/spawn';
 import { applyLandmarks, LANDMARK_FIXES } from './world/landmarks';
@@ -109,6 +120,17 @@ declare global {
         failures: number;
         lastError: string;
       };
+      /**
+       * Live sector-streaming debug surface (architecture.md §4.19). Same
+       * reference every frame — mutated in place so the e2e can poll
+       * `loaded` / `pending` / `version` / `disposed`.
+       */
+      tiles: {
+        loaded: string[];
+        pending: number;
+        version: number;
+        disposed: number;
+      };
     };
   }
 }
@@ -149,6 +171,8 @@ interface UrlOptions {
   time: Date | null;
   fly: boolean;
   tags: boolean;
+  /** `?tileradius=<m>` — scales TileManager loadR/unloadR (architecture.md §4.19). */
+  tileRadius: number | undefined;
 }
 
 /**
@@ -183,7 +207,24 @@ export function parseUrlOptions(search: string): UrlOptions {
   const time = parseTimeParam(params.get('time'));
   const fly = params.get('fly') === '1';
   const tags = params.get('tags') !== '0';
-  return { synthetic, hills, seed, cellW, cellH, crt, minimap, hud, render, at, city, time, fly, tags };
+  const tileRadius = parseTileRadius(search)?.loadR;
+  return {
+    synthetic,
+    hills,
+    seed,
+    cellW,
+    cellH,
+    crt,
+    minimap,
+    hud,
+    render,
+    at,
+    city,
+    time,
+    fly,
+    tags,
+    tileRadius,
+  };
 }
 
 /**
@@ -238,6 +279,62 @@ function parseTimeParam(raw: string | null): Date | null {
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => resolve());
+  });
+}
+
+/** Assemble a `CityData` view of a tile index's globals (no per-tile arrays). */
+function indexToCity(index: TileIndexData): CityData {
+  return {
+    v: 1,
+    origin: index.origin,
+    bbox: index.bbox,
+    buildings: [],
+    roads: index.bridgeRoads,
+    places: index.places,
+    water: index.water,
+    waterLevels: index.waterLevels,
+    rivers: index.rivers,
+    terrain: index.terrain,
+  };
+}
+
+/** Bridge-road corridors for `CollisionGrid` (same half-width as the monolithic path). */
+function corridorsOf(roads: Road[]): { pts: Vec2[]; halfWidth: number }[] {
+  return roads
+    .filter((r) => r.bridge)
+    .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 }));
+}
+
+/** Dispose geometries and materials on a subtree (tile groups, rebuilt fleets). */
+function disposeObject3D(obj: THREE.Object3D): void {
+  obj.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mat = mesh.material;
+    if (!mat) return;
+    if (Array.isArray(mat)) {
+      for (const m of mat) m.dispose();
+    } else {
+      mat.dispose();
+    }
+  });
+}
+
+/**
+ * Apply `LANDMARK_FIXES` height/shape overrides to a tile's buildings.
+ * Colour registration happens once at boot via `applyLandmarks`.
+ */
+function applyBuildingFixes(buildings: Building[], cityId: string): Building[] {
+  const fixes = LANDMARK_FIXES[cityId];
+  if (!fixes) return buildings;
+  return buildings.map((b) => {
+    if (b.id <= -1000 || b.name === undefined) return b;
+    const fix = fixes[b.name];
+    if (fix === undefined) return b;
+    const h = fix.h ?? b.h;
+    const shape = fix.shape ?? b.shape;
+    if (h === b.h && shape === b.shape) return b;
+    return { ...b, h, ...(shape !== undefined ? { shape } : {}) };
   });
 }
 
@@ -433,19 +530,37 @@ async function main(): Promise<void> {
   let city: CityData;
   let cityId: string;
   let cityInfo: CityInfo | undefined;
+  let tileIndex: TileIndexData | undefined;
+  const onFetchProgress = (p: LoadProgress): void => {
+    loading.phase = p.phase;
+    loading.received = p.received;
+    loading.total = p.total;
+    loading.step = undefined;
+    paintLoading();
+  };
   if (opts.synthetic) {
     city = syntheticCity(opts.seed, 12, opts.hills);
     cityId = 'synthetic';
     cityInfo = undefined;
+  } else if (initialInfo.tiled) {
+    try {
+      const url = import.meta.env.BASE_URL + initialInfo.file;
+      const raw = await loadCityJson(url, initialInfo.sizeBytes, onFetchProgress);
+      tileIndex = validateTileIndex(raw);
+      cityId = initialInfo.id;
+      cityInfo = initialInfo;
+      // Globals only: extras get appended here; per-tile buildings stream in later.
+      city = applyLandmarks(indexToCity(tileIndex), cityId);
+    } catch (err) {
+      console.warn(`${initialInfo.file} load failed, using synthetic city:`, err);
+      city = syntheticCity(opts.seed);
+      cityId = 'synthetic';
+      cityInfo = undefined;
+      tileIndex = undefined;
+    }
   } else {
     try {
-      city = await fetchCity(initialInfo, (p) => {
-        loading.phase = p.phase;
-        loading.received = p.received;
-        loading.total = p.total;
-        loading.step = undefined;
-        paintLoading();
-      });
+      city = await fetchCity(initialInfo, onFetchProgress);
       cityId = initialInfo.id;
       cityInfo = initialInfo;
     } catch (err) {
@@ -458,7 +573,10 @@ async function main(): Promise<void> {
 
   // Landmark fixes (architecture.md §4.13): apply the curated height/colour
   // table and any extra synthetic buildings. Synthetic/unknown ids are no-ops.
-  city = applyLandmarks(city, cityId);
+  // Tiled cities already ran this on the index shell (extras live in `city`).
+  if (!tileIndex) {
+    city = applyLandmarks(city, cityId);
+  }
   if (cityById(cityId)) {
     settings.city = cityId;
     persist();
@@ -498,16 +616,25 @@ async function main(): Promise<void> {
   scene.add(groundMesh);
   if (terrain) scene.add(makeTerrainObject(terrain.data));
 
-  await buildStep('BUILDINGS');
-  scene.add(makeBuildingsObject(city.buildings, makeWindowTexture(), groundAt));
+  const windowTex = makeWindowTexture();
+  let treeField: TreeField | undefined;
+  let treeCount = 0;
+  if (!tileIndex) {
+    await buildStep('BUILDINGS');
+    scene.add(makeBuildingsObject(city.buildings, windowTex, groundAt));
 
-  await buildStep('ROADS');
-  scene.add(makeRoadsObject(city.roads, groundAt, humps));
+    await buildStep('ROADS');
+    scene.add(makeRoadsObject(city.roads, groundAt, humps));
 
-  // Trees (architecture.md §4.14): two instanced meshes seated on the terrain.
-  await buildStep('TREES');
-  const treeField = city.trees?.length ? new TreeField(city.trees, groundAt) : undefined;
-  if (treeField) scene.add(treeField.object);
+    // Trees (architecture.md §4.14): two instanced meshes seated on the terrain.
+    await buildStep('TREES');
+    treeField = city.trees?.length ? new TreeField(city.trees, groundAt) : undefined;
+    if (treeField) scene.add(treeField.object);
+    treeCount = treeField?.count ?? 0;
+  } else if (city.buildings.length > 0) {
+    // Landmark extras (id ≤ −1000) are global, not tiled.
+    scene.add(makeBuildingsObject(city.buildings, windowTex, groundAt));
+  }
 
   await buildStep('WATER');
   if (city.water?.length) {
@@ -516,11 +643,20 @@ async function main(): Promise<void> {
 
   await buildStep('BRIDGES');
   scene.add(makeBridgesObject(cityId, city, groundAt));
+  if (tileIndex) {
+    // Permanent pseudo-tile: whole bridge polylines, never streamed.
+    scene.add(makeRoadsObject(tileIndex.bridgeRoads, groundAt, humps));
+  }
 
   // TRAFFIC — red buses on the primaries + grey Thames boats. Pure ambience.
+  // Tiled cities rebuild the bus fleet from snapshot()+bridgeRoads after the
+  // spawn 3×3 (seed `9 ^ version`); boats are global and never rebuild.
   await buildStep('TRAFFIC');
-  const fleet = new BusFleet(city.roads, 12, 9, groundAt);
-  scene.add(fleet.object);
+  let fleet: BusFleet | undefined;
+  if (!tileIndex) {
+    fleet = new BusFleet(city.roads, 12, 9, groundAt);
+    scene.add(fleet.object);
+  }
   const boats = city.rivers?.length
     ? new BoatFleet(city.rivers, 4, 17, terrain ? terrain.heightAt : FLAT_HEIGHT)
     : undefined;
@@ -556,15 +692,176 @@ async function main(): Promise<void> {
   // ring is walkable land (odd-parity test, architecture.md §4.6 wave-9);
   // bridge roads become corridors that override footprints and water alike, so
   // the player can walk across the Thames or the Golden Gate.
+  // Tiled: extras + water are the permanent base; `'bridges'` is a permanent
+  // source; per-tile footprints stream in via addSource/removeSource.
   const collision = new CollisionGrid(
     city.buildings,
     25,
-    city.roads
-      .filter((r) => r.bridge)
-      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+    tileIndex ? [] : corridorsOf(city.roads),
     city.water ?? [],
   );
-  const zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
+  if (tileIndex) {
+    collision.addSource('bridges', [], corridorsOf(tileIndex.bridgeRoads));
+  }
+
+  const tilesDebug = {
+    loaded: [] as string[],
+    pending: 0,
+    version: 0,
+    disposed: 0,
+  };
+  const tileGroups = new Map<string, THREE.Group>();
+  const tileResident = new Map<string, TileData>();
+  let disposedCount = 0;
+  let tileMgr: TileManager | undefined;
+  const rebuildState: RebuildClock = { version: -1, at: Number.NEGATIVE_INFINITY };
+  let rebuildTimer: number | undefined;
+
+  const applyTileEvent = (e: TileEvent): void => {
+    if (e.kind === 'add') {
+      const buildings = applyBuildingFixes(e.tile.buildings, cityId);
+      const group = new THREE.Group();
+      group.name = e.key;
+      group.add(makeBuildingsObject(buildings, windowTex, groundAt));
+      group.add(makeRoadsObject(e.tile.roads, groundAt, humps));
+      if (e.tile.trees?.length) {
+        group.add(new TreeField(e.tile.trees, groundAt).object);
+        treeCount += e.tile.trees.length;
+      }
+      scene.add(group);
+      tileGroups.set(e.key, group);
+      tileResident.set(e.key, e.tile);
+      collision.addSource(e.key, buildings, corridorsOf(e.tile.roads));
+    } else {
+      const group = tileGroups.get(e.key);
+      if (group) {
+        scene.remove(group);
+        disposeObject3D(group);
+        tileGroups.delete(e.key);
+        disposedCount += 1;
+      }
+      const prev = tileResident.get(e.key);
+      if (prev?.trees?.length) treeCount -= prev.trees.length;
+      tileResident.delete(e.key);
+      collision.removeSource(e.key);
+    }
+  };
+
+  const assembleTiledCity = (index: TileIndexData, snapBuildings: Building[], snapRoads: Road[]): CityData => {
+    const woods: NonNullable<CityData['woods']> = [];
+    const trees: NonNullable<CityData['trees']> = [];
+    for (const tile of tileResident.values()) {
+      if (tile.woods) woods.push(...tile.woods);
+      if (tile.trees) trees.push(...tile.trees);
+    }
+    return {
+      v: 1,
+      origin: index.origin,
+      bbox: index.bbox,
+      buildings: city.buildings.concat(snapBuildings),
+      roads: index.bridgeRoads.concat(snapRoads),
+      places: index.places,
+      water: index.water,
+      waterLevels: index.waterLevels,
+      rivers: index.rivers,
+      trees: trees.length > 0 ? trees : undefined,
+      woods: woods.length > 0 ? woods : undefined,
+      terrain: index.terrain,
+    };
+  };
+
+  // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
+  // otherwise resolve `?at=` (preset or coordinate) against the city origin,
+  // walking +x if the point is blocked inside a building. Presets/coords that
+  // fall outside `city.bbox` (a London preset in Kyiv, say) drop back to the
+  // city's `defaultSpawn`. Tiled: resolve from `index.landmarks` + `index.bbox`
+  // BEFORE any tile fetch so the spawn 3×3 is centred on the player.
+  let spawn = opts.synthetic
+    ? { x: 0, z: 0, yaw: -Math.PI / 2 }
+    : resolveSpawn(
+        opts.at,
+        city.origin,
+        (p: Vec2, r?: number) => collision.blocked(p, r),
+        tileIndex
+          ? {
+              buildings: [],
+              roads: [],
+              bbox: tileIndex.bbox,
+              landmarks: tileIndex.landmarks,
+            }
+          : city,
+        cityInfo?.defaultSpawn,
+      );
+
+  if (tileIndex) {
+    const tileUrlBase =
+      import.meta.env.BASE_URL +
+      (cityInfo?.file ?? '').replace(/index\.json$/, '');
+    const loadOneTile = (key: string): Promise<TileData> =>
+      loadTile(`${tileUrlBase}tiles/${key}.json`);
+    const radii = parseTileRadius(window.location.search);
+    tileMgr = new TileManager(tileIndex, loadOneTile, radii);
+    tileMgr.update(spawn.x, spawn.z);
+
+    const S = tileIndex.tileSize;
+    const pi = Math.floor(spawn.x / S);
+    const pj = Math.floor(spawn.z / S);
+    const needed = new Set<string>();
+    let spawnBytes = 0;
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const key = `${pi + di}_${pj + dj}`;
+        if (tileIndex.tiles[key] !== undefined) {
+          needed.add(key);
+          spawnBytes += tileIndex.tiles[key].bytes;
+        }
+      }
+    }
+    loading.phase = 'build';
+    loading.total = Math.max(1, spawnBytes);
+    loading.received = 0;
+    let gotBytes = 0;
+    let idle = 0;
+    while (needed.size > 0) {
+      tileMgr.update(spawn.x, spawn.z);
+      const events = tileMgr.take();
+      let addedKey: string | undefined;
+      for (const e of events) {
+        applyTileEvent(e);
+        if (e.kind === 'add' && needed.delete(e.key)) {
+          gotBytes += tileIndex.tiles[e.key]?.bytes ?? 0;
+          loading.received = Math.min(gotBytes, loading.total);
+          addedKey = e.key;
+        }
+      }
+      if (addedKey !== undefined) {
+        loading.step = `TILE ${addedKey}`;
+        paintLoading();
+        idle = 0;
+      } else if (tileMgr.pending() === 0) {
+        idle += 1;
+        if (idle > 2) break;
+      }
+      await nextFrame();
+    }
+    const snap0 = tileMgr.snapshot();
+    city = assembleTiledCity(tileIndex, snap0.buildings, snap0.roads);
+    fleet = new BusFleet(city.roads, 12, 9 ^ snap0.version, groundAt);
+    scene.add(fleet.object);
+    tilesDebug.loaded = tileMgr.loadedKeys();
+    tilesDebug.pending = tileMgr.pending();
+    tilesDebug.version = snap0.version;
+    tilesDebug.disposed = disposedCount;
+    rebuildState.version = snap0.version;
+    rebuildState.at = performance.now();
+  }
+
+  if (!fleet) {
+    fleet = new BusFleet(city.roads, 12, 9, groundAt);
+    scene.add(fleet.object);
+  }
+
+  let zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
   // Live pointer-lock debug object (T-0091). `reportLockError` is a stub
   // until the overlay helpers below reassign it to the full lock-failure
   // state machine; canvas clicks before that are swallowed by `#overlay`.
@@ -611,7 +908,7 @@ async function main(): Promise<void> {
   // the container and the per-frame work. Anchors are built once after
   // `applyLandmarks` so extras (id ≤ −1000) are already in `city.buildings`.
   let tags: Tags | undefined;
-  const anchors = opts.tags
+  let anchors = opts.tags
     ? [
         ...landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt),
         ...(SUSPENSION_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
@@ -645,20 +942,26 @@ async function main(): Promise<void> {
     (msg) => toast.show(msg),
   );
 
-  // Spawn: `?synthetic=1` keeps the deterministic (0, 0, −π/2) grid origin;
-  // otherwise resolve `?at=` (preset or coordinate) against the city origin,
-  // walking +x if the point is blocked inside a building. Presets/coords that
-  // fall outside `city.bbox` (a London preset in Kyiv, say) drop back to the
-  // city's `defaultSpawn`.
-  const spawn = opts.synthetic
-    ? { x: 0, z: 0, yaw: -Math.PI / 2 }
-    : resolveSpawn(
-        opts.at,
-        city.origin,
-        (p: Vec2, r?: number) => collision.blocked(p, r),
-        city,
-        cityInfo?.defaultSpawn,
-      );
+  const rebuildFromTiles = (): void => {
+    if (!tileIndex || !tileMgr || !fleet) return;
+    const snap = tileMgr.snapshot();
+    city = assembleTiledCity(tileIndex, snap.buildings, snap.roads);
+    zone = new ZoneIndex(city.roads, city.places, 50, city.buildings);
+    minimap.setCity(city);
+    if (opts.tags) {
+      anchors = [
+        ...landmarkAnchors(city, LANDMARK_FIXES[cityId] ?? {}, groundAt),
+        ...(SUSPENSION_BRIDGES[cityId ?? 'synthetic'] ?? []).flatMap((spec) =>
+          bridgeAnchors(spec, city, groundAt),
+        ),
+      ];
+    }
+    scene.remove(fleet.object);
+    disposeObject3D(fleet.object);
+    fleet = new BusFleet(city.roads, 12, 9 ^ snap.version, groundAt);
+    scene.add(fleet.object);
+  };
+
   const state: PlayerState = {
     x: spawn.x,
     z: spawn.z,
@@ -690,10 +993,13 @@ async function main(): Promise<void> {
     render: post.style.id,
     styles: STYLES.map((s) => s.id),
     settings,
-    trees: treeField?.count ?? 0,
+    get trees(): number {
+      return treeCount;
+    },
     get ships(): { count: number; lightsOn: boolean } {
       return { count: ships.count, lightsOn: ships.lightsOn };
     },
+    tiles: tilesDebug,
     cols: 0,
     rows: 0,
     // Overridden below once `travel` is in scope.
@@ -861,7 +1167,9 @@ async function main(): Promise<void> {
       trimmed,
       city.origin,
       (p: Vec2, r?: number) => collision.blocked(p, r),
-      city,
+      tileIndex
+        ? { ...city, landmarks: tileIndex.landmarks }
+        : city,
       cityInfo?.defaultSpawn,
     );
     state.x = sp.x;
@@ -876,6 +1184,7 @@ async function main(): Promise<void> {
     }
     state.y = groundAt(sp.x, sp.z) + EYE_HEIGHT;
     api.y = state.y;
+    tileMgr?.update(state.x, state.z);
     toast.show(`→ ${preset.label.toUpperCase()}`);
     try {
       const params = new URLSearchParams(window.location.search);
@@ -1204,7 +1513,26 @@ async function main(): Promise<void> {
     api.y = state.y;
     api.fly = state.fly;
 
-    fleet.update(dt);
+    if (tileMgr) {
+      tileMgr.update(state.x, state.z);
+      const events = tileMgr.take();
+      for (const e of events) applyTileEvent(e);
+      const snap = tileMgr.snapshot();
+      tilesDebug.loaded = tileMgr.loadedKeys();
+      tilesDebug.pending = tileMgr.pending();
+      tilesDebug.version = snap.version;
+      tilesDebug.disposed = disposedCount;
+      if (dueRebuild(snap.version, rebuildState, performance.now())) {
+        if (rebuildTimer === undefined) {
+          rebuildTimer = window.setTimeout(() => {
+            rebuildTimer = undefined;
+            rebuildFromTiles();
+          }, 0);
+        }
+      }
+    }
+
+    fleet?.update(dt);
     boats?.update(dt);
     ships.update(dt);
 

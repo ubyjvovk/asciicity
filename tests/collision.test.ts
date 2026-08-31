@@ -2,10 +2,9 @@
  * Unit tests for src/world/collision.ts (T-0007). Every case listed in the
  * ticket's acceptance criteria is covered here by name.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Building, CityData, Vec2 } from '../src/data/types';
+import { loadSfCity } from './sfCity';
 import {
   CollisionGrid,
   distToSegment,
@@ -344,9 +343,7 @@ describe('CollisionGrid water rings (T-0078 parity)', () => {
   });
 
   it('Alcatraz: the lighthouse centroid is land and a point 300 m south of it is water', () => {
-    const SF: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-    );
+    const SF: CityData = loadSfCity();
     const lighthouse = SF.buildings.find((b) => b.name === 'Alcatraz Island Lighthouse');
     expect(lighthouse).toBeDefined();
     // Centroid of the lighthouse footprint.

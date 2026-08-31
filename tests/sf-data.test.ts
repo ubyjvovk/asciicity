@@ -1,17 +1,16 @@
 /**
- * Unit tests for the committed `public/data/sf.json` dataset (T-0077): the
- * Golden Gate Bridge roadway is `highway=motorway`, so it must arrive as a
- * `cls: 'primary'` bridge road (and the two sidewalks must survive).
+ * Unit tests for the committed tiled San Francisco dataset (T-0077 / T-0095):
+ * the Golden Gate Bridge roadway is `highway=motorway`, so it must arrive as
+ * a `cls: 'primary'` bridge road in `index.bridgeRoads` (and the two sidewalks
+ * must survive). Bridges are global — never split into tiles.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { CityData } from '../src/data/types';
 import { project } from '../scripts/osm-convert';
+import { loadSfIndex } from './sfCity';
 
-const SF: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-);
+const SF = loadSfIndex();
 
 // SF fetch origin (package.json `fetch-data:sf`).
 const ORIGIN = { lon: -122.4075, lat: 37.788 };
@@ -20,7 +19,7 @@ const BBOX = [-122.487, 37.764, -122.383, 37.835];
 
 describe('sf.json Golden Gate Bridge roadway (T-0077)', () => {
   it('sf.json carries the Golden Gate Bridge roadway as a primary bridge road', () => {
-    const roadways = SF.roads.filter(
+    const roadways = SF.bridgeRoads.filter(
       (r) => r.name === 'Golden Gate Bridge' && r.cls === 'primary' && r.bridge === true,
     );
     expect(roadways.length).toBeGreaterThanOrEqual(1);
@@ -41,7 +40,7 @@ describe('sf.json Golden Gate Bridge roadway (T-0077)', () => {
     const [minX, maxX] = [Math.min(...xs), Math.max(...xs)];
     const [minZ, maxZ] = [Math.min(...zs), Math.max(...zs)];
 
-    const roadways = SF.roads.filter(
+    const roadways = SF.bridgeRoads.filter(
       (r) => r.name === 'Golden Gate Bridge' && r.cls === 'primary' && r.bridge === true,
     );
     expect(roadways.length).toBeGreaterThanOrEqual(1);
@@ -56,10 +55,10 @@ describe('sf.json Golden Gate Bridge roadway (T-0077)', () => {
   });
 
   it('sf.json still carries both Golden Gate Bridge sidewalks', () => {
-    const east = SF.roads.filter(
+    const east = SF.bridgeRoads.filter(
       (r) => r.name === 'Golden Gate Bridge East Sidewalk',
     );
-    const west = SF.roads.filter(
+    const west = SF.bridgeRoads.filter(
       (r) => r.name === 'Golden Gate Bridge West Sidewalk',
     );
     expect(east.length).toBeGreaterThanOrEqual(1);
@@ -71,12 +70,13 @@ describe('sf.json Golden Gate Bridge roadway (T-0077)', () => {
   });
 
   it('sf.json is under 16 MB and passes validateCity', async () => {
-    const raw = readFileSync(
-      resolve(__dirname, '..', 'public', 'data', 'sf.json'),
-      'utf8',
-    );
-    expect(raw.length).toBeLessThan(16 * 1024 * 1024);
-    const { validateCity } = await import('../src/data/validate');
-    expect(() => validateCity(SF)).not.toThrow();
+    const dir = resolve(__dirname, '..', 'public', 'data', 'sf');
+    let total = statSync(join(dir, 'index.json')).size;
+    for (const name of readdirSync(join(dir, 'tiles'))) {
+      total += statSync(join(dir, 'tiles', name)).size;
+    }
+    expect(total).toBeLessThan(16 * 1024 * 1024);
+    const { validateTileIndex } = await import('../src/data/validate');
+    expect(() => validateTileIndex(SF)).not.toThrow();
   });
 });

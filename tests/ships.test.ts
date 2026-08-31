@@ -3,19 +3,16 @@
  * Case names match the ticket fixtures verbatim. Node / no WebGL — InstancedMesh
  * allocates no GL objects until render.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { FLAT_HEIGHT, type CityData, type Vec2 } from '../src/data/types';
+import { loadSfGlobals } from './sfCity';
 import { syntheticCity } from '../src/data/synthetic';
 import { project } from '../src/geo';
 import { pointInPolygon } from '../src/world/collision';
 import { SHIP_LANES, ShipFleet } from '../src/world/ships';
 
-const SF: CityData = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'public', 'data', 'sf.json'), 'utf8'),
-);
+const SF: CityData = loadSfGlobals();
 
 const SYNTH = syntheticCity();
 
