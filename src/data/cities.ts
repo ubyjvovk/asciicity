@@ -56,7 +56,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/kyiv/index.json',
     defaultSpawn: 'maidan',
     blurb: 'Central Kyiv · Dnipro hills, 120 m of relief',
-    sizeBytes: 634133,
+    sizeBytes: 632439,
     tiled: true,
   },
   {

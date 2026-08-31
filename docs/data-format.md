@@ -55,6 +55,10 @@ The registry the app uses is `src/data/cities.ts` (architecture.md
   when present (buildings, roads, places alike).
 - Command: `node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --tiles --out public/data/kyiv`
   (`npm run fetch-data:kyiv`; tiled since wave 11).
+- Wave 14b (T-0115): the committed `terrain` + `waterLevels` were regenerated in
+  place from the cached `N50E030` tile with the bare-earth `ridge` filter
+  (`--dem-bare ridge`), stripping roof contamination from the streets while
+  preserving the real Dnipro bluff crests.
 
 ### San Francisco (`sf.json`, wave 8)
 
