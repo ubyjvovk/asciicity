@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test",
     "fetch-data": "node scripts/fetch-osm.mjs --tiles 1 --out public/data/london",
-    "fetch-data:kyiv": "node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --dem-bare 1 --tiles 1 --out public/data/kyiv",
+    "fetch-data:kyiv": "node scripts/fetch-osm.mjs --bbox 30.495,50.422,30.585,50.470 --origin 30.5234,50.4501 --lang en --dem 1 --dem-bare ridge --tiles 1 --out public/data/kyiv",
     "fetch-data:sf": "node scripts/fetch-osm.mjs --bbox -122.487,37.764,-122.383,37.835 --origin -122.4075,37.788 --lang en --dem 1 --tiles 1 --out public/data/sf",
     "fetch-data:nyc": "node scripts/fetch-osm.mjs --bbox -74.025,40.698,-73.958,40.775 --origin -73.9905,40.7359 --lang en --dem 1 --tiles 1 --out public/data/nyc",
     "fetch-data:tokyo": "node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715 --origin 139.7671,35.6812 --lang en --dem 1 --dem-bare 1 --chunks 4x3 --tiles 1 --out public/data/tokyo",

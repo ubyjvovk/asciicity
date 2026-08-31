@@ -31,7 +31,7 @@ and the `?synthetic=1`/unit-test path.
 | id (`?city=`) | origin | terrain | tiles | index.json B | dir total B |
 |---|---|---|---|---|---|
 | `london` | Bank junction | none (flat) | 22 | 256 785 | 3 434 093 |
-| `kyiv` | Maidan Nezalezhnosti `50.4501, 30.5234` | SRTM 1″, step 20 m | 57 | 634 133 | 3 605 753 |
+| `kyiv` | Maidan Nezalezhnosti `50.4501, 30.5234` | SRTM 1″, step 20 m | 57 | 632 439 | 3 604 059 |
 | `sf` | Union Square `-122.4075, 37.788` | SRTM 1″, step 20 m | 69 | 1 273 711 | 14 968 348 |
 | `nyc` | Union Square `-73.9905, 40.7359` | SRTM 1″, step 20 m | 77 | 920 302 | 10 430 168 |
 | `tokyo` | Tokyo Station `139.7671, 35.6812` | SRTM 1″, step 20 m | 99 | 1 979 748 | 18 629 801 |
