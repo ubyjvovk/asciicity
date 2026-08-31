@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { FLAT_HEIGHT, type HeightFn, type Road, type RoadClass, type Vec2 } from '../data/types';
 import { MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
-import { bridgeProfile, chainBridgeRoads, type DeckHump } from './terrain';
+import { bridgeProfile, chainBridgeRoads, chainHumpApex, type DeckHump } from './terrain';
 
 /** Metres of ribbon width per OSM-style road class. */
 export const ROAD_WIDTH: Record<RoadClass, number> = {
@@ -42,15 +42,6 @@ function lerp(a: number, b: number, f: number): number {
   return a + (b - a) * f;
 }
 
-/** Apex of the hump that names `roadName`, or `undefined` when none matches. */
-function humpApex(roadName: string | undefined, humps: readonly DeckHump[]): number | undefined {
-  if (roadName === undefined) return undefined;
-  for (const h of humps) {
-    if (h.names.includes(roadName)) return h.apexY;
-  }
-  return undefined;
-}
-
 /** Insert vertices so no segment exceeds `maxLen` m (hump chords). */
 function densifyPts(pts: Vec2[], maxLen = 50): Vec2[] {
   if (pts.length < 2) return pts;
@@ -84,10 +75,11 @@ export function buildRoadsMesh(
   humps: readonly DeckHump[] = [],
 ): MeshData {
   const mesh = new MeshBuilder();
-  for (const road of chainBridgeRoads(roads)) {
+  const chains = chainBridgeRoads(roads);
+  for (const road of chains) {
     const half = ROAD_WIDTH[road.cls] / 2;
     const color = colorForClass(road.cls);
-    const apex = road.bridge === true ? humpApex(road.name, humps) : undefined;
+    const apex = road.bridge === true ? chainHumpApex(road, chains, humps) : undefined;
     const pts = apex === undefined ? road.pts : densifyPts(road.pts);
     const deckYs = road.bridge === true ? bridgeProfile(pts, heightAt, apex) : undefined;
     for (let i = 0; i < pts.length - 1; i++) {
