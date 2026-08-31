@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -462,6 +462,104 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     lon: -73.99734,
     lat: 40.731,
     bearingDeg: 0,
+  },
+  // Tokyo presets (wave 11, docs/integration.md §Tokyo presets). Coordinates
+  // were DERIVED FROM the committed dataset (T-0098): each fixed-coordinate
+  // preset sits on an unblocked road vertex read out of the relevant tile
+  // files (`index.landmarks` anchors + tile road polylines), unprojected to
+  // WGS84, with the bearing aimed at the named landmark/tower. The two tower
+  // presets are building-based: `landmarkSpawn` resolves them against
+  // `applyLandmarks(tokyo/index.json)` and the anchor's `index.landmarks`
+  // entry, picking a road vertex that keeps a clear view corridor and faces
+  // the tower's centroid (street vantages LOOKING AT the tower, not points
+  // inside its footprint). Default spawn: `tokyostation`.
+  skytree: {
+    // Street vantage 795 m E of the tower (road vertex in tile 4_-3) on the
+    // north bank of the Kita-Jūkken-gawa canal in Sumida Ward, bearing 286°
+    // straight at the tower anchor (3944.0, −3189.6). This is the only
+    // 550–900 m band vertex around the tower with a completely clean
+    // buildings-only sightline (mechanical rule from PM rework attempt 5) —
+    // the PM's suggested west/SW-across-the-Sumida vantages are all blocked
+    // by the dense Oshiage/Asakusa buildings between the tower base
+    // (Solamachi extends 90 m west of the anchor) and any 550–900 m road
+    // vertex on the postcard side. The east-side vantage still frames the
+    // 634 m tower well: at 795 m the tower rises ≈ 39° above horizon,
+    // dominating the frame without wall-fill. Tokyo is streamed-only and the
+    // tiled boot resolves spawns from `index.landmarks` before any tile
+    // fetch (§4.19) — so this coordinate is the REAL spawn: a walkable road
+    // vertex facing the tower, not a point inside its footprint.
+    building: 'Tokyo Skytree',
+    label: 'Facing the Tokyo Skytree',
+    city: 'tokyo',
+    lon: 139.819167,
+    lat: 35.708042,
+    bearingDeg: 286,
+  },
+  tokyotower: {
+    // Street vantage 150 m west of the tower (road vertex in tile −2_2),
+    // bearing 271° straight at the tower anchor.
+    building: 'Tokyo Tower',
+    label: 'Facing Tokyo Tower',
+    city: 'tokyo',
+    lon: 139.747091,
+    lat: 35.658438,
+    bearingDeg: 271,
+  },
+  tokyostation: {
+    // Road vertex 20 m from the station building anchor (index.landmarks
+    // 'Tokyo Station' at −47.6, −201.3), bearing 231 toward the station.
+    lon: 139.766744,
+    lat: 35.683134,
+    bearingDeg: 231,
+    label: 'Tokyo Station, facing the station',
+    city: 'tokyo',
+  },
+  ginza: {
+    // Road vertex 6 m from the Ginza Crossing place, bearing 72 toward it.
+    lon: 139.764968,
+    lat: 35.671201,
+    bearingDeg: 72,
+    label: 'Ginza Crossing, facing up Chuo Dori',
+    city: 'tokyo',
+  },
+  akihabara: {
+    // Road vertex 112 m from the 'Akihabara' building anchor (tile 0_-2),
+    // bearing 222° straight at it.
+    building: 'Akihabara',
+    label: 'Facing Akihabara',
+    city: 'tokyo',
+    lon: 139.77429,
+    lat: 35.699287,
+    bearingDeg: 222,
+  },
+  imperialpalace: {
+    // Road vertex on the plaza ring road 62 m from the Imperial Palace
+    // Frontal Plaza place, bearing 296 toward the palace grounds.
+    lon: 139.757616,
+    lat: 35.679583,
+    bearingDeg: 296,
+    label: 'Imperial Palace plaza, facing the palace',
+    city: 'tokyo',
+  },
+  sumida: {
+    // Sakurabashi-dōri road vertex 435 m NE of the tower (tile 4_-4),
+    // bearing 241° straight at the tower anchor. The PM's post-review rule
+    // requires a clean buildings-only sightline (no foreground wall filling
+    // the frame — the old riverside spot's ray crossed Solamachi from k=200
+    // through k=330 m, the purple mass). The Sumida-west-bank vantages that
+    // face Skytree straight across the river all cross Solamachi (which
+    // extends 90 m west of the anchor) or the dense Oshiage buildings, so
+    // no strict-riverside 300–500 m road vertex passes the sightline test.
+    // Sakurabashi-dōri (`桜橋通り`) is the Sumida-Ward street that runs to
+    // Sakura-bashi (the pedestrian bridge over the Sumida) — 270 m south of
+    // the Kita-Jūkken-gawa canal (water 189) and about 500 m east of the
+    // Sumida itself. It approaches the tower from the north-east so the
+    // ray never crosses Solamachi.
+    lon: 139.814942,
+    lat: 35.711931,
+    bearingDeg: 241,
+    label: 'Sakurabashi-dōri, facing the Skytree',
+    city: 'tokyo',
   },
 };
 

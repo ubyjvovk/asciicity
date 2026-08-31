@@ -21,8 +21,14 @@ function loadBbox(file: string): DatasetHeader['bbox'] {
 }
 
 describe('CITIES registry', () => {
-  it('lists london first (default), then kyiv, sf, nyc', () => {
-    expect(CITIES.map((c) => c.id)).toEqual(['london', 'kyiv', 'sf', 'nyc']);
+  it('lists london first (default), then kyiv, sf, nyc, tokyo', () => {
+    expect(CITIES.map((c) => c.id)).toEqual([
+      'london',
+      'kyiv',
+      'sf',
+      'nyc',
+      'tokyo',
+    ]);
   });
 
   it('carries the expected labels, files and blurbs', () => {
@@ -53,6 +59,13 @@ describe('CITIES registry', () => {
     expect(nyc.defaultSpawn).toBe('brooklynbridge');
     expect(nyc.blurb).toBe('Battery to Central Park · skyscrapers & bridges');
     expect(nyc.tiled).toBe(true);
+
+    const tokyo = CITIES[4];
+    expect(tokyo.label).toBe('TOKYO');
+    expect(tokyo.file).toBe('data/tokyo/index.json');
+    expect(tokyo.defaultSpawn).toBe('tokyostation');
+    expect(tokyo.blurb).toBe('Imperial Palace to the Skytree · streamed');
+    expect(tokyo.tiled).toBe(true);
   });
 
   it('every registry entry is tiled with a data/<id>/index.json path', () => {
@@ -96,6 +109,12 @@ describe('cityById', () => {
     expect(cityById('nyc')?.id).toBe('nyc');
     expect(cityById(' NYC ')?.id).toBe('nyc');
     expect(cityById('NyC')?.label).toBe('MANHATTAN');
+  });
+
+  it("cityById('tokyo') → the Tokyo entry (resolvable, wave 11)", () => {
+    expect(cityById('tokyo')?.id).toBe('tokyo');
+    expect(cityById(' TOKYO ')?.id).toBe('tokyo');
+    expect(cityById('Tokyo')?.label).toBe('TOKYO');
   });
 });
 

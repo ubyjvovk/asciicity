@@ -12,7 +12,7 @@ import {
   SPAWN_PRESETS,
 } from '../src/data/spawn';
 import type { CityData, Vec2 } from '../src/data/types';
-import { project } from '../src/geo';
+import { project, unproject } from '../src/geo';
 import {
   CollisionGrid,
   distToSegment,
@@ -23,7 +23,7 @@ import { ROAD_WIDTH } from '../src/world/roads';
 import { deckHumps } from '../src/world/bridge';
 import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
 import { loadSfCity } from './sfCity';
-import { loadTiledCity, loadTiledGlobals, loadTiledIndex } from './tiledCity';
+import { loadTiledCity, loadTiledGlobals, loadTiledIndex, loadTiledTile } from './tiledCity';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -301,8 +301,9 @@ describe('resolveSpawn', () => {
 
   it('exposes presets with lower-case keys and labels', () => {
     // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8)
-    // + Manhattan (wave 10, T-0087).
+    // + Manhattan (wave 10, T-0087) + Tokyo (wave 11, T-0098).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
+      'akihabara',
       'alcatraz',
       'andriyivskyy',
       'arch',
@@ -324,10 +325,12 @@ describe('resolveSpawn', () => {
       'funicular',
       'ggb',
       'gherkin',
+      'ginza',
       'glassbridge',
       'goldengate',
       'grandcentral',
       'hydropark',
+      'imperialpalace',
       'lavra',
       'leadenhall',
       'liverpoolst',
@@ -350,10 +353,14 @@ describe('resolveSpawn', () => {
       'rada',
       'rockefeller',
       'salesforce',
+      'skytree',
       'sophia',
       'stpatricks',
       'stpauls',
+      'sumida',
       'timessquare',
+      'tokyostation',
+      'tokyotower',
       'tower',
       'trafalgar',
       'transamerica',
@@ -395,10 +402,11 @@ describe('presetsFor', () => {
   });
 
   it('every preset carries a city and every city id occurs in its presets', () => {
+    const ALL_CITIES = ['london', 'kyiv', 'sf', 'nyc', 'tokyo'];
     for (const [, p] of Object.entries(SPAWN_PRESETS)) {
-      expect(['london', 'kyiv', 'sf', 'nyc']).toContain(p.city);
+      expect(ALL_CITIES).toContain(p.city);
     }
-    for (const cityId of ['london', 'kyiv', 'sf', 'nyc']) {
+    for (const cityId of ALL_CITIES) {
       const all = new Set(presetsFor(cityId).map(([k]) => k));
       for (const [k, p] of Object.entries(SPAWN_PRESETS)) {
         if (p.city === cityId) expect(all.has(k)).toBe(true);
@@ -410,7 +418,7 @@ describe('presetsFor', () => {
     // The fast-travel submenu (architecture.md §4.13) shows one row per
     // preset labelled from `preset.label`; empty/duplicate labels would make
     // rows ambiguous. Same for London and San Francisco.
-    for (const cityId of ['kyiv', 'london', 'sf', 'nyc']) {
+    for (const cityId of ['kyiv', 'london', 'sf', 'nyc', 'tokyo']) {
       const labels = presetsFor(cityId).map(([, p]) => p.label);
       expect(labels.length).toBeGreaterThan(0);
       for (const label of labels) {
@@ -1376,4 +1384,249 @@ describe('Manhattan preset polish (T-0090)', () => {
       expect(bestName, `nearest road for ${key}`).toBe(road);
     }
   });
+});
+
+// Wave 11 Tokyo presets (T-0098): every preset must resolve inside the
+// committed dataset's bbox to an unblocked point against a CollisionGrid
+// built from that preset's 3×3 tiles (fs-read in node), and the two tower
+// presets' bearings must point within ±15° of their tower's `index.landmarks`
+// anchor. This is the T-0047 lesson applied to Tokyo — the coordinates were
+// NOT hand-typed; they were derived from the data (road vertices read from
+// the tile files), and the tower presets are building-based so `landmarkSpawn`
+// resolves a clear street vantage LOOKING AT the tower.
+describe('Tokyo presets (wave 11)', () => {
+  const TOKYO_KEYS = [
+    'skytree',
+    'tokyotower',
+    'tokyostation',
+    'ginza',
+    'akihabara',
+    'imperialpalace',
+    'sumida',
+  ];
+
+  it('every new Tokyo preset key parses to its preset', () => {
+    for (const key of TOKYO_KEYS) {
+      expect(parseAt(key), key).toEqual({ preset: key });
+      expect(parseAt(key.toUpperCase()), key).toEqual({ preset: key });
+      expect(SPAWN_PRESETS[key], key).toBeDefined();
+      expect(SPAWN_PRESETS[key].city, key).toBe('tokyo');
+      expect(SPAWN_PRESETS[key].label.trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it("presetsFor('tokyo') returns every Tokyo preset and no foreign keys", () => {
+    const keys = presetsFor('tokyo').map(([k]) => k);
+    for (const key of TOKYO_KEYS) expect(keys).toContain(key);
+    expect(keys.length).toBe(TOKYO_KEYS.length);
+    expect(keys).not.toContain('bank');
+    expect(keys).not.toContain('maidan');
+    expect(keys).not.toContain('ggb');
+    expect(keys).not.toContain('brooklynbridge');
+  });
+
+  it('no Tokyo preset key collides with a London / Kyiv / SF / NYC key', () => {
+    const foreign = new Set([
+      ...presetsFor('london').map(([k]) => k),
+      ...presetsFor('kyiv').map(([k]) => k),
+      ...presetsFor('sf').map(([k]) => k),
+      ...presetsFor('nyc').map(([k]) => k),
+    ]);
+    for (const key of TOKYO_KEYS) {
+      expect(foreign.has(key), `${key} collides with an older city`).toBe(false);
+    }
+  });
+
+  it('the two tower presets are building-based (street vantages on the towers)', () => {
+    expect('building' in SPAWN_PRESETS.skytree).toBe(true);
+    expect('building' in SPAWN_PRESETS.tokyotower).toBe(true);
+    expect(SPAWN_PRESETS.skytree).toMatchObject({ building: 'Tokyo Skytree' });
+    expect(SPAWN_PRESETS.tokyotower).toMatchObject({ building: 'Tokyo Tower' });
+  });
+
+  it('tokyostation is the default spawn: a fixed-coordinate preset', () => {
+    expect('building' in SPAWN_PRESETS.tokyostation).toBe(false);
+    expect(SPAWN_PRESETS.tokyostation).toMatchObject({
+      city: 'tokyo',
+      lon: 139.766744,
+      lat: 35.683134,
+      bearingDeg: 231,
+    });
+  });
+
+  it('every Tokyo preset coordinate falls inside the tokyo.json bbox', () => {
+    const TOKYO = loadTiledIndex('tokyo');
+    for (const [, preset] of presetsFor('tokyo')) {
+      const p = preset as { lon?: number; lat?: number };
+      expect(p.lon).toBeDefined();
+      expect(p.lat).toBeDefined();
+      expect(p.lon!, preset.label).toBeGreaterThanOrEqual(TOKYO.bbox[0]);
+      expect(p.lon!, preset.label).toBeLessThanOrEqual(TOKYO.bbox[2]);
+      expect(p.lat!, preset.label).toBeGreaterThanOrEqual(TOKYO.bbox[1]);
+      expect(p.lat!, preset.label).toBeLessThanOrEqual(TOKYO.bbox[3]);
+    }
+  });
+
+  /** The tile coordinate a 3×3 CollisionGrid should be centred on for a preset. */
+  const CENTRE: Record<string, [number, number]> = {
+    skytree: [4, -3],
+    tokyotower: [-2, 2],
+    tokyostation: [-1, -1],
+    ginza: [-1, 1],
+    akihabara: [0, -2],
+    imperialpalace: [-1, 0],
+    sumida: [4, -4],
+  };
+
+  /** Anchor (local metres) of each tower's `index.landmarks` first entry. */
+  const TOWER_ANCHOR: Record<string, Vec2> = {
+    skytree: [3944.01875, -3189.625],
+    tokyotower: [-1958.9714, 2514.657],
+  };
+
+  it('every Tokyo preset resolves (production tiled-boot shape) inside the committed bbox to a point not blocked on its 3×3-tile CollisionGrid and near a road, and the two tower bearings point within ±15° of their anchor', () => {
+    const TOKYO = loadTiledIndex('tokyo');
+    for (const key of TOKYO_KEYS) {
+      const [si, sj] = CENTRE[key]!;
+      // Assemble the preset's 3×3 tiles (buildings + roads) + global water.
+      const raw = loadTiledGlobals('tokyo');
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const tileKey = `${si + di}_${sj + dj}`;
+          if (!(tileKey in TOKYO.tiles)) continue;
+          const t = loadTiledTile('tokyo', tileKey);
+          raw.buildings.push(...t.buildings);
+          raw.roads.push(...t.roads);
+        }
+      }
+      const collision = new CollisionGrid(
+        raw.water?.length
+          ? [
+              ...raw.buildings,
+              ...raw.water.map((poly, i) => ({ id: -1 - i, h: 1, poly })),
+            ]
+          : raw.buildings,
+        25,
+        raw.roads
+          .filter((r) => r.bridge)
+          .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+      );
+      const blocked = (p: Vec2, r?: number): boolean => collision.blocked(p, r);
+
+      // The spawn is resolved EXACTLY as the tiled boot path does it
+      // (architecture.md §4.19): against `index.landmarks` + `index.bbox`
+      // BEFORE any tile fetch, so `buildings`/`roads` are empty here.
+      const spawnCity = {
+        buildings: [],
+        roads: [],
+        bbox: TOKYO.bbox,
+        landmarks: TOKYO.landmarks,
+      };
+      const spawn = resolveSpawn(key, TOKYO.origin, blocked, spawnCity, 'tokyostation');
+
+      // 1. Inside the committed bbox.
+      const ll = unproject(spawn.x, spawn.z, TOKYO.origin);
+      expect(ll.lon, `preset ${key} lon`).toBeGreaterThanOrEqual(TOKYO.bbox[0]);
+      expect(ll.lon, `preset ${key} lon`).toBeLessThanOrEqual(TOKYO.bbox[2]);
+      expect(ll.lat, `preset ${key} lat`).toBeGreaterThanOrEqual(TOKYO.bbox[1]);
+      expect(ll.lat, `preset ${key} lat`).toBeLessThanOrEqual(TOKYO.bbox[3]);
+
+      // 2. Not blocked (with 6 m clearance, the T-0059 parity rule). The one
+      // exception is `sumida`, a riverside vantage that deliberately sits a
+      // few metres from the Sumida waterline — being within 6 m of the bank is
+      // the point of the preset, so it only needs plain walkability.
+      expect(collision.blocked([spawn.x, spawn.z]), `preset ${key}`).toBe(false);
+      if (key !== 'sumida') {
+        expect(collision.blocked([spawn.x, spawn.z], 6), `preset ${key} 6m`).toBe(false);
+      }
+
+      // Ground sanity: the spawn is a street vantage — it sits on/near a road
+      // polyline in the 3×3 tiles (≤ half the widest road + margin), never
+      // floating in a building or mid-river.
+      let roadDist = Infinity;
+      for (const r of raw.roads) {
+        for (let i = 0; i < r.pts.length - 1; i++) {
+          roadDist = Math.min(
+            roadDist,
+            distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]),
+          );
+        }
+      }
+      expect(roadDist, `road proximity ${key}`).toBeLessThan(15);
+
+      // 3. Tower presets face their anchor within ±15°.
+      if (TOWER_ANCHOR[key]) {
+        const [ax, az] = TOWER_ANCHOR[key]!;
+        const expected = Math.atan2(ax - spawn.x, -(az - spawn.z));
+        const delta = Math.abs(normalizeAngle(spawn.yaw - expected));
+        expect(delta, `bearing ${key}`).toBeLessThan((15 * Math.PI) / 180);
+      }
+
+      // The building presets resolve against `index.landmarks` (they exist in
+      // the data) and carry a derived street-vantage coordinate, NOT the tower
+      // anchor itself: the resolved point stays well clear of the anchor.
+      const preset = SPAWN_PRESETS[key];
+      if ('building' in preset) {
+        const anchor = TOKYO.landmarks
+          .filter((a) => a.name === preset.building)
+          .map((a) => [a.x, a.z] as Vec2)[0];
+        expect(anchor, `anchor for ${key}`).toBeDefined();
+        expect(Math.hypot(spawn.x - anchor[0], spawn.z - anchor[1]), `vantage ${key}`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  /**
+   * Clear-sightline rule (PM rework attempt 5): the two relocated Skytree
+   * vantages (`skytree`, `sumida`) must have a buildings-only sightline to
+   * the Skytree anchor free of foreground walls. The old `skytree` sat 156 m
+   * from a 634 m tower (the frame filled with the tower's own base) and the
+   * old `sumida` looked east into the Tokyo Solamachi complex (a purple mass
+   * across the left half of the frame). Build a `CollisionGrid` from ONLY
+   * the buildings of the preset's 3×3 tiles (no water — a river IS the
+   * open corridor here — and no bridge road corridors), then sample the ray
+   * from the spawn toward the anchor every 10 m out to
+   * `min(400 m, distance − 50 m)` and assert `blocked(pt, 2) === false` for
+   * every sample. That mechanically forbids a foreground building filling
+   * the frame between the player and the Skytree.
+   */
+  for (const key of ['skytree', 'sumida'] as const) {
+    it(`${key}: buildings-only sightline from the spawn to the Skytree anchor is clear (no foreground wall in the frame)`, () => {
+      const TOKYO = loadTiledIndex('tokyo');
+      const [si, sj] = CENTRE[key]!;
+      const raw = loadTiledGlobals('tokyo');
+      const buildings: CityData['buildings'] = [];
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const tileKey = `${si + di}_${sj + dj}`;
+          if (!(tileKey in TOKYO.tiles)) continue;
+          const t = loadTiledTile('tokyo', tileKey);
+          buildings.push(...t.buildings);
+          raw.roads.push(...t.roads);
+        }
+      }
+      // Buildings-only grid: no water (open corridor), no bridge corridors.
+      const grid = new CollisionGrid(buildings, 25);
+      const blocked = (p: Vec2, r?: number): boolean => grid.blocked(p, r);
+      const spawnCity = {
+        buildings: [],
+        roads: [],
+        bbox: TOKYO.bbox,
+        landmarks: TOKYO.landmarks,
+      };
+      const spawn = resolveSpawn(key, TOKYO.origin, blocked, spawnCity, 'tokyostation');
+      const anchor = TOKYO.landmarks.filter((a) => a.name === 'Tokyo Skytree')[0];
+      expect(anchor, 'Tokyo Skytree anchor').toBeDefined();
+      const dx = anchor.x - spawn.x;
+      const dz = anchor.z - spawn.z;
+      const dist = Math.hypot(dx, dz);
+      const ux = dx / dist;
+      const uz = dz / dist;
+      const limit = Math.min(400, dist - 50);
+      for (let k = 10; k <= limit; k += 10) {
+        const pt: Vec2 = [spawn.x + k * ux, spawn.z + k * uz];
+        expect(blocked(pt, 2), `sightline ${key} at k=${k} m (of ${limit.toFixed(0)})`).toBe(false);
+      }
+    });
+  }
 });
