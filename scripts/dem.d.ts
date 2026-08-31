@@ -22,9 +22,9 @@ export function decodeHgt(
 export class Dem {
   constructor(
     tiles: Map<string, { side: number; samples: Int16Array }>,
-    opts?: { bareEarth?: boolean },
+    opts?: { bareEarth?: boolean | 'ridge' },
   );
-  bareEarth: boolean;
+  bareEarth: boolean | 'ridge';
   elevationAt(lat: number, lon: number): number;
   get voids(): number;
 }
@@ -36,14 +36,14 @@ export function fetchDemTiles(
     fetchImpl?: (
       url: string,
     ) => Promise<{ ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> }>;
-    bareEarth?: boolean;
+    bareEarth?: boolean | 'ridge';
   },
 ): Promise<Dem>;
 
 export function buildTerrain(opts: {
   bbox: Bbox;
   origin: Origin;
-  dem: { elevationAt(lat: number, lon: number): number; bareEarth?: boolean };
+  dem: { elevationAt(lat: number, lon: number): number; bareEarth?: boolean | 'ridge' };
   step?: number;
   waterRings?: Vec2[][];
   bare?: boolean;
@@ -53,8 +53,11 @@ export function unproject(x: number, z: number, origin: Origin): [number, number
 
 // Bare-earth filter (data-format.md §Terrain step 3b). `erode` is a 9×9
 // second-smallest window (T-0109: widened from 5×5 so dense Shibuya still
-// reaches its local minimum); `smooth` is a 3×3 mean that the bare-earth
+// reaches its local minimum); `ridgeOpen` is the directional opening of the
+// `ridge` mode (wave 14b); `smooth` is a 3×3 mean that the bare-earth
 // path applies TWICE (T-0109).
 export function erode(heights: number[], cols: number, rows: number): number[];
+
+export function ridgeOpen(heights: number[], cols: number, rows: number): number[];
 
 export function smooth(heights: number[], cols: number, rows: number): number[];

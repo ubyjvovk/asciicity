@@ -23,7 +23,7 @@ node scripts/fetch-osm.mjs \
   [--out public/data/city.json] \
   [--lang en] \
   [--dem 1] \
-  [--dem-bare] \
+  [--dem-bare 1|true|ridge] \
   [--step 20] \
   [--tiles] \
   [--chunks NxM]
@@ -42,17 +42,21 @@ Flags:
   1-arc-second tiles fetched from the AWS Terrain Tiles "skadi" mirror
   (cached under `.cache/dem/`). The Overpass timeout is bumped from 180 s to
   300 s to give the larger Kyiv box a chance to complete.
-- `--dem-bare` — apply the wave-13 bare-earth filter to the DEM before the
+- `--dem-bare [1|true|ridge]` — apply a bare-earth filter to the DEM before the
   datum/height step (data-format.md §Terrain step 3b). SRTM is a radar
   surface model, so in dense cities (Tokyo) roof heights contaminate the
-  street elevation; the filter erodes (second-smallest of a **9×9** window,
-  T-0109) then smooths (mean of a 3×3 window applied **twice**, T-0109) the
-  absolute-height grid, so single-node roof spikes — and even 4×4 spike
-  clusters — vanish while relief wider than the 180 m window is preserved.
-  The second smooth pass is what brings dense Shibuya's adjacent node-to-node
-  steps down to ≤ 3 m. Off by default (existing datasets are unchanged);
-  requires `--dem 1`. Bare `--dem-bare` and the value forms `--dem-bare 1` /
-  `--dem-bare true` all enable it.
+  street elevation. Two modes: the default **erode** mode (`--dem-bare`,
+  `--dem-bare 1`, `--dem-bare true` — the wave-13 filter, byte-for-byte
+  unchanged) erodes (second-smallest of a **9×9** window, T-0109) then smooths
+  (mean of a 3×3 window applied **twice**, T-0109) the absolute-height grid;
+  the **`ridge`** mode (`--dem-bare ridge`, wave 14b — what central Kyiv will
+  use) replaces the erode with a directional opening that also tells roofs
+  from ridges: a roof has lower ground in every direction and is cut, while a
+  real bluff crest keeps a high ray along its plateau and is not shaved (the
+  wave-13 erode measured −19 m on the Lavra crest, −12 m on the funicular
+  bluff). Both then apply the same double 3×3 smooth. Off by default (existing
+  datasets are unchanged); requires `--dem 1`. Any other value is rejected
+  loudly.
 - `--step <m>` — DEM grid spacing in metres (default 20).
 - `--tiles` — ship the city as a **tiled dataset** (sector streaming, wave
   11): `--out` then names a city DIRECTORY holding `index.json` plus

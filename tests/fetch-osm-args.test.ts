@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { parseArgs } from '../scripts/fetch-osm';
+import { parseArgs, resolveDemBare } from '../scripts/fetch-osm';
 
 describe('parseArgs', () => {
   it('bare --tiles before another flag → tiles: true, --out keeps its own value', () => {
@@ -61,6 +61,23 @@ describe('parseArgs', () => {
     expect(parseArgs(['--dem-bare', 'true'])).toEqual({ 'dem-bare': 'true' });
     // Absent — the key is not set at all (main.js reads a truthy check).
     expect(parseArgs(['--dem', '1'])).toEqual({ dem: '1' });
+  });
+
+  it('--dem-bare ridge (wave 14b) parses to the string value', () => {
+    expect(parseArgs(['--dem-bare', 'ridge'])).toEqual({ 'dem-bare': 'ridge' });
+  });
+
+  it('resolveDemBare maps absent/false → false, 1|true → true (erode), ridge → "ridge", anything else throws', () => {
+    expect(resolveDemBare(false)).toBe(false);
+    expect(resolveDemBare(undefined)).toBe(false);
+    expect(resolveDemBare(true)).toBe(true);
+    expect(resolveDemBare('1')).toBe(true);
+    expect(resolveDemBare('true')).toBe(true);
+    expect(resolveDemBare('ridge')).toBe('ridge');
+    // The erode value from the bare `--dem-bare` form is `true`.
+    expect(resolveDemBare(parseArgs(['--dem-bare'])['dem-bare'])).toBe(true);
+    expect(() => resolveDemBare('bogus')).toThrow(/bad --dem-bare/);
+    expect(() => resolveDemBare(3)).toThrow(/bad --dem-bare/);
   });
 
   it('a well-formed full command line parses to the same result as before the fix', () => {

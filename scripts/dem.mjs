@@ -121,16 +121,20 @@ function sampleTile(samples, side, row, col) {
 export class Dem {
   /**
    * @param {Map<string, {side: number, samples: Int16Array}>} tiles decoded tiles
-   * @param {{bareEarth?: boolean}} [opts] `bareEarth` — data-format.md 3b: when
-   *   set, `buildTerrain` runs the erode + smooth bare-earth filter before
-   *   computing datum/heights.
+   * @param {{bareEarth?: boolean|'ridge'}} [opts] `bareEarth` — data-format.md
+   *   3b filter mode: `true` runs erode + double smooth; `'ridge'` runs the
+   *   directional opening `ridgeOpen` + double smooth; `false` (default) off.
    */
   constructor(tiles, { bareEarth = false } = {}) {
     /** @type {Map<string, {side: number, samples: Int16Array}>} */
     this.tiles = tiles;
     /** @private count of void corners substituted so far */
     this._voids = 0;
-    /** Enables the bare-earth filter in `buildTerrain` (data-format.md 3b). */
+    /**
+     * Bare-earth filter mode used by `buildTerrain` (data-format.md 3b):
+     * `false` off, `true` = the wave-13 erode path, `'ridge'` = the
+     * directional-opening `ridgeOpen` path (Kyiv's bluff crests).
+     */
     this.bareEarth = bareEarth;
   }
 
@@ -331,6 +335,59 @@ export function smooth(heights, cols, rows) {
   return out;
 }
 
+// 8 compass half-rays cast from a node, as (dRow, dCol) steps. Row 0 is the
+// north edge, col grows east; E, NE, N, NW, W, SW, S, SE clockwise from east.
+const HALF_RAYS = [
+  [0, 1], // E
+  [-1, 1], // NE
+  [-1, 0], // N
+  [-1, -1], // NW
+  [0, -1], // W
+  [1, -1], // SW
+  [1, 0], // S
+  [1, 1], // SE
+];
+
+/**
+ * Bare-earth directional opening (data-format.md §Terrain step 3b, `ridge`
+ * mode): for node `n`, cast the 8 half-rays of **4 nodes each including `n`**
+ * (rays clip at grid borders), take each ray's minimum, then `H1(n) = max`
+ * over the 8 ray-mins. Because every ray includes `n`, `H1 ≤ H0` — the filter
+ * only ever lowers. Unlike the plain `erode` min, a ridge/plateau keeps at
+ * least one high ray along its crest (the ray that hugs the plateau), so real
+ * bluff edges survive; a roof has low ground in every direction and is cut to
+ * its surroundings. Pure — returns a new array, input never mutated, each
+ * output node reads only the input grid. Then `buildTerrain` applies the same
+ * double 3×3 `smooth` as the erode path.
+ * @param {number[]} heights row-major grid, length `cols * rows`
+ * @param {number} cols
+ * @param {number} rows
+ * @returns {number[]} opened grid, same length as input
+ */
+export function ridgeOpen(heights, cols, rows) {
+  const out = new Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let best = -Infinity;
+      for (const [dr, dc] of HALF_RAYS) {
+        let rayMin = Infinity;
+        for (let k = 0; k < 4; k++) {
+          const rr = r + dr * k;
+          const cc = c + dc * k;
+          // Rays clip at grid borders — `n` itself is always in-bounds, so
+          // every ray has at least one node.
+          if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) break;
+          const v = heights[rr * cols + cc];
+          if (v < rayMin) rayMin = v;
+        }
+        if (rayMin > best) best = rayMin;
+      }
+      out[r * cols + c] = best;
+    }
+  }
+  return out;
+}
+
 /**
  * Bilinear sample of a row-major grid at a continuous `(x, z)` local-metres
  * point; clips to the grid's outer cells (mirrors `sampleTile`).
@@ -361,11 +418,13 @@ function sampleGridBilinear(grid, cols, rows, x0, z0, step, x, z) {
  * every `step`-spaced node relative to `datum`, then flatten every node inside
  * each (already clipped) water ring to that ring's 10th-percentile level.
  * With `bare: true` (or `dem.bareEarth`) the absolute grid is filtered
- * between steps 3 and 4 (erode → 3×3 smooth → 3×3 smooth — the smooth runs
- * twice, T-0109); datum and water levels then derive from the FILTERED
- * grid (data-format.md §Terrain step 3b).
+ * between steps 3 and 4; the filter mode is `'ridge'` → `ridgeOpen` + double
+ * 3×3 smooth, anything else truthy → erode + double 3×3 smooth (the smooth
+ * runs twice, T-0109); datum and water levels then derive from the FILTERED
+ * grid (data-format.md §Terrain step 3b). The wave-13 erode path is
+ * byte-for-byte unchanged.
  * @param {{bbox: [number,number,number,number], origin: {lat:number,lon:number},
- *   dem: {elevationAt(lat:number, lon:number): number, bareEarth?: boolean},
+ *   dem: {elevationAt(lat:number, lon:number): number, bareEarth?: boolean|'ridge'},
  *   step?: number, waterRings?: Array<Array<[number,number]>>, bare?: boolean}} opts
  * @returns {{terrain: Object, waterLevels: number[]}} `{terrain, waterLevels}`
  */
@@ -377,7 +436,7 @@ export function buildTerrain({
   waterRings = [],
   bare,
 }) {
-  const useBare = bare ?? Boolean(dem && dem.bareEarth);
+  const useBare = bare ?? (dem && dem.bareEarth ? dem.bareEarth : false);
   const [minLon, minLat, maxLon, maxLat] = bbox;
   const corners = [
     project(minLon, minLat, origin),
@@ -411,7 +470,10 @@ export function buildTerrain({
         absolute[r * cols + c] = dem.elevationAt(lat, lon);
       }
     }
-    const eroded = erode(absolute, cols, rows);
+    const eroded =
+      useBare === 'ridge'
+        ? ridgeOpen(absolute, cols, rows)
+        : erode(absolute, cols, rows);
     // T-0109: the 3×3 mean smooth runs TWICE so residual lumps after the
     // widest erode window still flatten out (adjacent-node deltas ≤ 3 m).
     const smoothed = smooth(smooth(eroded, cols, rows), cols, rows);
