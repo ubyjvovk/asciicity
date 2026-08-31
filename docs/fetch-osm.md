@@ -98,6 +98,11 @@ origin Maidan Nezalezhnosti. With `--dem 1` the converter samples SRTM into a
 level (`waterLevels`), so buildings drape over the Pechersk hills and the
 Dnipro reads as a flat sheet ~60 m below Maidan.
 
+Wave 14b (T-0115): the committed `terrain` + `waterLevels` were regenerated in
+place from the cached `N50E030` tile with the bare-earth `ridge` filter (the
+alias carries `--dem-bare ridge`), which strips roof contamination from the
+streets while preserving the real Dnipro bluff relief.
+
 ## Central Tokyo (`tokyo/`, wave 11; bbox v2 wave 12, T-0102)
 
 The first streamed-only city ships as a **tiled** directory
