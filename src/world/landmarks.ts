@@ -102,6 +102,16 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
     'MetLife Building': { color: 0xd9cfbf },
     'Madison Square Garden': { shape: 'dome', color: 0xd9cfbf },
   },
+  // Tokyo (wave 11, docs/architecture.md §4.13 wave-11 table). OSM has the
+  // Tokyo Skytree at its real 634 m (the tallest in the dataset — correct, no
+  // override) and Tokyo Tower as a 21 m stub (real 333 m — overridden here).
+  // Both get the `tower` silhouette cap; Tokyo Tower wears the Golden Gate
+  // Bridge international-orange `0xc0362c`. No extras: both towers exist in
+  // the OSM data.
+  tokyo: {
+    'Tokyo Skytree': { shape: 'tower' },
+    'Tokyo Tower': { h: 333, shape: 'tower', color: 0xc0362c },
+  },
 };
 
 /** Per-city extra synthetic buildings appended at load. */
@@ -152,6 +162,8 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
       color: 0xe8e0c8,
     },
   ],
+  // Tokyo needs no extras — both towers ship in the OSM data (T-0098).
+  tokyo: [],
 };
 
 /**

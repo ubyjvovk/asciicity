@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -462,6 +462,89 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     lon: -73.99734,
     lat: 40.731,
     bearingDeg: 0,
+  },
+  // Tokyo presets (wave 11, docs/integration.md §Tokyo presets). Coordinates
+  // were DERIVED FROM the committed dataset (T-0098): each fixed-coordinate
+  // preset sits on an unblocked road vertex read out of the relevant tile
+  // files (`index.landmarks` anchors + tile road polylines), unprojected to
+  // WGS84, with the bearing aimed at the named landmark/tower. The two tower
+  // presets are building-based: `landmarkSpawn` resolves them against
+  // `applyLandmarks(tokyo/index.json)` and the anchor's `index.landmarks`
+  // entry, picking a road vertex that keeps a clear view corridor and faces
+  // the tower's centroid (street vantages LOOKING AT the tower, not points
+  // inside its footprint). Default spawn: `tokyostation`.
+  skytree: {
+    // Street vantage 156 m NE of the tower on a residential road in Skytree
+    // Town (road vertex in tile 3_-4), bearing 216° straight at the tower
+    // anchor. This NE approach also sits inside the "TOKYO SKYTREE" place's
+    // Voronoi cell (nearest place 85 m), so the HUD ZONE row reads `NEAR
+    // TOKYO SKYTREE` (the 634 m tower's floating tag is off-frame at this
+    // range). Tokyo is streamed-only and the tiled boot resolves spawns from
+    // `index.landmarks` before any tile fetch (§4.19) — so this coordinate is
+    // the REAL spawn: a walkable road vertex facing the tower, not a point
+    // inside its footprint.
+    building: 'Tokyo Skytree',
+    label: 'Facing the Tokyo Skytree',
+    city: 'tokyo',
+    lon: 139.811739,
+    lat: 35.711179,
+    bearingDeg: 216,
+  },
+  tokyotower: {
+    // Street vantage 150 m west of the tower (road vertex in tile −2_2),
+    // bearing 271° straight at the tower anchor.
+    building: 'Tokyo Tower',
+    label: 'Facing Tokyo Tower',
+    city: 'tokyo',
+    lon: 139.747091,
+    lat: 35.658438,
+    bearingDeg: 271,
+  },
+  tokyostation: {
+    // Road vertex 20 m from the station building anchor (index.landmarks
+    // 'Tokyo Station' at −47.6, −201.3), bearing 231 toward the station.
+    lon: 139.766744,
+    lat: 35.683134,
+    bearingDeg: 231,
+    label: 'Tokyo Station, facing the station',
+    city: 'tokyo',
+  },
+  ginza: {
+    // Road vertex 6 m from the Ginza Crossing place, bearing 72 toward it.
+    lon: 139.764968,
+    lat: 35.671201,
+    bearingDeg: 72,
+    label: 'Ginza Crossing, facing up Chuo Dori',
+    city: 'tokyo',
+  },
+  akihabara: {
+    // Road vertex 112 m from the 'Akihabara' building anchor (tile 0_-2),
+    // bearing 222° straight at it.
+    building: 'Akihabara',
+    label: 'Facing Akihabara',
+    city: 'tokyo',
+    lon: 139.77429,
+    lat: 35.699287,
+    bearingDeg: 222,
+  },
+  imperialpalace: {
+    // Road vertex on the plaza ring road 62 m from the Imperial Palace
+    // Frontal Plaza place, bearing 296 toward the palace grounds.
+    lon: 139.757616,
+    lat: 35.679583,
+    bearingDeg: 296,
+    label: 'Imperial Palace plaza, facing the palace',
+    city: 'tokyo',
+  },
+  sumida: {
+    // Riverside road vertex 2 m from the Sumida waterline, bearing 91 —
+    // straight across/along the river at the Skytree (3944, −3190), which
+    // fills the frame east of the launch.
+    lon: 139.806509,
+    lat: 35.710096,
+    bearingDeg: 91,
+    label: 'Sumida riverbank, facing the Skytree',
+    city: 'tokyo',
   },
 };
 

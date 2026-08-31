@@ -9,7 +9,7 @@ import { applyLandmarks, LANDMARK_FIXES } from '../src/world/landmarks';
 import { colorFor } from '../src/world/palette';
 import { landmarkAnchors } from '../src/hud/tags';
 import { loadSfCity } from './sfCity';
-import { loadTiledCity } from './tiledCity';
+import { loadTiledCity, loadTiledGlobals, loadTiledTile } from './tiledCity';
 
 const KYIV: CityData = loadTiledCity('kyiv');
 const LONDON: CityData = loadTiledCity('london');
@@ -438,5 +438,39 @@ describe('applyLandmarks (Manhattan)', () => {
     }
     // Sanity: Coit is still 64 m ivory.
     expect(names['Coit Tower'].h).toBe(64);
+  });
+});
+
+// Wave 11 Tokyo landmarks (T-0098): the two towers ship in the OSM data — no
+// extras — and get `tower` caps. Tokyo Skytree is already its real 634 m on
+// the data (no height fix); Tokyo Tower is a 21 m OSM stub and is overridden
+// to its real 333 m, painted the Golden Gate Bridge international orange.
+describe('applyLandmarks (Tokyo)', () => {
+  /** Global bridges + the two tower tiles only (avoids loading all ~30 MB). */
+  function tokyoTowersCity(): CityData {
+    const globals = loadTiledGlobals('tokyo');
+    for (const key of ['3_-4', '-2_2']) {
+      const t = loadTiledTile('tokyo', key);
+      globals.buildings.push(...t.buildings);
+      globals.roads.push(...t.roads);
+    }
+    return globals;
+  }
+
+  it('sets both towers to shape tower, keeps Skytree 634, fixes Tokyo Tower 21 → 333 in international orange', () => {
+    const city = applyLandmarks(tokyoTowersCity(), 'tokyo');
+    const names = byName(city.buildings);
+    expect(names['Tokyo Skytree'].shape).toBe('tower');
+    expect(names['Tokyo Skytree'].h).toBe(634);
+    expect(names['Tokyo Tower'].shape).toBe('tower');
+    expect(names['Tokyo Tower'].h).toBe(333);
+    expect(colorFor(names['Tokyo Tower'])).toBe(0xc0362c);
+  });
+
+  it('appends no extra buildings (both towers already exist in the data)', () => {
+    const before = tokyoTowersCity();
+    const city = applyLandmarks(before, 'tokyo');
+    expect(city.buildings.length).toBe(before.buildings.length);
+    expect(city.buildings.filter((b) => b.id <= -1000)).toHaveLength(0);
   });
 });

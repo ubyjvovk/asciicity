@@ -68,6 +68,15 @@ export const CITIES: readonly CityInfo[] = [
     sizeBytes: 920302,
     tiled: true,
   },
+  {
+    id: 'tokyo',
+    label: 'TOKYO',
+    file: 'data/tokyo/index.json',
+    defaultSpawn: 'tokyostation',
+    blurb: 'Imperial Palace to the Skytree · streamed',
+    sizeBytes: 1979748,
+    tiled: true,
+  },
 ];
 
 /**
