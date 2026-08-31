@@ -7,7 +7,19 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { Road, RoadClass } from '../src/data/types';
 import { mulberry32 } from '../src/data/synthetic';
-import { buildRoadGraph, PathWalker, BusFleet, BoatFleet } from '../src/world/traffic';
+import {
+  buildRoadGraph,
+  PathWalker,
+  BusFleet,
+  BoatFleet,
+  CarFleet,
+  CAR_CLASSES,
+  CAR_PALETTE,
+  CAR_SPEED_MIN,
+  CAR_SPEED_MAX,
+  carCount,
+  eligibleRoadKm,
+} from '../src/world/traffic';
 
 function road(cls: RoadClass, pts: [number, number][], id = 1): Road {
   return { id, cls, pts };
@@ -279,5 +291,141 @@ describe('BoatFleet', () => {
     expect(fleet.count).toBe(0);
     expect(() => fleet.update(0.5)).not.toThrow();
     expect(fleet.object instanceof THREE.Group).toBe(true);
+  });
+});
+
+describe('CarFleet — density formula (§4.21)', () => {
+  it('tiny eligible network clamps to the 30-car floor', () => {
+    // 1 km of primary → round(1/0.35) = 3, clamped to 30.
+    expect(carCount(1)).toBe(30);
+    const fleet = new CarFleet([road('primary', [[0, 0], [1000, 0]], 1)], 41);
+    expect(fleet.count).toBe(30);
+  });
+
+  it('mid-sized eligible network computes per formula', () => {
+    // 50 km → round(50/0.35) = 143.
+    expect(carCount(50)).toBe(143);
+    // 20 km eligible: two 10-km primaries.
+    const roads = [
+      road('primary', [[0, 0], [10_000, 0]], 1),
+      road('secondary', [[0, 1000], [10_000, 1000]], 2),
+    ];
+    expect(eligibleRoadKm(roads)).toBeCloseTo(20, 5);
+    // 20 km → round(20/0.35) = 57.
+    const fleet = new CarFleet(roads, 41);
+    expect(fleet.count).toBe(57);
+  });
+
+  it('huge eligible network clamps to the 250-car ceiling', () => {
+    // 200 km → round(200/0.35) = 571, clamped to 250.
+    expect(carCount(200)).toBe(250);
+    const fleet = new CarFleet(
+      [road('primary', [[0, 0], [200_000, 0]], 1)],
+      41,
+    );
+    expect(fleet.count).toBe(250);
+  });
+
+  it('empty eligible graph → count 0 and update is a no-op', () => {
+    // No eligible roads (footway is not in CAR_CLASSES).
+    const fleet = new CarFleet(
+      [road('footway', [[0, 0], [10_000, 0]], 1)],
+      41,
+    );
+    expect(fleet.count).toBe(0);
+    expect(fleet.object instanceof THREE.Group).toBe(true);
+    expect(() => fleet.update(0.5)).not.toThrow();
+    // Truly empty list too.
+    const empty = new CarFleet([], 41);
+    expect(empty.count).toBe(0);
+    expect(() => empty.update(0.5)).not.toThrow();
+  });
+});
+
+describe('CarFleet — per-car speeds and palette', () => {
+  const LONG = [
+    road('primary', [[-5000, 0], [5000, 0]], 1),
+    road('secondary', [[0, -5000], [0, 5000]], 2),
+  ];
+
+  it('every per-car speed lies within [CAR_SPEED_MIN, CAR_SPEED_MAX]', () => {
+    const fleet = new CarFleet(LONG, 41);
+    expect(fleet.count).toBeGreaterThan(0);
+    for (const s of fleet.speeds) {
+      expect(s).toBeGreaterThanOrEqual(CAR_SPEED_MIN);
+      expect(s).toBeLessThan(CAR_SPEED_MAX);
+    }
+  });
+
+  it('speeds are deterministic per seed (byte-identical across builds)', () => {
+    const a = new CarFleet(LONG, 41);
+    const b = new CarFleet(LONG, 41);
+    expect(a.speeds).toEqual(b.speeds);
+    // A different seed changes the draws (not the count, since the road
+    // network is the same — density is a pure function of length).
+    const c = new CarFleet(LONG, 42);
+    expect(c.count).toBe(a.count);
+    expect(c.speeds).not.toEqual(a.speeds);
+  });
+
+  it('every colour comes from the 6-colour CAR_PALETTE', () => {
+    const fleet = new CarFleet(LONG, 41);
+    expect(CAR_PALETTE.length).toBe(6);
+    const palette = new Set(CAR_PALETTE);
+    expect(fleet.colors.length).toBe(fleet.count);
+    for (const c of fleet.colors) expect(palette.has(c)).toBe(true);
+  });
+
+  it('CAR_CLASSES is the whole drivable network (excludes footway/pedestrian)', () => {
+    expect(CAR_CLASSES).toEqual(['primary', 'secondary', 'tertiary', 'residential']);
+  });
+});
+
+describe('CarFleet — motion and rendering', () => {
+  const LONG = [
+    road('primary', [[-5000, 0], [5000, 0]], 1),
+    road('secondary', [[0, -5000], [0, 5000]], 2),
+  ];
+
+  it('cars advance along the graph polylines on update(dt) — position moves and stays on the polyline', () => {
+    const fleet = new CarFleet(LONG, 41);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    // Snapshot positions before the first advance.
+    fleet.update(0); // seat cars on the y-plane without motion
+    const before: [number, number][] = [];
+    for (let i = 0; i < fleet.count; i++) {
+      before.push([mesh.instanceMatrix.array[i * 16 + 12], mesh.instanceMatrix.array[i * 16 + 14]]);
+    }
+    fleet.update(1); // one second of travel
+    let moved = 0;
+    for (let i = 0; i < fleet.count; i++) {
+      const x = mesh.instanceMatrix.array[i * 16 + 12];
+      const z = mesh.instanceMatrix.array[i * 16 + 14];
+      // Every car is on one of the two axis-aligned polylines
+      // (x-axis at z ≈ 0, or z-axis at x ≈ 0), well inside [-5000, 5000].
+      const onXAxis = Math.abs(z) < 1e-6 && x >= -5000 && x <= 5000;
+      const onZAxis = Math.abs(x) < 1e-6 && z >= -5000 && z <= 5000;
+      expect(onXAxis || onZAxis).toBe(true);
+      const [x0, z0] = before[i];
+      if (Math.hypot(x - x0, z - z0) > 0.1) moved += 1;
+    }
+    // Every car should have moved (per-car speed is at least CAR_SPEED_MIN).
+    expect(moved).toBe(fleet.count);
+  });
+
+  it('one instanced draw call: object is a THREE.InstancedMesh with count === fleet.count', () => {
+    const fleet = new CarFleet(LONG, 41);
+    expect(fleet.object).toBeInstanceOf(THREE.InstancedMesh);
+    expect((fleet.object as THREE.InstancedMesh).count).toBe(fleet.count);
+  });
+
+  it('with heightAt = () => 5 every car sits at y = 5.75 after one update (CAR_HEIGHT/2 = 0.75)', () => {
+    const fleet = new CarFleet(LONG, 41, () => 5);
+    const mesh = fleet.object as THREE.InstancedMesh;
+    fleet.update(1);
+    for (let i = 0; i < fleet.count; i++) {
+      const y = mesh.instanceMatrix.array[i * 16 + 13];
+      expect(y).toBeCloseTo(5.75, 5);
+    }
   });
 });

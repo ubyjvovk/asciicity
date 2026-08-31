@@ -36,12 +36,13 @@ describe('loadSettings', () => {
       hud: false,
       minimap: false,
       crt: false,
+      cars: false,
       render: 'gloom',
       city: 'london',
     };
     const storage = fakeStorage(JSON.stringify(stored));
 
-    // URL overrides hud, crt, render, city; minimap is absent → storage.
+    // URL overrides hud, crt, render, city; minimap and cars are absent → storage.
     const url = new URLSearchParams(
       'hud=1&crt=1&render=pico8&city=kyiv&theme=gloom',
     );
@@ -49,6 +50,7 @@ describe('loadSettings', () => {
     expect(s.hud).toBe(true); // URL
     expect(s.minimap).toBe(false); // storage (URL silent)
     expect(s.crt).toBe(true); // URL
+    expect(s.cars).toBe(false); // storage (URL silent)
     expect(s.render).toBe('pico8'); // URL `render` wins over `theme`
     expect(s.city).toBe('kyiv'); // URL
 
@@ -59,6 +61,18 @@ describe('loadSettings', () => {
 
     // Storage only (no URL keys) → storage values.
     expect(loadSettings(storage, new URLSearchParams())).toEqual(stored);
+  });
+
+  it('cars defaults to true (empty URL + empty storage)', () => {
+    expect(DEFAULT_SETTINGS.cars).toBe(true);
+    expect(
+      loadSettings(fakeStorage(), new URLSearchParams()).cars,
+    ).toBe(true);
+  });
+
+  it('?cars=0 → cars false', () => {
+    const s = loadSettings(fakeStorage(), new URLSearchParams('cars=0'));
+    expect(s.cars).toBe(false);
   });
 
   it('malformed storage JSON → defaults', () => {
@@ -81,6 +95,22 @@ describe('applySettingsToUrl', () => {
     expect(out).toContain('city=kyiv');
     expect(out).not.toMatch(/[?&]hud=/);
   });
+
+  it("share-URL drops cars when it equals its default (true)", () => {
+    // Default cars=true → the param is stripped.
+    const kept = applySettingsToUrl('?city=kyiv&cars=0', {
+      ...DEFAULT_SETTINGS,
+      cars: true,
+    });
+    expect(kept).toContain('city=kyiv');
+    expect(kept).not.toMatch(/[?&]cars=/);
+    // Non-default cars=false → the param is written as `cars=0`.
+    const off = applySettingsToUrl('?city=kyiv', {
+      ...DEFAULT_SETTINGS,
+      cars: false,
+    });
+    expect(off).toContain('cars=0');
+  });
 });
 
 describe('saveSettings', () => {
@@ -90,6 +120,7 @@ describe('saveSettings', () => {
       hud: false,
       minimap: true,
       crt: false,
+      cars: false,
       render: 'gloom',
       city: 'kyiv',
     };
