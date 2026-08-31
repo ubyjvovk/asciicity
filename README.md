@@ -80,6 +80,10 @@ from `index.html`. Removing that one `<script>` line disables it.
 The footer author and repo URL live in [`src/credits.ts`](src/credits.ts) —
 edit that file to rebrand.
 
+The `matrix` render style's katakana glyphs are 8×16 bitmaps derived from
+[GNU Unifont](https://unifoundry.com/unifont/) (dual-licensed SIL OFL 1.1 /
+GPL v2+ with the font-embedding exception).
+
 ## Tests
 
 ```sh
