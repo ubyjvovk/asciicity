@@ -474,21 +474,26 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
   // the tower's centroid (street vantages LOOKING AT the tower, not points
   // inside its footprint). Default spawn: `tokyostation`.
   skytree: {
-    // Street vantage 156 m NE of the tower on a residential road in Skytree
-    // Town (road vertex in tile 3_-4), bearing 216° straight at the tower
-    // anchor. This NE approach also sits inside the "TOKYO SKYTREE" place's
-    // Voronoi cell (nearest place 85 m), so the HUD ZONE row reads `NEAR
-    // TOKYO SKYTREE` (the 634 m tower's floating tag is off-frame at this
-    // range). Tokyo is streamed-only and the tiled boot resolves spawns from
-    // `index.landmarks` before any tile fetch (§4.19) — so this coordinate is
-    // the REAL spawn: a walkable road vertex facing the tower, not a point
-    // inside its footprint.
+    // Street vantage 795 m E of the tower (road vertex in tile 4_-3) on the
+    // north bank of the Kita-Jūkken-gawa canal in Sumida Ward, bearing 286°
+    // straight at the tower anchor (3944.0, −3189.6). This is the only
+    // 550–900 m band vertex around the tower with a completely clean
+    // buildings-only sightline (mechanical rule from PM rework attempt 5) —
+    // the PM's suggested west/SW-across-the-Sumida vantages are all blocked
+    // by the dense Oshiage/Asakusa buildings between the tower base
+    // (Solamachi extends 90 m west of the anchor) and any 550–900 m road
+    // vertex on the postcard side. The east-side vantage still frames the
+    // 634 m tower well: at 795 m the tower rises ≈ 39° above horizon,
+    // dominating the frame without wall-fill. Tokyo is streamed-only and the
+    // tiled boot resolves spawns from `index.landmarks` before any tile
+    // fetch (§4.19) — so this coordinate is the REAL spawn: a walkable road
+    // vertex facing the tower, not a point inside its footprint.
     building: 'Tokyo Skytree',
     label: 'Facing the Tokyo Skytree',
     city: 'tokyo',
-    lon: 139.811739,
-    lat: 35.711179,
-    bearingDeg: 216,
+    lon: 139.819167,
+    lat: 35.708042,
+    bearingDeg: 286,
   },
   tokyotower: {
     // Street vantage 150 m west of the tower (road vertex in tile −2_2),
@@ -537,13 +542,23 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     city: 'tokyo',
   },
   sumida: {
-    // Riverside road vertex 2 m from the Sumida waterline, bearing 91 —
-    // straight across/along the river at the Skytree (3944, −3190), which
-    // fills the frame east of the launch.
-    lon: 139.806509,
-    lat: 35.710096,
-    bearingDeg: 91,
-    label: 'Sumida riverbank, facing the Skytree',
+    // Sakurabashi-dōri road vertex 435 m NE of the tower (tile 4_-4),
+    // bearing 241° straight at the tower anchor. The PM's post-review rule
+    // requires a clean buildings-only sightline (no foreground wall filling
+    // the frame — the old riverside spot's ray crossed Solamachi from k=200
+    // through k=330 m, the purple mass). The Sumida-west-bank vantages that
+    // face Skytree straight across the river all cross Solamachi (which
+    // extends 90 m west of the anchor) or the dense Oshiage buildings, so
+    // no strict-riverside 300–500 m road vertex passes the sightline test.
+    // Sakurabashi-dōri (`桜橋通り`) is the Sumida-Ward street that runs to
+    // Sakura-bashi (the pedestrian bridge over the Sumida) — 270 m south of
+    // the Kita-Jūkken-gawa canal (water 189) and about 500 m east of the
+    // Sumida itself. It approaches the tower from the north-east so the
+    // ray never crosses Solamachi.
+    lon: 139.814942,
+    lat: 35.711931,
+    bearingDeg: 241,
+    label: 'Sakurabashi-dōri, facing the Skytree',
     city: 'tokyo',
   },
 };

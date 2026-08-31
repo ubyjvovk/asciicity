@@ -3,9 +3,10 @@
  * the first streamed-only city (~112 k building ways, ~30 MB of tiles), so
  * these tests allow a long ready timeout. Proves the tiled boot at a small
  * `?tileradius=600` becomes `ready` with `__asciicity.tiles.loaded` non-empty
- * and a `BEARING` HUD row, and that booting the `skytree` preset eventually
- * surfaces a "Skytree" name in the ZONE/tag layer (polled with a tolerant
- * timeout). Never edits smoke/tiles/loading specs.
+ * and a `BEARING` HUD row, and that booting the `skytree` preset resolves to
+ * the derived-from-data east-side vantage on tile 4_-3 with the spawn tile
+ * loaded (mechanical, does not depend on which HUD surface carries the
+ * `Skytree` string at 795 m out). Never edits smoke/tiles/loading specs.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -47,21 +48,33 @@ test('tokyo: boots ?city=tokyo&tileradius=600 at the default spawn → ready wit
   await expect(page.locator('#hud')).toContainText('BEARING');
 });
 
-test('tokyo: booting the skytree preset eventually shows a "Skytree" name in the ZONE/tag layer', async ({
+test('tokyo: booting the skytree preset resolves to the east-side vantage on tile 4_-3 with the spawn tile loaded', async ({
   page,
 }) => {
   await page.goto('/?city=tokyo&tileradius=600&at=skytree');
   await waitReady(page);
 
-  // Poll (tolerant): the ZONE text (HUD) and the floating tag layer both
-  // derive from the loaded data. The Skytree sits ~200 m ahead of the preset
-  // on a road vertex facing it, so once its tile streams in, its name
-  // ("Tokyo Skytree") appears in the tag layer and the nearest place
-  // ("TOKYO SKYTREE") becomes the HUD zone. Case-insensitive body-wide match
-  // covers both render surfaces. Tolerant 60 s timeout.
-  await page.waitForFunction(
-    () => /skytree/i.test(document.body.innerText),
-    undefined,
-    { timeout: 60_000 },
-  );
+  // Mechanical assertions replace the old body-text `Skytree` poll (the PM
+  // rework relocated `skytree` from 156 m NE to 795 m E of the tower, past
+  // the ZONE's Voronoi cell for "TOKYO SKYTREE"): the player position matches
+  // the preset's local coordinate within 60 m, and the spawn tile has
+  // streamed in. See docs/integration.md §Tokyo presets / this test's peer
+  // unit test in `tests/spawn.test.ts` for the coordinate derivation.
+  const info = await page.evaluate(() => {
+    const api = (window as unknown as {
+      __asciicity?: {
+        state?: { x: number; z: number };
+        tiles?: { loaded: string[] };
+      };
+    }).__asciicity;
+    return {
+      x: api?.state?.x ?? NaN,
+      z: api?.state?.z ?? NaN,
+      loaded: api?.tiles?.loaded ?? [],
+    };
+  });
+  const EXPECTED_X = 4708;
+  const EXPECTED_Z = -2968;
+  expect(Math.hypot(info.x - EXPECTED_X, info.z - EXPECTED_Z)).toBeLessThan(60);
+  expect(info.loaded).toContain('4_-3');
 });

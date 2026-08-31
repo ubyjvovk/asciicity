@@ -1469,13 +1469,13 @@ describe('Tokyo presets (wave 11)', () => {
 
   /** The tile coordinate a 3×3 CollisionGrid should be centred on for a preset. */
   const CENTRE: Record<string, [number, number]> = {
-    skytree: [3, -4],
+    skytree: [4, -3],
     tokyotower: [-2, 2],
     tokyostation: [-1, -1],
     ginza: [-1, 1],
     akihabara: [0, -2],
     imperialpalace: [-1, 0],
-    sumida: [3, -4],
+    sumida: [4, -4],
   };
 
   /** Anchor (local metres) of each tower's `index.landmarks` first entry. */
@@ -1575,4 +1575,58 @@ describe('Tokyo presets (wave 11)', () => {
       }
     }
   });
+
+  /**
+   * Clear-sightline rule (PM rework attempt 5): the two relocated Skytree
+   * vantages (`skytree`, `sumida`) must have a buildings-only sightline to
+   * the Skytree anchor free of foreground walls. The old `skytree` sat 156 m
+   * from a 634 m tower (the frame filled with the tower's own base) and the
+   * old `sumida` looked east into the Tokyo Solamachi complex (a purple mass
+   * across the left half of the frame). Build a `CollisionGrid` from ONLY
+   * the buildings of the preset's 3×3 tiles (no water — a river IS the
+   * open corridor here — and no bridge road corridors), then sample the ray
+   * from the spawn toward the anchor every 10 m out to
+   * `min(400 m, distance − 50 m)` and assert `blocked(pt, 2) === false` for
+   * every sample. That mechanically forbids a foreground building filling
+   * the frame between the player and the Skytree.
+   */
+  for (const key of ['skytree', 'sumida'] as const) {
+    it(`${key}: buildings-only sightline from the spawn to the Skytree anchor is clear (no foreground wall in the frame)`, () => {
+      const TOKYO = loadTiledIndex('tokyo');
+      const [si, sj] = CENTRE[key]!;
+      const raw = loadTiledGlobals('tokyo');
+      const buildings: CityData['buildings'] = [];
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const tileKey = `${si + di}_${sj + dj}`;
+          if (!(tileKey in TOKYO.tiles)) continue;
+          const t = loadTiledTile('tokyo', tileKey);
+          buildings.push(...t.buildings);
+          raw.roads.push(...t.roads);
+        }
+      }
+      // Buildings-only grid: no water (open corridor), no bridge corridors.
+      const grid = new CollisionGrid(buildings, 25);
+      const blocked = (p: Vec2, r?: number): boolean => grid.blocked(p, r);
+      const spawnCity = {
+        buildings: [],
+        roads: [],
+        bbox: TOKYO.bbox,
+        landmarks: TOKYO.landmarks,
+      };
+      const spawn = resolveSpawn(key, TOKYO.origin, blocked, spawnCity, 'tokyostation');
+      const anchor = TOKYO.landmarks.filter((a) => a.name === 'Tokyo Skytree')[0];
+      expect(anchor, 'Tokyo Skytree anchor').toBeDefined();
+      const dx = anchor.x - spawn.x;
+      const dz = anchor.z - spawn.z;
+      const dist = Math.hypot(dx, dz);
+      const ux = dx / dist;
+      const uz = dz / dist;
+      const limit = Math.min(400, dist - 50);
+      for (let k = 10; k <= limit; k += 10) {
+        const pt: Vec2 = [spawn.x + k * ux, spawn.z + k * uz];
+        expect(blocked(pt, 2), `sightline ${key} at k=${k} m (of ${limit.toFixed(0)})`).toBe(false);
+      }
+    });
+  }
 });
