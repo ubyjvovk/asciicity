@@ -173,6 +173,24 @@ function parseChunks(s) {
   return { n, m: rows };
 }
 
+/**
+ * Normalise the `--dem-bare` argument into a bare-earth mode (wave 14b).
+ * Absent (or explicit `false`) means no filter; bare `--dem-bare` and the
+ * value forms `1` / `true` mean the wave-13 erode mode (`true`); `ridge`
+ * selects the directional-opening `ridge` mode; any other value is rejected
+ * loudly. Pure — used by `main()` and by the tests.
+ * @param {unknown} v parsed value of `--dem-bare` (absent ⇒ `false`)
+ * @returns {boolean|'ridge'} `false` off, `true` (erode), or `'ridge'`
+ */
+export function resolveDemBare(v) {
+  if (v === false || v === undefined) return false;
+  if (v === true || v === '1' || v === 'true') return true;
+  if (v === 'ridge') return 'ridge';
+  throw new Error(
+    `bad --dem-bare "${String(v)}" (want 1|true for erode, or ridge)`,
+  );
+}
+
 /** POST the query to one endpoint; throws `QueryError` on non-200. */
 class QueryError extends Error {
   constructor(status, body) {
@@ -256,10 +274,7 @@ async function main() {
   const useDem = args.dem === '1' || args.dem === 'true';
   const tiles =
     args.tiles === true || args.tiles === '1' || args.tiles === 'true';
-  const demBare =
-    args['dem-bare'] === true ||
-    args['dem-bare'] === '1' ||
-    args['dem-bare'] === 'true';
+  const demBare = resolveDemBare(args['dem-bare'] ?? false);
   const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {

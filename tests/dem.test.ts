@@ -23,6 +23,7 @@ import {
   fetchDemTiles,
   hgtTileName,
   hgtUrl,
+  ridgeOpen,
   smooth,
   unproject,
 } from '../scripts/dem';
@@ -467,6 +468,94 @@ describe('dem bare-earth filter (erode + smooth, data-format.md §Terrain 3b)', 
   });
 });
 
+describe('dem ridgeOpen (directional opening, data-format.md §Terrain 3b ridge)', () => {
+  const N = 11;
+  const flat = (n = N) => new Array(n * n).fill(0);
+
+  it('ridge: an isolated 3-node-wide high blob on a flat plain is cut to plain height before smoothing', () => {
+    const g = flat();
+    // 3×3 blob of 100 centred in the grid (rows/cols 4..6). It is ≤ 3 nodes
+    // wide every way, so no ray of any blob node stays inside the blob for
+    // all 4 steps — every ray exits to the 0 plain → H1 = 0 in the whole blob.
+    for (let r = 4; r <= 6; r++) {
+      for (let c = 4; c <= 6; c++) g[r * N + c] = 100;
+    }
+    const out = ridgeOpen(g, N, N);
+    for (let r = 4; r <= 6; r++) {
+      for (let c = 4; c <= 6; c++) expect(out[r * N + c]).toBe(0);
+    }
+    // The plain outside is untouched.
+    expect(out[0]).toBe(0);
+    expect(out[9 * N + 9]).toBe(0);
+  });
+
+  it('ridge: a straight plateau edge spanning the grid is preserved exactly before smoothing', () => {
+    // Top half (rows 0..4) is a 100 plateau, bottom half 0 — a bluff edge
+    // running the full grid width. The E/W rays of any plateau node hug the
+    // same row (fully inside the plateau), so every plateau node keeps a
+    // rayMin of 100 → H1 = 100 exactly (tolerance 0). The row below stays 0.
+    const g = flat();
+    for (let r = 0; r <= 4; r++) {
+      for (let c = 0; c < N; c++) g[r * N + c] = 100;
+    }
+    const out = ridgeOpen(g, N, N);
+    expect(out[2 * N + 5]).toBe(100); // mid-plateau
+    expect(out[4 * N + 5]).toBe(100); // plateau edge node
+    expect(out[5 * N + 5]).toBe(0); // just below the edge
+  });
+
+  it('ridge: a flat grid is a fixpoint (output equals input everywhere)', () => {
+    for (const v of [0, 50, 123.5]) {
+      const g = new Array(N * N).fill(v);
+      expect(ridgeOpen(g, N, N)).toEqual(g);
+    }
+  });
+
+  it('ridge: output ≤ input element-wise on a random grid (filter only lowers)', () => {
+    let seed = 0x1234567;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const M = 7;
+    const g = new Array(M * M).fill(0).map(() => (rand() - 0.5) * 200);
+    const out = ridgeOpen(g, M, M);
+    for (let i = 0; i < out.length; i++) {
+      expect(out[i]).toBeLessThanOrEqual(g[i]);
+    }
+  });
+
+  it('ridge: border clipping — a blob in a corner is still cut (no NaN/OOB)', () => {
+    // (1) A 3×3 blob flush in the top-left corner: the rays pointing at the
+    // corner (N/NW/W/SW) clip at the grid border. Border clipping must stay
+    // finite (no NaN, no out-of-bounds), and the crest corner itself — a
+    // bluff reaching the DEM edge — is preserved as real relief, not shaved.
+    const corner = flat();
+    for (let r = 0; r <= 2; r++) {
+      for (let c = 0; c <= 2; c++) corner[r * N + c] = 100;
+    }
+    const co = ridgeOpen(corner, N, N);
+    for (const v of co) {
+      expect(Number.isFinite(v)).toBe(true);
+      expect(Number.isNaN(v)).toBe(false);
+    }
+    expect(co[0]).toBe(100); // crest corner kept
+    expect(co[4 * N + 4]).toBe(0); // plain untouched
+
+    // (2) The same 3×3 blob just inside the corner (rows/cols 1..3) IS cut to
+    // plain height: every node still has a ray that reaches the plain, so
+    // border clipping never blocks the reduction near the edge.
+    const inset = flat();
+    for (let r = 1; r <= 3; r++) {
+      for (let c = 1; c <= 3; c++) inset[r * N + c] = 100;
+    }
+    const io = ridgeOpen(inset, N, N);
+    for (let r = 1; r <= 3; r++) {
+      for (let c = 1; c <= 3; c++) expect(io[r * N + c]).toBe(0);
+    }
+  });
+});
+
 describe('dem buildTerrain bare-earth path', () => {
   const stub = { elevationAt: (lat: number, _lon: number) => lat * 1000 };
 
@@ -561,6 +650,77 @@ describe('dem buildTerrain bare-earth path', () => {
     });
     expect(a.terrain.heights).toEqual(b.terrain.heights);
     expect(a.terrain.datum).toBe(b.terrain.datum);
+  });
+
+  it('Dem accepts bareEarth: "ridge" and routes it unchanged', () => {
+    const dem = new Dem(
+      new Map([[hgtTileName(50.5, 30.5), { side: 3, samples: new Int16Array(9) }]]),
+      { bareEarth: 'ridge' },
+    );
+    expect(dem.bareEarth).toBe('ridge');
+  });
+
+  it('`bare: true` stays on the wave-13 erode path while bareEarth:"ridge" keeps the bluff crest — they differ only at the edge', () => {
+    // A half-plane plateau: everything south of lat 50.44 is 100 m, north is
+    // 0 — one straight bluff edge spanning the full grid width. At that edge
+    // the wave-13 erode's plain-min 9×9 window reaches the low plain north of
+    // the crest and shaves it; ridgeOpen keeps a high ray along the plateau,
+    // so the crest survives. The origin (50.4501) is well north of the edge,
+    // so both paths share the same plain datum → heights are directly
+    // comparable and differ only at the edge band.
+    const PLATEAU_LAT = 50.44;
+    const elevationAt = (lat: number) => (lat <= PLATEAU_LAT ? 100 : 0);
+    const base = { bbox: KYIV_BBOX, origin: KYIV_ORIGIN };
+    const er = buildTerrain({
+      ...base,
+      dem: { elevationAt, bareEarth: true },
+    });
+    const rg = buildTerrain({
+      ...base,
+      dem: { elevationAt, bareEarth: 'ridge' as const },
+    });
+    const H = er.terrain.heights;
+    const R = rg.terrain.heights;
+    const { cols, rows } = er.terrain;
+    expect(rg.terrain.datum).toBe(er.terrain.datum); // origin on the plain
+
+    // The two modes differ ONLY at the crest-edge band: those rows form one
+    // contiguous range (not scattered), so the erode path is byte-identical
+    // to the ridge path everywhere except right at the bluff it shaves.
+    const diffRows: number[] = [];
+    for (let r = 0; r < rows; r++) {
+      let d = false;
+      for (let c = 0; c < cols; c++) {
+        if (H[r * cols + c] !== R[r * cols + c]) {
+          d = true;
+          break;
+        }
+      }
+      if (d) diffRows.push(r);
+    }
+    expect(diffRows.length).toBeGreaterThan(0);
+    for (let k = 1; k < diffRows.length; k++) {
+      expect(diffRows[k]).toBe(diffRows[k - 1] + 1);
+    }
+
+    // Within the band the ridge mode keeps the crest at least as high as, and
+    // strictly higher than, the erode mode's shaved crest.
+    let anyStrict = false;
+    for (const r of diffRows) {
+      for (let c = 0; c < cols; c++) {
+        expect(R[r * cols + c]).toBeGreaterThanOrEqual(H[r * cols + c]);
+        if (R[r * cols + c] > H[r * cols + c]) anyStrict = true;
+      }
+    }
+    expect(anyStrict).toBe(true);
+
+    // Deep inside the plateau both agree and keep the full height; the plain
+    // north of the crest reads 0 in both.
+    const deep = diffRows[diffRows.length - 1] + 6;
+    expect(H[deep * cols + 50]).toBe(100);
+    expect(R[deep * cols + 50]).toBe(100);
+    expect(H[20 * cols + 50]).toBe(0);
+    expect(R[20 * cols + 50]).toBe(0);
   });
 });
 

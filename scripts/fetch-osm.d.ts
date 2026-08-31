@@ -30,3 +30,10 @@ export function dedupeElements(elements: OsmElement[]): OsmElement[];
  * every other `--key` requires a value.
  */
 export function parseArgs(argv: string[]): Record<string, string | true>;
+
+/**
+ * Normalise the `--dem-bare` value into a bare-earth mode: absent/`false` ⇒
+ * `false` (no filter), `1|true` ⇒ `true` (wave-13 erode), `ridge` ⇒ `'ridge'`,
+ * anything else throws.
+ */
+export function resolveDemBare(v: unknown): boolean | 'ridge';
