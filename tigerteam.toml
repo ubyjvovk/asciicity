@@ -37,7 +37,7 @@ secrets_dir = "/home/d/.tigerteam-secrets"
 engine = "grok"
 max_complexity = 3                        # earned C3 on the tigerteam board
 ticket_timeout_s = 5400
-scale = 2
+scale = 0
 
 [worker.opus]
 engine = "claude"                         # Claude Opus via agents-home login state (user: "quota to burn")

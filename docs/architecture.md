@@ -1209,6 +1209,35 @@ atlas. Locked changes to `src/render/styles/matrix.ts`:
   dual-licensed SIL OFL 1.1 / GPL v2+ with font-embedding exception —
   cite it as the bitmap source).
 
+### 4.21 Car traffic (wave 12) — `CarFleet` in `src/world/traffic.ts`
+
+Boxy ambient cars on the road network, with a toggle. Locked design:
+
+- `class CarFleet` beside `BusFleet` (same module, same patterns): an
+  instanced mesh of single boxes **4.2 × 1.5 × 1.7 m** (L×H×W, box top at
+  `groundAt + 1.5`), each tinted from a fixed muted palette of 6 colours
+  (greys, white, black, a dark red, a dark blue — pick exact values, no
+  neon), driving `PathWalker`s over
+  `buildRoadGraph(roads, CAR_CLASSES)` with
+  `CAR_CLASSES = ['primary', 'secondary', 'tertiary', 'residential']`.
+- **Density**: `count = clamp(round(eligibleRoadKm / 0.35), 30, 250)` —
+  one car per ~350 m of eligible road, computed from the graph's total
+  polyline length. **Speed**: per-car constant in `[8, 14]` m/s picked
+  from the seed (city speeds; buses stay as they are). Deterministic for
+  a given (roads, seed).
+- Rendering/update mirrors `BusFleet`: one instanced draw call, matrices
+  updated in `update(dt)`, no per-frame allocation. No lights in v1.
+- **Toggle**: `settings.cars` (default `true`, persisted like
+  `hud`/`minimap`/`crt`), a `CARS` row in the §4.12 gear menu, and
+  `?cars=0`/`?cars=1` URL override following exactly the existing
+  boolean-setting pattern in `settings.ts` (including the share-URL
+  rewrite rule: drop the param when it equals the default). Toggling off
+  hides the fleet (`visible = false`) — it does not rebuild.
+- **Streamed cities**: the car fleet rebuilds exactly when the bus fleet
+  rebuilds (same `snapshot().version` trigger, seed `41 ^ version`);
+  monolithic/synthetic build once at boot (seed `41`). Cars teleport on
+  rebuild — same acceptance as buses (§4.19).
+
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 
 1. Parse `location.search`: `synthetic=1` → `syntheticCity(seed, 12, hills)`
