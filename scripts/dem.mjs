@@ -248,11 +248,14 @@ export function unproject(x, z, origin) {
 }
 
 /**
- * Bare-earth erode: `out[n]` = second-smallest value in the (up to) 5×5
+ * Bare-earth erode: `out[n]` = second-smallest value in the (up to) 9×9
  * window centred on `n` (windows clip at grid borders; with < 2 values in
  * the window, fall back to the minimum). Pure — returns a new array of the
  * same length; the input is never mutated and each output node reads only
- * the input grid (data-format.md §Terrain step 3b).
+ * the input grid (data-format.md §Terrain step 3b). The window is 9×9
+ * (radius 4, T-0109) so a dense city like Shibuya — which has no bare-earth
+ * SRTM sample inside any 100 m window — still reaches its local
+ * second-smallest within 180 m.
  * @param {number[]} heights row-major grid, length `cols * rows`
  * @param {number} cols
  * @param {number} rows
@@ -260,7 +263,7 @@ export function unproject(x, z, origin) {
  */
 export function erode(heights, cols, rows) {
   const out = new Array(cols * rows);
-  const R = 2; // 5×5 window
+  const R = 4; // 9×9 window
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       let s1 = Infinity;
@@ -295,7 +298,10 @@ export function erode(heights, cols, rows) {
  * Bare-earth smooth: `out[n]` = arithmetic mean of the (up to) 3×3 window
  * centred on `n` (windows clip at grid borders). Pure — returns a new array;
  * the input is never mutated and each output node reads only the input grid
- * (data-format.md §Terrain step 3b).
+ * (data-format.md §Terrain step 3b). The bare-earth path (buildTerrain)
+ * applies this TWICE (T-0109) so lumps left over from a single pass smooth
+ * out further — each call is an independent 3×3 mean, so two calls are just
+ * two sequential windowed averages.
  * @param {number[]} heights row-major grid, length `cols * rows`
  * @param {number} cols
  * @param {number} rows
@@ -355,8 +361,9 @@ function sampleGridBilinear(grid, cols, rows, x0, z0, step, x, z) {
  * every `step`-spaced node relative to `datum`, then flatten every node inside
  * each (already clipped) water ring to that ring's 10th-percentile level.
  * With `bare: true` (or `dem.bareEarth`) the absolute grid is filtered
- * between steps 3 and 4 (erode → smooth); datum and water levels then derive
- * from the FILTERED grid (data-format.md §Terrain step 3b).
+ * between steps 3 and 4 (erode → 3×3 smooth → 3×3 smooth — the smooth runs
+ * twice, T-0109); datum and water levels then derive from the FILTERED
+ * grid (data-format.md §Terrain step 3b).
  * @param {{bbox: [number,number,number,number], origin: {lat:number,lon:number},
  *   dem: {elevationAt(lat:number, lon:number): number, bareEarth?: boolean},
  *   step?: number, waterRings?: Array<Array<[number,number]>>, bare?: boolean}} opts
@@ -405,7 +412,9 @@ export function buildTerrain({
       }
     }
     const eroded = erode(absolute, cols, rows);
-    const smoothed = smooth(eroded, cols, rows);
+    // T-0109: the 3×3 mean smooth runs TWICE so residual lumps after the
+    // widest erode window still flatten out (adjacent-node deltas ≤ 3 m).
+    const smoothed = smooth(smooth(eroded, cols, rows), cols, rows);
     // The origin sits at local (0, 0); `x0`/`z0` are step-aligned so the
     // origin lands on an exact grid node.
     const cOrigin = Math.round(-x0 / step);
