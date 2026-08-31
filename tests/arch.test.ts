@@ -143,6 +143,64 @@ function longestAxisChain(city: CityData): Vec2[] {
   return chains.slice().sort((a, b) => polyLen(b.pts) - polyLen(a.pts))[0]!.pts;
 }
 
+/** Signed area of a ring (shoelace). */
+function ringArea(pts: readonly Vec2[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x0, z0] = pts[i]!;
+    const [x1, z1] = pts[(i + 1) % pts.length]!;
+    a += x0 * z1 - x1 * z0;
+  }
+  return a / 2;
+}
+
+/** Even-odd point-in-polygon on a single ring. */
+function pointInRing(x: number, z: number, ring: readonly Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, zi] = ring[i]!;
+    const [xj, zj] = ring[j]!;
+    const intersect =
+      zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Bisection-refined shoreline crossings of `chain` with the largest water
+ * ring in `city.water` (by |polygon area|). Returns 0 or more crossing
+ * points; the rework rule expects exactly two for the Sydney dataset.
+ */
+function shorelineCrossings(city: CityData, chain: readonly Vec2[]): Vec2[] {
+  if (!city.water || city.water.length === 0) return [];
+  const rings = city.water.map((pts) => ({ pts, area: Math.abs(ringArea(pts)) }));
+  rings.sort((a, b) => b.area - a.area);
+  const ring = rings[0]!.pts;
+  const out: Vec2[] = [];
+  let prev = pointInRing(chain[0]![0], chain[0]![1], ring);
+  for (let i = 1; i < chain.length; i++) {
+    const cur = pointInRing(chain[i]![0], chain[i]![1], ring);
+    if (cur !== prev) {
+      const [x0, z0] = chain[i - 1]!;
+      const [x1, z1] = chain[i]!;
+      let lo = 0;
+      let hi = 1;
+      for (let it = 0; it < 40; it++) {
+        const mid = (lo + hi) / 2;
+        const px = x0 + (x1 - x0) * mid;
+        const pz = z0 + (z1 - z0) * mid;
+        if (pointInRing(px, pz, ring) === prev) lo = mid;
+        else hi = mid;
+      }
+      const t = (lo + hi) / 2;
+      out.push([x0 + (x1 - x0) * t, z0 + (z1 - z0) * t]);
+    }
+    prev = cur;
+  }
+  return out;
+}
+
 /** Cheap deck-y approximation for tests without terrain wiring. */
 function flatDeckLookup(): (x: number, z: number) => number {
   return () => 0;
@@ -178,16 +236,60 @@ describe('src/world/bridge.ts arch', () => {
     expect(SPEC.deckRoads).toEqual(['Harbour Bridge Cycleway', 'Cahill Walk']);
   });
 
-  it('both spec `ends` project within 20 m of the chained Bradfield Highway bridge polyline', () => {
+  it('both spec `ends` sit on the polyline AND near the largest-water-ring shoreline crossings; span 503 ± 15 m', () => {
+    // Rework rule (T-0112): the arch anchors to where the deck actually
+    // crosses the LARGEST water ring by |polygon area| (not the odd-parity
+    // test — the shipped dataset has two near-duplicate giant harbour rings
+    // per the T-0116 coastline-closure bug, and odd-parity would call their
+    // overlap land). Each end sits 21 m LAND-ward of a shoreline crossing;
+    // the largest-ring rule stays correct before and after that data fix.
     const chain = longestAxisChain(SYD);
+    const crossings = shorelineCrossings(SYD, chain);
+    expect(crossings, 'expected exactly two shoreline crossings').toHaveLength(2);
     for (const end of SPEC.ends) {
       const p = project(end[0], end[1], SYD.origin);
-      const near = nearestOnPoly(p, chain);
+      const nearChain = nearestOnPoly(p, chain);
       expect(
-        near.d,
-        `spec end [${end.join(',')}] proj [${p.map((v) => v.toFixed(2)).join(',')}] dist=${near.d.toFixed(2)}`,
+        nearChain.d,
+        `spec end [${end.join(',')}] proj [${p.map((v) => v.toFixed(2)).join(',')}] chain-dist=${nearChain.d.toFixed(2)}`,
       ).toBeLessThanOrEqual(20);
+      let bestShore = Infinity;
+      for (const c of crossings) {
+        const d = Math.hypot(p[0] - c[0], p[1] - c[1]);
+        if (d < bestShore) bestShore = d;
+      }
+      expect(
+        bestShore,
+        `spec end [${end.join(',')}] shore-dist=${bestShore.toFixed(2)}`,
+      ).toBeLessThanOrEqual(30);
     }
+    const [s, n] = SPEC.ends.map((e) => project(e[0], e[1], SYD.origin));
+    const span = Math.hypot(n![0] - s![0], n![1] - s![1]);
+    expect(Math.abs(span - 503), `span ${span.toFixed(2)} m`).toBeLessThanOrEqual(15);
+  });
+
+  it('the top-chord crown vertex (max-y) lies within 30 m (x/z) of the midpoint of ends', () => {
+    const mesh = buildArchBridge(SPEC, SYD, FLAT_HEIGHT);
+    let maxY = -Infinity;
+    let cx = 0;
+    let cz = 0;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const y = mesh.positions[i + 1]!;
+      if (y > maxY) {
+        maxY = y;
+        cx = mesh.positions[i]!;
+        cz = mesh.positions[i + 2]!;
+      }
+    }
+    const s = project(SPEC.ends[0][0], SPEC.ends[0][1], SYD.origin);
+    const n = project(SPEC.ends[1][0], SPEC.ends[1][1], SYD.origin);
+    const midX = (s[0] + n[0]) / 2;
+    const midZ = (s[1] + n[1]) / 2;
+    const dxz = Math.hypot(cx - midX, cz - midZ);
+    expect(
+      dxz,
+      `crown vertex at (${cx.toFixed(2)}, ${cz.toFixed(2)}), mid (${midX.toFixed(2)}, ${midZ.toFixed(2)}), dxz=${dxz.toFixed(2)}`,
+    ).toBeLessThanOrEqual(30);
   });
 
   it('top-chord peak y = (archTopASL − datum) ± 1 at mid-span', () => {

@@ -941,19 +941,25 @@ export const ARCH_BRIDGES: Readonly<Record<string, readonly ArchBridgeSpec[]>> =
       deckWidth: 49,
       deckApexASL: 49,
       deckRoads: ['Harbour Bridge Cycleway', 'Cahill Walk'],
-      // Both ends snapped to the chained `Bradfield Highway` bridge polyline
-      // (the deck axis is the truth; wave-10 lesson). North: nearest polyline
-      // point to the midpoint of OSM `bridge:support` ways 1238822733/34
-      // (their footprint centroids (53.5, −1479.0) and (65.5, −1480.6) sit
-      // ~90 m WEST of the deck centreline — anomalous OSM data, but their
-      // along-station snaps cleanly onto the polyline). South: polyline point
-      // at straight-line 503 m from the reconciled north (main-arch span
-      // length; no south `bridge:support` footprint exists per T-0110).
-      // Deltas from the wave-14 initial values (see docs §4.16b as-built):
-      // north +90 m, south +37 m.
+      // Ends derived from the two crossings of the LONGEST `Bradfield
+      // Highway` bridge-piece chain with the boundary of the LARGEST water
+      // ring by |polygon area| (docs §4.16b as-built (T-0112 rework)), each
+      // extended 21 m LAND-ward along the local chain direction so the
+      // springings sit just onshore. The wave-14 initial values placed the
+      // arch ~400 m too far north — the OSM `bridge:support` pair at
+      // z ≈ −1479 is the NORTHERN APPROACH VIADUCT'S support, not the main
+      // pylons; anchoring to it put the south springing in open water and
+      // the northern half over Milsons Point streets. The largest-ring rule
+      // stays correct even after the T-0116 coastline-duplication fix
+      // (the two current giant rings, 12.6 + 13.3 km², agree on both
+      // crossings; a plain odd-parity test would call their overlap land).
+      // Water crossings (probed on this dataset): land→water at
+      // (80.85, −1198.79) [north shore], water→land at (−131.41, −792.77)
+      // [south shore]; span between the two extended ends 500 m
+      // (real SHB main span 503 m).
       ends: [
-        [151.21073, -33.85212],
-        [151.21261, -33.84785],
+        [151.20947, -33.85430],
+        [151.21198, -33.85029],
       ],
       archTopASL: 134,
       archBottomASL: 116,
