@@ -115,13 +115,19 @@ node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715 \
   tile grid and every v1 local coordinate are unchanged, so the v1 tiles
   keep their keys and the wave-11 presets stay valid; new tiles appear to
   the west.
-- Shipped snapshot (fetched 2026-08-31, T-0102): 170 619 buildings (max
-  `h` 634 m — Tokyo Skytree, within the clamp), 24 991 roads (+ splits
-  across the 129 tile files), 1 087 places, 276 water rings, 141 rivers,
-  39 547 trees (30 340 filled, 0 dropped), terrain 583×391 @ 20 m
-  (datum 9.5 m ASL, 0 voids), 526 skipped relations, 0 dropped open water
-  chains, 129 non-empty tiles, ≈ 28.3 MB on disk (index 2 701 381 B +
-  tiles 25 628 014 B) — well under the 60 MB budget.
+- Shipped snapshot (fetched 2026-08-31, T-0102; terrain refreshed T-0108):
+  170 619 buildings (max `h` 634 m — Tokyo Skytree, within the clamp),
+  24 991 roads (+ splits across the 129 tile files), 1 087 places, 276
+  water rings, 141 rivers, 39 547 trees (30 340 filled, 0 dropped),
+  terrain 583×391 @ 20 m (datum 6.2 m ASL, 0 voids), 526 skipped
+  relations, 0 dropped open water chains, 129 non-empty tiles, ≈ 27.0 MB
+  on disk (index 2 697 648 B + tiles 25 628 014 B) — well under the
+  60 MB budget.
+- Terrain (T-0108) was regenerated in place from the cached `N35E139` DEM
+  with the T-0109 bare-earth filter (9×9 erode + double 3×3 smooth,
+  `--dem-bare 1`) during an Overpass outage; a future full
+  `npm run fetch-data:tokyo` against the same cached tile reproduces the
+  same `terrain` / `waterLevels` byte-for-byte, so nothing else drifts.
 
 ## Tiling and chunked fetch (wave 11 — sector streaming)
 
