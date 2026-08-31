@@ -487,13 +487,18 @@ The converter (`--dem 1`, default off) builds `terrain` as follows:
    real height. With `--dem-bare` (boolean flag like `--tiles`), the
    ABSOLUTE height grid (datum not yet subtracted) is filtered between
    steps 3 and 4, in exactly this order:
-   - **Erode**: `H1(n)` = the SECOND-SMALLEST value in the (up to) 5×5
+   - **Erode**: `H1(n)` = the SECOND-SMALLEST value in the (up to) **9×9**
      node window centred on `n` (windows clip at grid borders; with < 2
      values use the minimum). Second-smallest, not min, so one anomalous
-     low node cannot dig a 100 m crater; roofs (which bias HIGH) are
-     floored.
+     low node cannot dig a crater; roofs (which bias HIGH) are floored.
+     (Wave-13 T-0109: widened from 5×5 — dense Shibuya has NO bare-earth
+     SRTM sample inside 100 m, so the 180 m window is needed to find the
+     lowest available proxy. Even so, block-decked districts bottom out
+     ~8–10 m above true ground — the filter buys FLATNESS, not absolute
+     accuracy; only the HUD ALT row can tell.)
    - **Smooth**: `H2(n)` = the arithmetic mean of the (up to) 3×3 window
-     of `H1` centred on `n`.
+     of `H1` centred on `n`, applied TWICE (two sequential passes —
+     T-0109; one pass left ≤ 5.6 m node-to-node steps at erode edges).
    - `datum` is then `round1(H2(origin node))` and per-node heights are
      `round1(H2 − datum)` — grid dims, step and rounding unchanged.
    Both passes are pure array→array functions over `(heights, cols,
