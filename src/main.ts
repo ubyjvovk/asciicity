@@ -19,7 +19,7 @@ import {
 } from './data/types';
 import { validateTileIndex } from './data/validate';
 import { syntheticCity } from './data/synthetic';
-import { CITIES, cityById, type CityInfo } from './data/cities';
+import { CITIES, cityById, resolveBootRender, type CityInfo } from './data/cities';
 import { dueRebuild, loadTile, parseTileRadius, type RebuildClock } from './data/load';
 import { formatLoading, loadCityJson, type LoadProgress } from './ui/loading';
 import { TileManager, type TileEvent } from './world/tiles';
@@ -233,6 +233,17 @@ export function parseUrlOptions(search: string): UrlOptions {
  * wins when both are present.
  */
 function resolveRenderId(params: URLSearchParams): string {
+  return explicitRenderFromUrl(params) ?? 'ascii';
+}
+
+/**
+ * Read an explicit render-style id from the URL, mirroring `settings.ts`'s
+ * private `renderFromUrl` (that module is frozen — architecture.md §4.20).
+ * `undefined` means the URL specifies no style, so the per-city default may
+ * apply; any `render`/`theme`/`gloom` param resolves to a concrete style
+ * (an unknown id is `ascii`).
+ */
+function explicitRenderFromUrl(params: URLSearchParams): string | undefined {
   const order: readonly string[] = STYLE_ORDER;
   const renderRaw = params.get('render');
   if (renderRaw !== null) {
@@ -244,10 +255,10 @@ function resolveRenderId(params: URLSearchParams): string {
     const tv = themeRaw.trim().toLowerCase();
     if (tv === 'gloom' || tv === '1') return 'gloom';
     if (tv === 'solarized' || tv === '2') return 'solarized';
-    if (tv === 'cyber' || tv === '0' || tv === 'ascii' || tv === '') return 'ascii';
+    return 'ascii';
   }
   if (params.get('gloom') === '1') return 'gloom';
-  return 'ascii';
+  return undefined;
 }
 
 /**
@@ -427,6 +438,12 @@ async function main(): Promise<void> {
   }
 
   const opts = parseUrlOptions(window.location.search);
+  // §4.20: the URL's explicit style, captured BEFORE `persist()` rewrites the
+  // URL — a persisted render must never look like an explicit `?render=`, or
+  // it would wrongly beat the city default at boot.
+  const urlRender = explicitRenderFromUrl(
+    new URLSearchParams(window.location.search),
+  );
 
   // Persistence (T-0060): URL wins, localStorage fills gaps, defaults last.
   // Private-mode browsers throw on `localStorage` access — treat that as empty.
@@ -898,8 +915,14 @@ async function main(): Promise<void> {
     tags = new Tags(tagsRoot);
   }
 
+  // Boot render-style precedence (architecture.md §4.20): explicit `?render=`
+  // → city `defaultRender` → persisted `settings.render` (→ 'ascii'). Evaluated
+  // here, after the city is resolved, so `cityInfo.defaultRender` is known;
+  // synthetic has no city default. `R` cycling/persistence are untouched.
+  const bootRender = resolveBootRender(urlRender, cityInfo, settings.render);
+
   const post = new StyleRenderer(renderer, STYLES, {
-    initial: opts.render,
+    initial: bootRender,
     cellW: opts.cellW,
     cellH: opts.cellH,
   });
