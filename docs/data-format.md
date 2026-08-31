@@ -554,6 +554,30 @@ The converter (`--dem 1`, default off) builds `terrain` as follows:
    its height minus ≤ smoothing loss; single-node spikes vanish. Existing
    datasets are untouched (flag default off; only Tokyo refetches with
    it — wave-13 T-0107/T-0108).
+
+   **`ridge` mode (wave 14b, `--dem-bare ridge`).** The erode above is a
+   plain min-type filter: at a BLUFF EDGE its window reaches genuinely
+   lower ground and shaves real crests (measured on Kyiv, T-0115: Lavra
+   −19 m, funicular −12 m). `ridge` replaces the erode step with a
+   **directional opening** that tells roofs from ridges: a roof has lower
+   ground in EVERY direction; a crest keeps at least one high ray along
+   its plateau.
+   - For node `n`, cast the 8 half-rays (E, NE, N, NW, W, SW, S, SE) of
+     **4 nodes** each, INCLUDING `n` itself (rays clip at grid borders).
+     `rayMin_d` = the minimum along half-ray `d`;
+     `H1(n) = max_d(rayMin_d)`. Because every ray includes `n`,
+     `H1 ≤ H0` — the filter only ever lowers.
+   - Then the same double 3×3 **smooth** and datum/rounding as above.
+   - Properties (each a unit fixture): an isolated high blob ≤ 3 nodes
+     wide is cut to its surroundings (all rays exit it); an infinite
+     ridge/plateau edge is preserved exactly before smoothing (the ray
+     along the ridge stays high); a flat grid is a fixpoint; output ≤
+     input everywhere.
+   - CLI: `--dem-bare` takes `1|true` (the wave-13 erode mode, unchanged
+     — Tokyo's committed terrain must stay reproducible) or `ridge`.
+     Kyiv uses `ridge` (bluff-edged real relief); dense block-decked
+     cities keep the erode mode (a ≥ 8-node-wide roof deck defeats the
+     120 m rays).
 4. **Water flattening**: for each (clipped) water ring `i`, sample the raw
    DEM (minus datum) at every ring vertex, sort ascending, take the 10th
    percentile (`sorted[floor(0.1 · (n − 1))]`) → `waterLevels[i]`
