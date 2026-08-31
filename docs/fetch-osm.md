@@ -82,7 +82,7 @@ origin Maidan Nezalezhnosti. With `--dem 1` the converter samples SRTM into a
 level (`waterLevels`), so buildings drape over the Pechersk hills and the
 Dnipro reads as a flat sheet ~60 m below Maidan.
 
-## Central Tokyo (`tokyo/`, wave 11)
+## Central Tokyo (`tokyo/`, wave 11; bbox v2 wave 12, T-0102)
 
 The first streamed-only city ships as a **tiled** directory
 (`public/data/tokyo/index.json` + `tiles/<i>_<j>.json`). Fetched command,
@@ -90,21 +90,26 @@ mirroring docs/data-format.md "Central Tokyo" (bare `--tiles` and
 `--tiles 1` / `--tiles true` are equivalent; npm aliases use `--tiles 1`):
 
 ```
-node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715 \
-  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles 1 \
+node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715 \
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 4x3 --tiles 1 \
   --out public/data/tokyo
 ```
 
-- Bbox ≈ 8.1 × 7.8 km; origin Tokyo Station (verified: the fetched
-  `railway=station` node 11329319854 `name:en=Tokyo` at `139.7674549,
-  35.6811412` is ≈ 33 m from the specified origin, well within 100 m — no
-  correction).
-- Shipped snapshot: 112 743 buildings (max `h` 634 m — Tokyo Skytree, within
-  the clamp), 16 902 roads (+ splits across the 99 tile files), 847 places,
-  214 water rings, 111 rivers, 25 426 trees, terrain 411×391 @ 20 m
-  (datum 9.5 m ASL), 1712 `bridgeRoads` (Sumida crossings included), 99
-  non-empty tiles, ≈ 17.8 MB on disk (index + tiles) — well under the 60 MB
-  budget.
+- Bbox v2 ≈ 11.6 × 7.8 km — the v1 box plus the WEST strip covering
+  Shibuya (the Scramble Crossing) and Shinjuku (station, Kabukicho).
+  Origin Tokyo Station (verified: the fetched `railway=station` node
+  11329319854 `name:en=Tokyo` at `139.7674549, 35.6811412` is ≈ 33 m from
+  the specified origin, well within 100 m — no correction). The origin,
+  tile grid and every v1 local coordinate are unchanged, so the v1 tiles
+  keep their keys and the wave-11 presets stay valid; new tiles appear to
+  the west.
+- Shipped snapshot (fetched 2026-08-31, T-0102): 170 619 buildings (max
+  `h` 634 m — Tokyo Skytree, within the clamp), 24 991 roads (+ splits
+  across the 129 tile files), 1 087 places, 276 water rings, 141 rivers,
+  39 547 trees (30 340 filled, 0 dropped), terrain 583×391 @ 20 m
+  (datum 9.5 m ASL, 0 voids), 526 skipped relations, 0 dropped open water
+  chains, 129 non-empty tiles, ≈ 28.3 MB on disk (index 2 701 381 B +
+  tiles 25 628 014 B) — well under the 60 MB budget.
 
 ## Tiling and chunked fetch (wave 11 — sector streaming)
 
@@ -118,8 +123,8 @@ architecture.md §4.19.
 **Fetch-time tiling (`--tiles`):**
 
 ```
-node scripts/fetch-osm.mjs --bbox 139.730,35.645,139.820,35.715 \
-  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 3x3 --tiles \
+node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715 \
+  --origin 139.7671,35.6812 --lang en --dem 1 --chunks 4x3 --tiles \
   --out public/data/tokyo
 ```
 
