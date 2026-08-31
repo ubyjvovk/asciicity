@@ -48,6 +48,21 @@ describe('parseArgs', () => {
     );
   });
 
+  it('--dem-bare bare and --dem-bare 1 both enable it; absent = off (wave 13)', () => {
+    expect(parseArgs(['--dem', '1', '--dem-bare'])).toEqual({
+      dem: '1',
+      'dem-bare': true,
+    });
+    expect(parseArgs(['--dem-bare', '--out', 'public/data/tokyo'])).toEqual({
+      'dem-bare': true,
+      out: 'public/data/tokyo',
+    });
+    expect(parseArgs(['--dem-bare', '1'])).toEqual({ 'dem-bare': '1' });
+    expect(parseArgs(['--dem-bare', 'true'])).toEqual({ 'dem-bare': 'true' });
+    // Absent — the key is not set at all (main.js reads a truthy check).
+    expect(parseArgs(['--dem', '1'])).toEqual({ dem: '1' });
+  });
+
   it('a well-formed full command line parses to the same result as before the fix', () => {
     // Tokyo fetch (docs/data-format.md "Central Tokyo" / npm run fetch-data:tokyo).
     expect(
