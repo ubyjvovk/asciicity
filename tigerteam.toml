@@ -28,7 +28,7 @@ autostart = false                         # the tailscale MCP mapping targets th
 port = 8766
 
 [workers]
-max_concurrent = 6                        # 12-core host; each container gets --cpus 2
+max_concurrent = 10                        # 12-core host; each container gets --cpus 2
 image = "tigerteam-agents:base"           # machine-local; also set in ~/.tigerteam.toml
 agents_home = "/home/d/.agents-home"
 secrets_dir = "/home/d/.tigerteam-secrets"
@@ -52,7 +52,7 @@ engine = "pi"                             # DeepSeek V4 Flash via DeepInfra (pi 
 model = "deepseek-ai/DeepSeek-V4-Flash-0731"
 max_complexity = 2
 env_passthrough = ["DEEPINFRA_KEY"]
-scale = 2
+scale = 4
 
 # [worker.glm]  — GLM-5.2 on DeepInfra is too slow (user, 2026-08-23); re-enable only
 #                 when DeepInfra ships GLM-5.3. (Also 400'd via pi on 2026-08-23.)
