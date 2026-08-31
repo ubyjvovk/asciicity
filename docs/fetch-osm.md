@@ -45,12 +45,14 @@ Flags:
 - `--dem-bare` — apply the wave-13 bare-earth filter to the DEM before the
   datum/height step (data-format.md §Terrain step 3b). SRTM is a radar
   surface model, so in dense cities (Tokyo) roof heights contaminate the
-  street elevation; the filter erodes (second-smallest of a 5×5 window) then
-  smooths (mean of a 3×3 window) the absolute-height grid, so single-node
-  roof spikes vanish while relief wider than the 100 m window is preserved.
-  Off by default (existing datasets are unchanged); requires `--dem 1`. Bare
-  `--dem-bare` and the value forms `--dem-bare 1` / `--dem-bare true` all
-  enable it.
+  street elevation; the filter erodes (second-smallest of a **9×9** window,
+  T-0109) then smooths (mean of a 3×3 window applied **twice**, T-0109) the
+  absolute-height grid, so single-node roof spikes — and even 4×4 spike
+  clusters — vanish while relief wider than the 180 m window is preserved.
+  The second smooth pass is what brings dense Shibuya's adjacent node-to-node
+  steps down to ≤ 3 m. Off by default (existing datasets are unchanged);
+  requires `--dem 1`. Bare `--dem-bare` and the value forms `--dem-bare 1` /
+  `--dem-bare true` all enable it.
 - `--step <m>` — DEM grid spacing in metres (default 20).
 - `--tiles` — ship the city as a **tiled dataset** (sector streaming, wave
   11): `--out` then names a city DIRECTORY holding `index.json` plus

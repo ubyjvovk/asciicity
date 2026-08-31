@@ -360,15 +360,14 @@ describe('dem bare-earth filter (erode + smooth, data-format.md §Terrain 3b)', 
     for (const v of out) expect(v).toBe(0);
   });
 
-  it('erode: 2×2 spike cluster is removed (second-smallest still floors it)', () => {
+  it('erode: 4×4 spike cluster is removed (second-smallest of the 9×9 window still floors it)', () => {
     const g = filled(0);
-    for (const [r, c] of [
-      [5, 5],
-      [5, 6],
-      [6, 5],
-      [6, 6],
-    ]) g[r * N + c] = 30;
+    for (let r = 5; r <= 8; r++) {
+      for (let c = 5; c <= 8; c++) g[r * N + c] = 30;
+    }
     const out = erode(g, N, N);
+    // With the 9×9 (radius-4) window, even a 4×4 spike cluster is only 16 of
+    // up to 81 floor values — the second-smallest is still a floor 0.
     for (const v of out) expect(v).toBe(0);
   });
 
@@ -379,45 +378,74 @@ describe('dem bare-earth filter (erode + smooth, data-format.md §Terrain 3b)', 
     // No neighbour is dragged below 0 by the outlier (that's the whole point of
     // second-smallest — a single low sample cannot dig a crater).
     for (const v of out) expect(v).toBeGreaterThanOrEqual(0);
-    // The outlier node itself is lifted (its 5×5 window's second-smallest is 0).
+    // The outlier node itself is lifted (its 9×9 window's second-smallest is 0).
     expect(out[5 * N + 5]).toBe(0);
   });
 
-  it('erode+smooth: a plateau wider than 5×5 keeps its centre height exactly (tolerance 0)', () => {
-    // 15×15 grid, 9×9 plateau of value 100 at rows/cols 3..11, everything else 0.
-    // The 5×5 window around the plateau's centre (7, 7) is entirely inside the
-    // plateau → erode output 100; the 3×3 smooth window is likewise entirely
-    // inside the preserved 5×5 erosion core → mean 100. Tolerance = 0.
-    const SIZE = 15;
+  it('erode+smooth: a plateau wider than 9×9 keeps its centre height exactly (tolerance 0)', () => {
+    // 19×19 grid, 13×13 plateau of value 100 at rows/cols 3..15, everything else 0.
+    // The 9×9 (radius-4) erode window around the plateau's centre (9, 9) is
+    // entirely inside the plateau → erode output 100; each of the two 3×3
+    // smooth windows is likewise entirely inside the preserved 9×9 erosion core
+    // → mean 100. Tolerance = 0.
+    const SIZE = 19;
     const g = filled(0, SIZE);
-    for (let r = 3; r <= 11; r++) {
-      for (let c = 3; c <= 11; c++) g[r * SIZE + c] = 100;
+    for (let r = 3; r <= 15; r++) {
+      for (let c = 3; c <= 15; c++) g[r * SIZE + c] = 100;
     }
-    const out = smooth(erode(g, SIZE, SIZE), SIZE, SIZE);
-    expect(out[7 * SIZE + 7]).toBe(100);
+    const out = smooth(smooth(erode(g, SIZE, SIZE), SIZE, SIZE), SIZE, SIZE);
+    expect(out[9 * SIZE + 9]).toBe(100);
   });
 
-  it('erode+smooth: a wide valley (9×9 depression) is preserved at its centre (tolerance 0)', () => {
-    const SIZE = 15;
+  it('erode+smooth: a wide valley (13×13 depression) is preserved at its centre (tolerance 0)', () => {
+    const SIZE = 19;
     const g = filled(0, SIZE);
-    for (let r = 3; r <= 11; r++) {
-      for (let c = 3; c <= 11; c++) g[r * SIZE + c] = -100;
+    for (let r = 3; r <= 15; r++) {
+      for (let c = 3; c <= 15; c++) g[r * SIZE + c] = -100;
     }
-    const out = smooth(erode(g, SIZE, SIZE), SIZE, SIZE);
-    expect(out[7 * SIZE + 7]).toBe(-100);
+    const out = smooth(smooth(erode(g, SIZE, SIZE), SIZE, SIZE), SIZE, SIZE);
+    expect(out[9 * SIZE + 9]).toBe(-100);
   });
 
   it('erode+smooth: border nodes filtered with clipped windows produce finite numbers (no NaN/undefined)', () => {
-    // A 4×4 grid: every node's 5×5 erode window and every node's 3×3 smooth
+    // A 4×4 grid: every node's 9×9 erode window and every node's 3×3 smooth
     // window clips at some border. Values must all be finite.
     const g = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-    const out = smooth(erode(g, 4, 4), 4, 4);
+    const out = smooth(smooth(erode(g, 4, 4), 4, 4), 4, 4);
     expect(out).toHaveLength(16);
     for (const v of out) {
       expect(v).toBeDefined();
       expect(Number.isFinite(v)).toBe(true);
       expect(Number.isNaN(v)).toBe(false);
     }
+  });
+
+  it('erode+smooth: double smooth has max adjacent-node delta ≤ single smooth on a synthetic step edge', () => {
+    // A synthetic step edge — a 2-cell-wide raised step (two adjacent step
+    // edges) — carries enough high-frequency content that the SECOND 3×3 mean
+    // pass measurably reduces the steepest gradient. This is the acceptance
+    // check that the widened filter's double-smooth never sharpens a step edge
+    // and in fact flattens it further.
+    const M = 13;
+    const g = new Array(M * M).fill(0);
+    for (let c = 5; c <= 6; c++) {
+      for (let r = 0; r < M; r++) g[r * M + c] = 100;
+    }
+    const maxAdj = (arr: number[]) => {
+      let mx = 0;
+      for (let r = 0; r < M; r++) {
+        for (let c = 0; c < M; c++) {
+          const i = r * M + c;
+          if (c + 1 < M) mx = Math.max(mx, Math.abs(arr[i] - arr[i + 1]));
+          if (r + 1 < M) mx = Math.max(mx, Math.abs(arr[i] - arr[i + M]));
+        }
+      }
+      return mx;
+    };
+    const single = smooth(g, M, M);
+    const twice = smooth(smooth(g, M, M), M, M);
+    expect(maxAdj(twice)).toBeLessThanOrEqual(maxAdj(single));
+    expect(maxAdj(twice)).toBeLessThan(maxAdj(single));
   });
 
   it('erode + smooth are deterministic and do not mutate their input', () => {

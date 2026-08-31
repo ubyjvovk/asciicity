@@ -51,6 +51,10 @@ export function buildTerrain(opts: {
 
 export function unproject(x: number, z: number, origin: Origin): [number, number];
 
+// Bare-earth filter (data-format.md §Terrain step 3b). `erode` is a 9×9
+// second-smallest window (T-0109: widened from 5×5 so dense Shibuya still
+// reaches its local minimum); `smooth` is a 3×3 mean that the bare-earth
+// path applies TWICE (T-0109).
 export function erode(heights: number[], cols: number, rows: number): number[];
 
 export function smooth(heights: number[], cols: number, rows: number): number[];
