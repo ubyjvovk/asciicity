@@ -9,7 +9,6 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { syntheticCity } from '../src/data/synthetic';
-import type { CityData } from '../src/data/types';
 import { terrainHeightAt } from '../src/world/terrain';
 
 /** Shape of the T-0010 debug contract exposed on `window.__asciicity`. */
@@ -420,23 +419,13 @@ test('smoke: panels', async ({ page }) => {
 /** Return the centroid of the first Kyiv building whose exact name matches. */
 function kyivBuildingCentroid(name: string): { x: number; z: number } {
   const here = dirname(fileURLToPath(import.meta.url));
-  const kyiv: CityData = JSON.parse(
-    readFileSync(resolve(here, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
-  );
+  const index = JSON.parse(
+    readFileSync(resolve(here, '..', 'public', 'data', 'kyiv', 'index.json'), 'utf8'),
+  ) as { landmarks: Array<{ name: string; x: number; z: number }> };
   const needle = name.toLowerCase();
-  const b = kyiv.buildings.find(
-    (bl) => bl.name !== undefined && bl.name.toLowerCase() === needle,
-  );
-  if (!b) throw new Error(`kyiv.json is missing building "${name}"`);
-  let cx = 0;
-  let cz = 0;
-  for (const [x, z] of b.poly) {
-    cx += x;
-    cz += z;
-  }
-  cx /= b.poly.length;
-  cz /= b.poly.length;
-  return { x: cx, z: cz };
+  const lm = index.landmarks.find((e) => e.name.toLowerCase() === needle);
+  if (!lm) throw new Error(`kyiv index is missing landmark "${name}"`);
+  return { x: lm.x, z: lm.z };
 }
 
 test('smoke: fast travel — travel() jumps to Lavra, LANDMARKS menu teleports to Golden Gate', async ({

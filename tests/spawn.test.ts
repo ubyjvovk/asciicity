@@ -23,6 +23,7 @@ import { ROAD_WIDTH } from '../src/world/roads';
 import { deckHumps } from '../src/world/bridge';
 import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
 import { loadSfCity } from './sfCity';
+import { loadTiledCity, loadTiledGlobals, loadTiledIndex } from './tiledCity';
 
 // Bank preset doublets as the test origin (matches SPAWN_PRESETS.bank).
 const ORIGIN = { lat: 51.5133, lon: -0.0887 };
@@ -761,9 +762,7 @@ describe('landmarkSpawn', () => {
 
 // Kyiv-specific coverage for the T-0045 per-city fallback / bbox check.
 describe('resolveSpawn (per-city fallback + bbox check)', () => {
-  const KYIV: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
-  );
+  const KYIV: CityData = loadTiledCity('kyiv');
   const KYIV_ORIGIN = KYIV.origin;
   const KYIV_BBOX = KYIV.bbox;
 
@@ -838,9 +837,7 @@ describe('resolveSpawn (per-city fallback + bbox check)', () => {
 // `bridge=yes`, so resolveSpawn against the committed kyiv.json must land on
 // an unblocked bridge vertex and stay walkable 20 m along its bearing.
 describe('Kyiv bridge presets (T-0047)', () => {
-  const KYIV: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
-  );
+  const KYIV: CityData = loadTiledCity('kyiv');
   // Build the SAME CollisionGrid main.ts builds (integration.md §5): water
   // rings as fake footprints, bridge roads as corridors over them.
   const collision = new CollisionGrid(
@@ -906,9 +903,7 @@ describe('Kyiv bridge presets (T-0047)', () => {
 // `CollisionGrid` (built as `main.ts` does) every Kyiv building preset must
 // resolve to a point with `blocked(p, 6) === false`.
 describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
-  const KYIV: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'kyiv.json'), 'utf8'),
-  );
+  const KYIV: CityData = loadTiledCity('kyiv');
   // Build the SAME CollisionGrid main.ts builds, but from the APPLIED city so
   // the Motherland Monument footprint (and the fixed heights) are included.
   const city = applyLandmarks(KYIV, 'kyiv');
@@ -985,9 +980,7 @@ describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
 // (not the WGS84 fallback), 100–180 m from the extra centroid (h=52 →
 // targetDist 132), with a clear T-0059 corridor, facing the extra within 10°.
 describe('London trafalgar preset (T-0069)', () => {
-  const LONDON: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'city.json'), 'utf8'),
-  );
+  const LONDON: CityData = loadTiledCity('london');
   const city = applyLandmarks(LONDON, 'london');
   const collision = new CollisionGrid(
     city.water?.length
@@ -1241,9 +1234,7 @@ describe('Manhattan presets (wave 10)', () => {
   });
 
   it('every NYC preset coordinate falls inside the nyc.json bbox', () => {
-    const NYC: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-    );
+    const NYC = loadTiledIndex('nyc');
     for (const [, preset] of presetsFor('nyc')) {
       const p = preset as { lon?: number; lat?: number };
       expect(p.lon).toBeDefined();
@@ -1256,9 +1247,7 @@ describe('Manhattan presets (wave 10)', () => {
   });
 
   it('brooklynbridge sits on the "Brooklyn Bridge Promenade" walkway line (≤ 3 m)', () => {
-    const NYC: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-    );
+    const NYC: CityData = loadTiledGlobals('nyc');
     const preset = SPAWN_PRESETS.brooklynbridge as { lon: number; lat: number };
     const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
     const walkway = NYC.roads.filter(
@@ -1280,9 +1269,7 @@ describe('Manhattan presets (wave 10)', () => {
   });
 
   it('brooklynbridge sits on the promenade at mid-span, 40 ± 5 m ASL', () => {
-    const NYC: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-    );
+    const NYC: CityData = loadTiledGlobals('nyc');
     expect(NYC.terrain).toBeDefined();
     const preset = SPAWN_PRESETS.brooklynbridge as { lon: number; lat: number };
     const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
@@ -1318,9 +1305,7 @@ describe('Manhattan presets (wave 10)', () => {
   });
 
   it('manhattanbridge sits on the "Manhattan Bridge Pedestrian Path" south walkway (≤ 3 m)', () => {
-    const NYC: CityData = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-    );
+    const NYC: CityData = loadTiledGlobals('nyc');
     const preset = SPAWN_PRESETS.manhattanbridge as { lon: number; lat: number };
     const [px, pz] = project(preset.lon, preset.lat, NYC.origin);
     const walkway = NYC.roads.filter(
@@ -1348,9 +1333,7 @@ describe('Manhattan presets (wave 10)', () => {
 // each must resolve to an unblocked point whose nearest named road is the
 // expected street (T-0090).
 describe('Manhattan preset polish (T-0090)', () => {
-  const NYC: CityData = JSON.parse(
-    readFileSync(resolve(__dirname, '..', 'public', 'data', 'nyc.json'), 'utf8'),
-  );
+  const NYC: CityData = loadTiledCity('nyc');
   // Build the same Terrain + CollisionGrid main.ts builds. `Terrain` is
   // constructed for parity with the boot path (the spec asks for it); the
   // collision grid drives the blocked() checks below.

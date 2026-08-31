@@ -2,12 +2,13 @@
  * Unit tests for the data layer: validator, synthetic city and loader
  * (`src/data/validate.ts`, `src/data/synthetic.ts`, `src/data/load.ts`).
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validateCity } from '../src/data/validate';
+import { validateCity, validateTileIndex } from '../src/data/validate';
 import { mulberry32, syntheticCity } from '../src/data/synthetic';
 import { loadCity } from '../src/data/load';
+import { loadTiledGlobals, loadTiledIndex } from './tiledCity';
 
 /** Deep copy of a valid synthetic city for mutation in checks. */
 function base(): ReturnType<typeof syntheticCity> {
@@ -411,12 +412,12 @@ describe('syntheticCity', () => {
   });
 });
 
-describe('committed public/data/kyiv.json', () => {
-  const raw = readFileSync(resolve(__dirname, '../public/data/kyiv.json'), 'utf8');
-  const city = JSON.parse(raw);
+describe('committed public/data/kyiv', () => {
+  const index = loadTiledIndex('kyiv');
+  const city = loadTiledGlobals('kyiv');
 
   it('validates with no throw', () => {
-    expect(() => validateCity(city)).not.toThrow();
+    expect(() => validateTileIndex(index)).not.toThrow();
   });
 
   it('has the central-Kyiv bbox and Maidan origin', () => {
@@ -429,6 +430,7 @@ describe('committed public/data/kyiv.json', () => {
     // T-0047: both are `highway=cycleway` + `bridge=yes`, so they are dropped
     // as roads but emitted as pedestrian bridges. Their OSM way ids:
     // 163254636 (Parkovyi, ~430 m) and 660559170 (Klitschko "glass", ~210 m).
+    // Bridges are global (`index.bridgeRoads`) after the T-0096 retile.
     const roads = city.roads as Array<{
       id: number;
       cls: string;
@@ -448,7 +450,7 @@ describe('committed public/data/kyiv.json', () => {
 
   it('carries a terrain grid with a Kyiv-plausible datum (150–165 m ASL)', () => {
     expect(city.terrain).toBeDefined();
-    const t = city.terrain;
+    const t = city.terrain!;
     expect(t.step).toBe(20);
     expect(t.datum).toBeGreaterThanOrEqual(150);
     expect(t.datum).toBeLessThanOrEqual(165);
@@ -457,22 +459,28 @@ describe('committed public/data/kyiv.json', () => {
 
   it('waterLevels has one entry per water ring', () => {
     expect(Array.isArray(city.water)).toBe(true);
-    expect(city.water.length).toBeGreaterThan(0);
-    expect(city.waterLevels).toHaveLength(city.water.length);
-    for (const lvl of city.waterLevels) {
+    expect(city.water!.length).toBeGreaterThan(0);
+    expect(city.waterLevels).toHaveLength(city.water!.length);
+    for (const lvl of city.waterLevels!) {
       expect(Number.isFinite(lvl)).toBe(true);
     }
   });
 
   it('every terrain height is within ±150 of 0', () => {
-    for (const h of city.terrain.heights) {
+    expect(city.terrain).toBeDefined();
+    for (const h of city.terrain!.heights) {
       expect(h).toBeGreaterThanOrEqual(-150);
       expect(h).toBeLessThanOrEqual(150);
     }
   });
 
   it('file size is under 10 MB', () => {
-    expect(raw.length).toBeLessThan(10 * 1024 * 1024);
+    const dir = resolve(__dirname, '../public/data/kyiv');
+    let total = statSync(join(dir, 'index.json')).size;
+    for (const name of readdirSync(join(dir, 'tiles'))) {
+      total += statSync(join(dir, 'tiles', name)).size;
+    }
+    expect(total).toBeLessThan(10 * 1024 * 1024);
   });
 });
 

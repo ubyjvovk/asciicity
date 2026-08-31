@@ -24,7 +24,8 @@ export interface CityInfo {
   sizeBytes: number;
   /**
    * When true, `file` names `data/<id>/index.json` and the app boots the
-   * sector-streaming path (architecture.md §4.19). Absent on monolithic cities.
+   * sector-streaming path (architecture.md §4.19). Every shipped city is tiled;
+   * the monolithic loader remains only for `?synthetic=1` and unit tests.
    */
   tiled?: true;
 }
@@ -34,18 +35,20 @@ export const CITIES: readonly CityInfo[] = [
   {
     id: 'london',
     label: 'LONDON',
-    file: 'data/city.json',
+    file: 'data/london/index.json',
     defaultSpawn: 'bigben',
     blurb: 'City of London & Westminster · flat',
-    sizeBytes: 3229747,
+    sizeBytes: 256785,
+    tiled: true,
   },
   {
     id: 'kyiv',
     label: 'KYIV',
-    file: 'data/kyiv.json',
+    file: 'data/kyiv/index.json',
     defaultSpawn: 'maidan',
     blurb: 'Central Kyiv · Dnipro hills, 120 m of relief',
-    sizeBytes: 3449700,
+    sizeBytes: 634133,
+    tiled: true,
   },
   {
     id: 'sf',
@@ -59,10 +62,11 @@ export const CITIES: readonly CityInfo[] = [
   {
     id: 'nyc',
     label: 'MANHATTAN',
-    file: 'data/nyc.json',
+    file: 'data/nyc/index.json',
     defaultSpawn: 'brooklynbridge',
     blurb: 'Battery to Central Park · skyscrapers & bridges',
-    sizeBytes: 10102343,
+    sizeBytes: 920302,
+    tiled: true,
   },
 ];
 
