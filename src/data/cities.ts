@@ -83,7 +83,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/tokyo/index.json',
     defaultSpawn: 'shibuya',
     blurb: 'Shibuya Scramble to the Skytree · streamed',
-    sizeBytes: 2701381,
+    sizeBytes: 2697648,
     tiled: true,
     defaultRender: 'matrix',
   },
