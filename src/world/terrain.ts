@@ -228,14 +228,16 @@ function polylineLength(pts: readonly Vec2[]): number {
 
 /**
  * Apex to apply to `chain` from `humps` — the hump matching `chain.name`, but
- * ONLY when `chain` is the longest same-name bridge chain in `chains` (by
- * polyline arc length; ties: the first encountered wins). Returns `undefined`
- * when the name is unmapped or when another chain of the same name is longer,
- * so shorter chains keep the plain abutment lerp (T-0118: Sydney's
+ * ONLY when `chain`'s polyline arc length is ≥ 0.8 × the longest same-name
+ * bridge chain in `chains`. Returns `undefined` when the name is unmapped or
+ * when `chain` is materially shorter than the longest matching chain, so
+ * unrelated shorter chains keep the plain abutment lerp (T-0118: Sydney's
  * `Cahill Walk` names both the harbour-crossing walkway and the disconnected
  * Circular Quay walkway — only the harbour crossing should hump to 49 m).
- * A name that appears in exactly one chain behaves identically to the pre-
- * T-0118 lookup.
+ * The 0.8 ratio catches dual carriageways (T-0119: Sydney's `Bradfield
+ * Highway` is two near-equal chains, 1630.6 m and 1634.6 m; 0.998 ≥ 0.8 so
+ * BOTH hump). A name that appears in exactly one chain has ratio 1.0 and
+ * behaves identically to the pre-T-0118 lookup.
  */
 export function chainHumpApex(
   chain: Road,
@@ -253,16 +255,13 @@ export function chainHumpApex(
   }
   if (apex === undefined) return undefined;
   let longestLen = -1;
-  let longest: Road | undefined;
   for (const c of chains) {
     if (c.bridge !== true || c.name !== name) continue;
     const len = polylineLength(c.pts);
-    if (len > longestLen) {
-      longestLen = len;
-      longest = c;
-    }
+    if (len > longestLen) longestLen = len;
   }
-  return longest === chain ? apex : undefined;
+  if (longestLen <= 0) return undefined;
+  return polylineLength(chain.pts) >= 0.8 * longestLen ? apex : undefined;
 }
 
 /**
