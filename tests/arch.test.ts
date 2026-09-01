@@ -258,10 +258,15 @@ describe('src/world/bridge.ts arch', () => {
         const d = Math.hypot(p[0] - c[0], p[1] - c[1]);
         if (d < bestShore) bestShore = d;
       }
+      // 75 m, not 30: since T-0116 the largest ring is DEM-contoured (20 m
+      // grid + force-land wharf aprons), so its shoreline sits up to ~55 m
+      // from the OSM boundary the ends were derived from. The crossing is a
+      // derivation anchor; the ≤ 20 m on-polyline and 503 ± 15 m span
+      // assertions above are the real placement guards.
       expect(
         bestShore,
         `spec end [${end.join(',')}] shore-dist=${bestShore.toFixed(2)}`,
-      ).toBeLessThanOrEqual(30);
+      ).toBeLessThanOrEqual(75);
     }
     const [s, n] = SPEC.ends.map((e) => project(e[0], e[1], SYD.origin));
     const span = Math.hypot(n![0] - s![0], n![1] - s![1]);
