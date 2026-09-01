@@ -930,10 +930,10 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
 
   /** Row-major heights grid, uniform 0 (sea level) unless overridden. */
   function grid(
-    bumps: Array<{ r: number; c: number; h: number }> = [],
+    bumps: Array<{ r: number; c: number; val: number }> = [],
   ): number[] {
     const h = new Array(COLS * ROWS).fill(0);
-    for (const { r, c, val } of bumps as Array<{ r: number; c: number; val: number }>) {
+    for (const { r, c, val } of bumps) {
       if (r >= 0 && r < ROWS && c >= 0 && c < COLS) h[r * COLS + c] = val;
     }
     return h;
@@ -1158,7 +1158,7 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
         members: [{ type: 'way', role: 'outer', ref: 1, geometry: geom }],
       },
     ];
-    const bbox: Array<number> = [
+    const bbox: [number, number, number, number] = [
       ORIGIN.lon,
       ORIGIN.lat - 4500 / 110574,
       ORIGIN.lon + 4500 / (COS * 111320),
@@ -1276,7 +1276,7 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
       [1900, 2100],
     ];
     const { elements } = giantRelation(island);
-    const bbox: Array<number> = [
+    const bbox: [number, number, number, number] = [
       ORIGIN.lon,
       ORIGIN.lat - 4500 / 110574,
       ORIGIN.lon + 4500 / (111320 * Math.cos(ORIGIN.lat * (Math.PI / 180))),
@@ -1314,7 +1314,7 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
       [1900, 2100],
     ];
     const { elements } = giantRelation(island);
-    const bbox: Array<number> = [
+    const bbox: [number, number, number, number] = [
       ORIGIN.lon,
       ORIGIN.lat - 4500 / 110574,
       ORIGIN.lon + 4500 / (111320 * Math.cos(ORIGIN.lat * (Math.PI / 180))),
