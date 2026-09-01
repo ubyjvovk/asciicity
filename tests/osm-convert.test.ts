@@ -1047,6 +1047,44 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
     expect(negatives).toHaveLength(1);
   });
 
+  it('traceWaterBoundary: a saddle-heavy fractal mask traces bounded simple rings (regression: no unbounded ring/OOM)', () => {
+    // A dense checkerboard saddle pattern + scattered land holes forces the
+    // ambiguous diagonal-corner junctions that could balloon the OLD tracer
+    // (which always followed the first neighbour) into a near-10M-point ring
+    // and OOM. The angular-successor tracer must complete with bounded rings.
+    const N = 48;
+    const m = new Uint8Array(N * N).fill(1); // all water
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        // Diagonal-only land in one quadrant: every interior corner is a saddle.
+        if (r < N / 2 && c < N / 2 && (r + c) % 2 === 1) m[r * N + c] = 0;
+        // Scattered single-pixel land holes elsewhere.
+        if (r >= N / 2 && c % 5 === 2 && r % 3 === 1) m[r * N + c] = 0;
+      }
+    }
+    const rings = traceWaterBoundary(m, N, N, 0, 0, STEP);
+    expect(rings.length).toBeGreaterThan(1);
+    let maxLen = 0;
+    let signedAreaSum = 0;
+    const waterCells = Array.from(m).filter((v) => v === 1).length;
+    for (const ring of rings) {
+      expect(ring.length).toBeGreaterThanOrEqual(3);
+      expect(ring.length).toBeLessThanOrEqual(N * N * 4); // bounded, no 10M ring
+      maxLen = Math.max(maxLen, ring.length);
+      let a = 0;
+      for (let i = 0; i < ring.length; i++) {
+        const [x1, z1] = ring[i];
+        const [x2, z2] = ring[(i + 1) % ring.length];
+        a += x1 * z2 - x2 * z1;
+      }
+      signedAreaSum += a / 2;
+    }
+    // Global closure invariant: outer rings CCW (+) minus hole rings CW (−)
+    // nets exactly the water-pixel area. Catches mis-threading on saddles.
+    expect(signedAreaSum).toBeCloseTo(waterCells * STEP * STEP, -3);
+    expect(maxLen).toBeLessThanOrEqual(N * N * 4);
+  });
+
   it('contourWaterRings: an elevated island is emitted as its own ring, not flipped (parity land)', () => {
     // Heights: sea level 0 except a block island (Goat-Island scale) set to 8 m.
     const heights = new Array(COLS * ROWS).fill(0);

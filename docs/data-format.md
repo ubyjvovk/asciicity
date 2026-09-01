@@ -248,19 +248,23 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   --tiles 1 --out public/data/sydney` (`npm run fetch-data:sydney`).
 - **Size budget: 12 MB** for `index.json` + all tiles combined (counts are
   ~half of SF's building total; blocked question if over).
-- Shipped counts (refetched 2026-08-31, T-0116 — multi-way building
-  relations now assembled): **20 322 buildings** (incl. the Sydney Opera
+- Shipped counts (refetched 2026-09-01, T-0116 — multi-way building
+  relations assembled; water path now runs the composite DEM contour, see
+  "Water relations" below): **20 322 buildings** (incl. the Sydney Opera
   House as its own relation footprint, id 9596872, h 18.5 from
   `building:levels=5`, ~180 m long — its `building:part=roof` sheets are
-  skipped as parts so the real outline survives; max h 309 = Westfield Sydney
-  9 818 roads (804 bridge roads global — the Harbour Bridge deck,
-  Brisbane/Waterloo overpasses) / 106 places / 89 water rings / 1 river /
-  28 962 trees (17 333 filled) / 2 278 landmarks, terrain 291×347 @ 20 m
-  (datum 3.9 m ASL, 0 voids, tile S34E151, bare-earth), **57 tiles**, index
-  914 166 B + tiles 5 875 407 B ≈ 6.5 MB (largest tile 0_-3.json 292 600 B),
-  zero bridge leaks into tiles; Circular Quay origin confirmed ≈ 27 m from
-  the OSM Circular Quay place node (railway/ferry wharf, within the 100 m
-  check).
+  skipped as parts so the real outline survives; max h 309 = Westfield Sydney)
+  / 9 818 roads (804 bridge roads global — the Harbour Bridge deck,
+  Brisbane/Waterloo overpasses) / 106 places / **138 water rings** (one
+  DEM-contoured harbour ring 9.45 km² + inner-member island rings incl. Fort
+  Denison / Goat Island / Garden Island + smaller ponds and inlets) /
+  1 river / 29 131 trees (17 501 filled) / 2 278 landmarks, terrain
+  291×347 @ 20 m (datum 3.9 m ASL, 0 voids, tile S34E151, bare-earth),
+  **57 tiles**, index 1 203 530 B + tiles 5 883 773 B ≈ 6.8 MB, zero bridge
+  leaks into tiles; Circular Quay origin confirmed ≈ 27 m from the OSM
+  Circular Quay place node (railway/ferry wharf, within the 100 m check).
+  Fetched with `--water-full 1 --water-dem 1` (see "Water relations" §4);
+  the sydney alias will flip to those flags at accept.
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
@@ -546,35 +550,63 @@ by accident. The water-relation path therefore:
    `fetchDemTiles` covers the query bbox and `dem.elevationAt` throws
    loudly if a water-vertex tile is not loaded (Sydney's harbour spans
    only S34E151, so no new tiles are needed there).
-4. **`--water-dem` (Answers 5, T-0116) — DEM-contoured shoreline for sloppy
-   giants.** OSM's harbour polygons can be label-grade: the Port Jackson outer
-   boundary contains long straight segments that cut across peninsula bases, so
-   even the full simple polygon encloses whole peninsulas (Overpass's own
-   `is_in` confirms Mrs Macquarie's Point inside it). No OSM layer carves the
-   shore out. `--water-dem 1` (fetch flag → `convertOverpass` `waterDem: true`)
-   therefore re-derives the shoreline from the bare-earth terrain grid, which
-   already carries the truth (peninsulas 5–20 m ASL, water ~0): for each kept
-   OUTER ring with |area| ≥ 1 km² (the giants — smaller rings are trusted
-   accurate and pass through untouched) it builds a node mask
-   (`inside giant AND bare-earth ≤ level + 2.0 m`, where `level` is the giant
-   ring's 10th-percentile DEM value, as today), cleans it in order (one 3×3
-   majority-vote pass; flip any 4-connected LAND component ≤ 8 nodes with no
-   road-vertex/building-centroid protection to water; drop any WATER component
-   < 6 nodes), extracts the boundary rings with marching squares at node
-   resolution, and applies one Chaikin corner-cut pass. These rings REPLACE the
-   giant ring and its inner-island rings (the contour's own hole rings take
-   over — no double-counting); each emitted ring's `waterLevels` entry is its
-   source body's level. Everything downstream (flattening, collision parity,
-   render, minimap) consumes rings exactly as today — zero `src/` changes. The
-   mask rules are pure and unit-tested with synthetic grids (threshold,
-   majority vote, speck/puddle flips, hole emission), no fetch. **Sydney status
-   (blocked, T-0116):** on the committed 20 m bare-earth grid the filter
-   (T-0108/T-0109 erode + double smooth) erases Sydney's small harbour
-   features — Fort Denison reads −3.5 m ASL, Bennelong Point −2 m, Garden
-   Island 0.9 m — and raises the shallow Circular Quay cove to 2.0 m ASL, so a
-   single elevation threshold cannot satisfy the AC water/land parity set. The
-   threshold/constants are PM-owned; the mechanism is kept on the branch while
-   the data question is resolved.
+4. **`--water-dem` (Answers 5-6, T-0116) — composite DEM-contoured shoreline
+   for sloppy giants.** OSM's harbour polygons can be label-grade: the Port
+   Jackson outer boundary contains long straight segments that cut across
+   peninsula bases, so even the full simple polygon encloses whole peninsulas
+   (Overpass's own `is_in` confirms Mrs Macquarie's Point inside it). No OSM
+   layer carves the shore out. `--water-dem 1` (fetch flag → `convertOverpass`
+   `waterDem: true`) therefore re-derives the shoreline from the bare-earth
+   terrain grid, which already carries most of the truth (peninsulas 5–20 m
+   ASL, water ~0), combined with the pipeline's own built-up-area layers to
+   rescue small harbour features the 20 m bare-earth filter has erased
+   (Fort Denison, Bennelong Point, Garden Island). For each kept OUTER ring
+   with |area| ≥ 1 km² (the giants — smaller rings are trusted accurate and
+   pass through untouched) the mask is built as a **composite** of five
+   ordered rules:
+   1. **Base threshold** `bare-earth ≤ level + 3.0 m`, where `level` is the
+      giant ring's 10th-percentile DEM value (Circular Quay cove reads
+      ~2.0 m ASL after the T-0108/T-0109 smooth — the +3.0 m margin puts it
+      in the water with real slack rather than a knife-edge).
+   2. **3×3 majority vote** on the raw mask (as before).
+   3. **Force-LAND override**: any node whose cell (node ± half a step) contains
+      a BUILDING centroid or a NON-BRIDGE road vertex is forced to LAND after
+      the majority vote so it cannot be eroded. This mechanically rescues
+      Bennelong Point (the Opera House itself), Garden Island (naval buildings
+      + roads), Mrs Macquarie's tip (Mrs Macquarie's Road), Woolloomooloo, and
+      the Botanic paths, and makes the wharf strips walkable — the protection
+      is generative, not just preservative.
+   4. **Speck/puddle cleanup** (flip 4-connected LAND components ≤ 8 nodes with
+      no protection to water; drop WATER components < 6 nodes).
+   5. **Relation-inner island rescue**: an inner ring belonging to a kept giant
+      is emitted iff its centroid reads WATER in the final mask (the contour
+      missed it — Fort Denison's 3 030 m² OSM inner comes back with its exact
+      geometry, parity giant(1) + island(1) = LAND). An inner already carved
+      by a contour hole reads LAND in the mask and stays dropped (no double
+      ring).
+
+   Marching squares at node resolution extracts the shoreline + island holes
+   (planar face-tracing with the angular-successor rule, so ambiguous saddle
+   corners resolve deterministically and mask fractality never produces an
+   unbounded ring); one Chaikin corner-cut pass follows. These rings REPLACE
+   the giant ring and its previously emitted inner-island rings (the contour's
+   own hole rings take over — no double-counting); each emitted ring's
+   `waterLevels` entry is its source body's level. Everything downstream
+   (flattening, collision parity, render, minimap) consumes rings exactly as
+   today — zero `src/` changes. The mask rules and marching-squares tracer are
+   pure and unit-tested with synthetic grids (threshold, majority vote, force-
+   LAND override, speck/puddle flips, hole emission, saddle-heavy mask
+   closure, elevated-island parity, inner rescue), no fetch. Sydney parity
+   after the composite (assertions in `tests/sydney.test.ts`): the six PM
+   WATER probes (mid-harbour, CQ cove, under-bridge, west-of-Goat, mid-Farm-
+   Cove, mid-Woolloomooloo-Bay) and the nine LAND probes (CBD, Fort Denison,
+   Goat Island, Mrs Macquarie's Point, Sydney Opera House / Bennelong Point,
+   Woolloomooloo Finger Wharf, Garden Island naval yard, Kirribilli, Blues
+   Point) all pass; the global non-bridge wet-road-vertex rate drops from
+   ~195/53 555 (0.36 %, attempt-4 baseline) to 14/53 555 (0.026 %) — the
+   remainder is the Sydney Harbour Tunnel (a genuine under-harbour tunnel,
+   surface points must read water) and a handful of unnamed wharf-approach
+   segments OSM maps as roads over water.
 
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 

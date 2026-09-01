@@ -1402,60 +1402,114 @@ export function cleanupMask(mask, cols, rows, prot) {
 
 /**
  * Trace the water/land boundary of a binary node mask into closed rings
- * (clean-up rule 4 — marching squares at node resolution). Nodes are treated
- * as `step`-wide pixels; the boundary follows pixel sides where a water pixel
- * meets land (or the grid edge). Returns one closed ring per boundary loop:
- * outer rings (water interior) come out CCW (positive signed area), island
- * holes (land interior) come out CW (negative signed area).
+ * (clean-up rule 4 — marching squares at node resolution). Each grid node is a
+ * `step`-wide water pixel; the boundary is the set of pixel sides where water
+ * meets land (or the grid edge). Boundary sides are directed with water on the
+ * left, threaded into loops by the planar face-tracing "angular successor" rule
+ * (at each corner continue on the outgoing side whose angle is the first one
+ * strictly CCW of the arrival direction). This resolves ambiguous saddle corners
+ * (diagonal water pixels meeting at a point) deterministically, so every emitted
+ * ring is a simple cycle and the closure hold for any mask complexity — unlike a
+ * "always follow the first neighbour" tracer, this does not balloon into a
+ * near-endless ring on fractal shorelines. Returns one closed ring per boundary
+ * loop: outer rings (water interior) come out CCW (positive signed area), island
+ * holes (land interior) come out CW (negative signed area). Memory is O(boundary
+ * edges) and bounded by the grid size regardless of mask shape.
  * @param {Uint8Array} mask binary mask (1 = water)
  * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
  * @returns {Array<Array<[number, number]>>} closed boundary rings (local m)
  */
 export function traceWaterBoundary(mask, cols, rows, x0, z0, step) {
   const half = step / 2;
+  const W = cols + 1; // corner-code width (one extra corner per row/col)
   const waterAt = (r, c) => (r < 0 || r >= rows || c < 0 || c >= cols ? 0 : mask[r * cols + c]);
-  const adj = new Map();
-  const keyPt = (p) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`;
-  const addEdge = (a, b) => {
-    const k = keyPt(a);
-    if (!adj.has(k)) adj.set(k, []);
-    adj.get(k).push(b);
+  const corner = (r, c) => r * W + c;
+  const dirAngle = (dc, dr) => Math.atan2(dr, dc);
+  // Outgoing directed boundary sides per corner (water pixel sides where the
+  // neighbour is land/edge), oriented with water on the left. Direction = (dc,dr).
+  const outAt = new Map();
+  const addSide = (r, c, dc, dr) => {
+    const k = corner(r, c);
+    let a = outAt.get(k);
+    if (!a) { a = []; outAt.set(k, a); }
+    a.push([dc, dr]);
   };
   for (let r = 0; r < rows; r++) {
+    const base = r * cols;
     for (let c = 0; c < cols; c++) {
-      if (mask[r * cols + c] !== 1) continue;
-      const x = x0 + c * step;
-      const z = z0 + r * step;
-      const TL = [x - half, z - half];
-      const TR = [x + half, z - half];
-      const BR = [x + half, z + half];
-      const BL = [x - half, z + half];
-      if (waterAt(r - 1, c) !== 1) addEdge(TL, TR); // top
-      if (waterAt(r, c + 1) !== 1) addEdge(TR, BR); // right
-      if (waterAt(r + 1, c) !== 1) addEdge(BR, BL); // bottom
-      if (waterAt(r, c - 1) !== 1) addEdge(BL, TL); // left
+      if (mask[base + c] !== 1) continue;
+      if (waterAt(r - 1, c) !== 1) addSide(r, c, 1, 0);            // top
+      if (waterAt(r, c + 1) !== 1) addSide(r, c + 1, 0, 1);        // right
+      if (waterAt(r + 1, c) !== 1) addSide(r + 1, c + 1, -1, 0);   // bottom
+      if (waterAt(r, c - 1) !== 1) addSide(r + 1, c, 0, -1);       // left
     }
   }
-  const used = new Set();
-  const rings = [];
-  for (const [k] of adj) {
-    if (used.has(k)) continue;
-    const [sx, sz] = k.split(',').map(Number);
-    const ring = [[sx, sz]];
-    used.add(k);
-    let cur = k;
-    let guard = 0;
-    while (guard++ < 10000000) {
-      const next = adj.get(cur);
-      if (!next || next.length === 0) break;
-      const pt = next[0];
-      const tk = keyPt(pt);
-      if (tk === k) break; // closed back to start
-      used.add(tk);
-      ring.push([pt[0], pt[1]]);
-      cur = tk;
+  // Flatten the directed sides into an edge list; each edge knows its start
+  // corner and travel direction, and (filled below) its continuation edge id.
+  const edges = [];
+  for (const [k, arr] of outAt) {
+    for (const [dc, dr] of arr) edges.push({ k, dc, dr, next: -1 });
+  }
+  const startAt = new Map();
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i];
+    let a = startAt.get(e.k);
+    if (!a) { a = []; startAt.set(e.k, a); }
+    a.push(i);
+  }
+  // Sort each corner's outgoing directions CCW so the successor is well-defined.
+  for (const arr of startAt.values()) {
+    arr.sort((ia, ib) => {
+      const a = edges[ia];
+      const b = edges[ib];
+      return dirAngle(a.dc, a.dr) - dirAngle(b.dc, b.dr);
+    });
+  }
+  // Continuation: an edge arriving at its end corner continues on the outgoing
+  // side there whose angle is the first one strictly CCW of the arrival direction.
+  for (const e of edges) {
+    const endR = (e.k / W | 0) + e.dr;
+    const endC = (e.k % W) + e.dc;
+    const endK = corner(endR, endC);
+    const inAng = dirAngle(-e.dc, -e.dr);
+    const cands = startAt.get(endK) || [];
+    let best = -1;
+    let bestAng = Infinity;
+    for (const ci of cands) {
+      const ce = edges[ci];
+      let da = dirAngle(ce.dc, ce.dr) - inAng;
+      if (da <= 0) da += 2 * Math.PI;
+      if (da < bestAng) { bestAng = da; best = ci; }
     }
-    if (ring.length >= 3) rings.push(ring);
+    e.next = best;
+  }
+  // Thread the loops: follow `next`, converting each directed-side loop into a
+  // ring of corner points (metres). A side from corner A with direction (dc,dr)
+  // passes through its start corner A; consecutive sides share a corner, so the
+  // start corners of the loop's sides are the ring's vertices in order.
+  const visited = new Uint8Array(edges.length);
+  const toMetre = (r, c) => [x0 + (c - 0.5) * step, z0 + (r - 0.5) * step];
+  const rings = [];
+  for (let i = 0; i < edges.length; i++) {
+    if (visited[i]) continue;
+    const loop = [];
+    let cur = i;
+    let g = 0;
+    const guard = edges.length + 1;
+    while (cur !== -1 && !visited[cur] && g++ <= guard) {
+      visited[cur] = 1;
+      loop.push(cur);
+      cur = edges[cur].next;
+      if (cur === i) break;
+    }
+    if (loop.length >= 3) {
+      const ring = [];
+      for (const li of loop) {
+        const e = edges[li];
+        ring.push(toMetre(e.k / W | 0, e.k % W));
+      }
+      rings.push(ring);
+    }
   }
   return rings;
 }
