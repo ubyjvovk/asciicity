@@ -301,7 +301,7 @@ export function terrainHeightAt(t: TerrainData, x: number, z: number): number  /
 export function buildTerrainGeometry(t: TerrainData): THREE.BufferGeometry     // indexed heightfield (works in node)
 export function makeTerrainObject(t: TerrainData): THREE.Mesh                   // browser-only: grid texture + slope shade
 export function bridgeProfile(pts: Vec2[], heightAt: HeightFn, apexY?: number): number[]  // deck height per polyline vertex
-export function chainHumpApex(chain: Road, chains: readonly Road[], humps: readonly DeckHump[]): number | undefined  // T-0118: apex applies only to name's LONGEST chain
+export function chainHumpApex(chain: Road, chains: readonly Road[], humps: readonly DeckHump[]): number | undefined  // T-0118/T-0119: apex applies to same-name chains ≥ 0.8 × longest matching chain length
 export class BridgeDecks {
   constructor(roads: Road[], heightAt: HeightFn, cell = 25, humps?: readonly DeckHump[])  // keeps roads with bridge === true
   deckAt(p: Vec2): number | undefined                                           // deck height under p, or undefined
@@ -357,12 +357,16 @@ export function makeGroundAt(terrain: Terrain | undefined, decks: BridgeDecks | 
   city)` in `bridge.ts` (§4.16): `apexY = spec.deckApexASL −
   city.terrain.datum` (flat cities: `apexY = spec.deckApexASL`). Roads not
   named in any hump keep the straight lerp — London / Kyiv byte-identical.
-  **Wave 11 amendment (T-0118)**: when a hump name resolves to more than
-  one chain (Sydney's `Cahill Walk` names both the harbour-crossing
-  walkway and the disconnected Circular Quay elevated walkway),
-  `chainHumpApex` applies the apex ONLY to that name's LONGEST chain by
-  polyline arc length (ties: first wins); shorter same-name chains keep
-  the plain abutment lerp. Single-chain names are byte-identical.
+  **Wave 11 amendment (T-0118, refined by T-0119)**: when a hump name
+  resolves to more than one chain (Sydney's `Cahill Walk` names both the
+  harbour-crossing walkway and the disconnected Circular Quay elevated
+  walkway), `chainHumpApex` applies the apex to every same-name chain
+  whose polyline arc length is ≥ 0.8 × the longest matching chain's
+  length; shorter same-name chains keep the plain abutment lerp. The 0.8
+  ratio keeps dual carriageways together (Sydney's `Bradfield Highway`
+  splits into two ~1630 m chains — ratio 0.998 — so BOTH hump) while
+  still excluding the disconnected Cahill Walk / Circular Quay chain
+  (ratio 0.44). Single-chain names are byte-identical.
 - **Bridge chaining (wave 9, T-0082).** OSM splits long bridges into several
   ways (the Golden Gate Bridge East Sidewalk is three `bridge: true` pieces
   whose joints sit over open water), and profiling each piece between its
@@ -1055,11 +1059,12 @@ Geometry (axis frame from `ends`, span `L`, `t ∈ [0, 1]` along it; local
   from (151, −1620) to (−392, −252)), the Circular Quay elevated walkway
   (661 m, from (−429, −84) to (210, 29)), and a 4 m stub. T-0118 gates
   humps by chain length (`chainHumpApex`, §4.9): the 49 m-ASL apex now
-  applies ONLY to the 1503 m harbour-crossing chain; the Circular Quay
-  and stub chains keep the plain abutment lerp so the walkway no longer
-  floats ~45 m over Circular Quay. Bradfield Highway / Harbour Bridge
-  Cycleway are unaffected because each of them chains into a single
-  same-name chain whose longest member IS the deck.
+  applies to same-name chains ≥ 0.8 × the longest chain's length
+  (T-0119 refinement), so the harbour crossing humps (ratio 1.0), the
+  Circular Quay chain does not (661/1503 = 0.44) and the walkway no
+  longer floats ~45 m over Circular Quay. `Bradfield Highway` is a DUAL
+  carriageway (two chains of 1630.6 m and 1634.6 m, ratio 0.998) — BOTH
+  hump; `Harbour Bridge Cycleway` is a single chain (ratio 1.0).
 - No deviation from the numeric spec table (`archTopASL 134`, etc.);
   `pylonSize` `[16, 22]` and `pylonOffset 30` are used as declared.
 

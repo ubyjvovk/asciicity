@@ -420,6 +420,43 @@ describe('BridgeDecks', () => {
     expect(chainHumpApex(shortChain, chains, humps)).toBeUndefined();
   });
 
+  it('a hump named on two near-equal same-name chains applies to BOTH (T-0119, dual-carriageway fix)', () => {
+    // Two `Humped` bridges that never touch (z separation 200 m ≫ 0.5 m
+    // chaining threshold) — so `chainBridgeRoads` returns two chains. Their
+    // arc lengths are 100 m and 98 m, ratio 0.98 ≥ 0.8, so BOTH hump. This
+    // is the twin-carriageway case that motivated T-0119: Sydney's
+    // `Bradfield Highway` is two 1630 m chains and the west deck previously
+    // lerped ~21 m below the east.
+    const heightAt: HeightFn = () => 0;
+    const humps: DeckHump[] = [{ names: ['Humped'], apexY: 10 }];
+    const longChain: Road = makeRoad({
+      id: 1,
+      name: 'Humped',
+      bridge: true,
+      pts: [[0, 0], [50, 0], [100, 0]],
+    });
+    const twinChain: Road = makeRoad({
+      id: 2,
+      name: 'Humped',
+      bridge: true,
+      pts: [[0, 200], [49, 200], [98, 200]],
+    });
+    const decks = new BridgeDecks([longChain, twinChain], heightAt, 25, humps);
+    // Long chain: humped — apex at mid-span.
+    expect(decks.deckAt([50, 0])!).toBeCloseTo(10, 6);
+    expect(decks.deckAt([0, 0])!).toBeCloseTo(0, 6);
+    // Twin chain: humped too — its own apex at its own mid-span.
+    expect(decks.deckAt([49, 200])!).toBeCloseTo(10, 6);
+    expect(decks.deckAt([0, 200])!).toBeCloseTo(0, 6);
+    expect(decks.deckAt([98, 200])!).toBeCloseTo(0, 6);
+    // Direct helper: both chains return apexY (ratio 1.0 and 0.98).
+    const chains = chainBridgeRoads([longChain, twinChain]);
+    const longC = chains.find((c) => c.pts[0]![1] === 0)!;
+    const twinC = chains.find((c) => c.pts[0]![1] === 200)!;
+    expect(chainHumpApex(longC, chains, humps)).toBe(10);
+    expect(chainHumpApex(twinC, chains, humps)).toBe(10);
+  });
+
   it('a hump on a single-chain name behaves exactly as pre-T-0118 (backwards compatible)', () => {
     // Same expectation as the pre-T-0118 test above: one chain, one hump,
     // apex applied throughout.
@@ -545,7 +582,7 @@ describe('Golden Gate Bridge chaining (sf.json)', () => {
   });
 });
 
-describe('Sydney Cahill Walk longest-chain rule (T-0118)', () => {
+describe('Sydney bridge-chain hump-ratio rule (T-0118 + T-0119)', () => {
   it('the arch apex lands on the 1503 m harbour crossing; the 661 m Circular Quay chain keeps its plain lerp', () => {
     const syd: CityData = loadTiledGlobals('sydney');
     const datum = syd.terrain!.datum;
@@ -610,6 +647,68 @@ describe('Sydney Cahill Walk longest-chain rule (T-0118)', () => {
       Math.abs(shortDeck! - shortExpected),
       `Circular Quay midpoint deck ${shortDeck!.toFixed(2)} vs plain ${shortExpected.toFixed(2)}`,
     ).toBeLessThanOrEqual(3);
+  });
+
+  it('T-0119: BOTH `Bradfield Highway` twin-carriageway chains hump to the arch apex (49 m ASL)', () => {
+    // Sydney's `Bradfield Highway` is a DUAL carriageway on the Harbour
+    // Bridge deck: two near-equal chains (~1630 and ~1634 m). Under the
+    // pre-T-0119 longest-chain rule, only the east carriageway humped and
+    // the west lerped at ~28 m — a 21 m cliff between halves of the same
+    // deck. With the 0.8 ratio, both chains get the apex.
+    const syd: CityData = loadTiledGlobals('sydney');
+    const datum = syd.terrain!.datum;
+    const terrain = new Terrain(syd.terrain!);
+    const humps = deckHumps('sydney', syd);
+    const decks = new BridgeDecks(syd.roads, terrain.heightAt, 25, humps);
+
+    const allChains = chainBridgeRoads(syd.roads).filter(
+      (r) => r.name === 'Bradfield Highway' && r.bridge === true,
+    );
+    // The Sydney dataset also has 4 tiny same-name approach ramps (< 30 m,
+    // ratio < 0.02) that MUST NOT hump — they're not on the harbour deck.
+    // Pick the two twin-carriageway main-deck chains (top-2 by length).
+    const polyLen = (pts: Vec2[]): number => {
+      let s = 0;
+      for (let i = 1; i < pts.length; i++) {
+        s += Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+      }
+      return s;
+    };
+    const byLen = allChains.slice().sort((a, b) => polyLen(b.pts) - polyLen(a.pts));
+    expect(
+      byLen.length,
+      'need two Bradfield Highway carriageway chains for this test',
+    ).toBeGreaterThanOrEqual(2);
+    const twins = [byLen[0]!, byLen[1]!];
+    // Guardrail: the twins are near-equal (ratio ≥ 0.8 is the fix's floor).
+    expect(polyLen(twins[1].pts) / polyLen(twins[0].pts)).toBeGreaterThanOrEqual(0.8);
+
+    const midOf = (pts: Vec2[]): Vec2 => {
+      const total = polyLen(pts);
+      let acc = 0;
+      for (let i = 1; i < pts.length; i++) {
+        const seg = Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]);
+        if (acc + seg >= total / 2) {
+          const t = seg > 0 ? (total / 2 - acc) / seg : 0;
+          return [
+            pts[i - 1]![0] + (pts[i]![0] - pts[i - 1]![0]) * t,
+            pts[i - 1]![1] + (pts[i]![1] - pts[i - 1]![1]) * t,
+          ];
+        }
+        acc += seg;
+      }
+      return pts[pts.length - 1]!;
+    };
+
+    for (const chain of twins) {
+      const mid = midOf(chain.pts);
+      const deck = decks.deckAt(mid);
+      expect(deck, `Bradfield midpoint on deck (${mid[0].toFixed(1)}, ${mid[1].toFixed(1)})`).toBeDefined();
+      expect(
+        Math.abs(deck! - (49 - datum)),
+        `Bradfield midpoint deck ${deck!.toFixed(2)} vs apex ${(49 - datum).toFixed(2)}`,
+      ).toBeLessThanOrEqual(1);
+    }
   });
 });
 
