@@ -9,13 +9,20 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assembleRings,
+  chaikin,
+  cleanupMask,
   clipRingToBox,
+  contourWaterRings,
   convertOverpass,
   heightOf,
+  majorityVoteGrid,
   project,
+  protectedNodesFrom,
   roadClassOf,
   round1,
+  traceWaterBoundary,
   TREE_CAP,
+  waterMaskFromRing,
 } from '../scripts/osm-convert';
 import type { Vec2 } from '../src/data/types';
 import { validateCity, validateTileIndex } from '../src/data/validate';
@@ -911,6 +918,263 @@ describe('osm-convert water relations — overlapping bodies + inner islands (T-
     for (const ring of clipped.water ?? []) {
       expect(reachesFarEast(ring)).toBe(false);
     }
+  });
+});
+
+describe('osm-convert water-dem DEM contour (T-0116)', () => {
+  const STEP = 20;
+  const COLS = 10;
+  const ROWS = 10;
+  const X0 = 0;
+  const Z0 = 0;
+
+  /** Row-major heights grid, uniform 0 (sea level) unless overridden. */
+  function grid(
+    bumps: Array<{ r: number; c: number; h: number }> = [],
+  ): number[] {
+    const h = new Array(COLS * ROWS).fill(0);
+    for (const { r, c, val } of bumps as Array<{ r: number; c: number; val: number }>) {
+      if (r >= 0 && r < ROWS && c >= 0 && c < COLS) h[r * COLS + c] = val;
+    }
+    return h;
+  }
+
+  /** A ring enclosing the whole grid (all nodes "inside the giant"). */
+  const WHOLE: Array<[number, number]> = [
+    [-20, -20],
+    [220, -20],
+    [220, 220],
+    [-20, 220],
+  ];
+
+  it('node mask: inside the ring AND height ≤ level+threshold (level 0, threshold 2)', () => {
+    const heights = grid([
+      { r: 2, c: 2, val: 0.5 }, // water
+      { r: 3, c: 3, val: 5 }, // land (above threshold)
+      { r: 4, c: 4, val: 1.9 }, // water (≤ 2)
+    ]);
+    const mask = waterMaskFromRing(WHOLE, 0, 2, heights, COLS, ROWS, X0, Z0, STEP);
+    expect(mask[2 * COLS + 2]).toBe(1);
+    expect(mask[3 * COLS + 3]).toBe(0); // 5 > 0+2
+    expect(mask[4 * COLS + 4]).toBe(1); // 1.9 ≤ 2
+  });
+
+  it('node mask: a node OUTSIDE the giant ring is land even when low', () => {
+    // Narrow ring that excludes the far-east columns of the grid.
+    const narrow: Array<[number, number]> = [
+      [-20, -20],
+      [120, -20],
+      [120, 220],
+      [-20, 220],
+    ];
+    const heights = grid([{ r: 5, c: 9, val: 0 }]); // low but column 9 is outside
+    const mask = waterMaskFromRing(narrow, 0, 2, heights, COLS, ROWS, X0, Z0, STEP);
+    expect(mask[5 * COLS + 9]).toBe(0);
+    expect(mask[5 * COLS + 2]).toBe(1);
+  });
+
+  it('majority vote removes a lone water node and keeps a solid region', () => {
+    const mask = new Uint8Array(COLS * ROWS);
+    mask[5 * COLS + 5] = 1;
+    const voted = majorityVoteGrid(mask, COLS, ROWS);
+    expect(voted[5 * COLS + 5]).toBe(0);
+    // A full-water grid survives everywhere (every 3×3 window >= 5 water).
+    const full = new Uint8Array(COLS * ROWS).fill(1);
+    const v = majorityVoteGrid(full, COLS, ROWS);
+    for (let i = 0; i < full.length; i++) expect(v[i]).toBe(1);
+  });
+
+  it('speck: a small unprotected land component ≤ 8 nodes flips to water; a protected one stays', () => {
+    // Water everywhere except a 2×2 (4-node) land island at rows/cols 3..4.
+    const mask = new Uint8Array(COLS * ROWS).fill(1);
+    for (let r = 3; r <= 4; r++) for (let c = 3; c <= 4; c++) mask[r * COLS + c] = 0;
+    const protNone = new Uint8Array(COLS * ROWS);
+    cleanupMask(mask, COLS, ROWS, protNone);
+    // The unprotected island ≤ 8 nodes is flipped to water.
+    for (let r = 3; r <= 4; r++) for (let c = 3; c <= 4; c++) expect(mask[r * COLS + c]).toBe(1);
+
+    // Same layout but one node occupied by a protected (building/road) point.
+    const mask2 = new Uint8Array(COLS * ROWS).fill(1);
+    for (let r = 3; r <= 4; r++) for (let c = 3; c <= 4; c++) mask2[r * COLS + c] = 0;
+    const prot = protectedNodesFrom([[70, 70]], COLS, ROWS, X0, Z0, STEP);
+    cleanupMask(mask2, COLS, ROWS, prot);
+    // Protected land speck survives.
+    for (let r = 3; r <= 4; r++) for (let c = 3; c <= 4; c++) expect(mask2[r * COLS + c]).toBe(0);
+  });
+
+  it('puddle: a water component < 6 nodes is dropped to land', () => {
+    const mask = new Uint8Array(COLS * ROWS);
+    // A 2×2 (4-node) water puddle in the middle of land.
+    for (let r = 4; r <= 5; r++) for (let c = 4; c <= 5; c++) mask[r * COLS + c] = 1;
+    cleanupMask(mask, COLS, ROWS, new Uint8Array(COLS * ROWS));
+    for (let r = 4; r <= 5; r++) for (let c = 4; c <= 5; c++) expect(mask[r * COLS + c]).toBe(0);
+  });
+
+  it('marching squares: a solid 3-node water blob traces one outer ring', () => {
+    const mask = new Uint8Array(COLS * ROWS);
+    for (let r = 3; r <= 5; r++) for (let c = 3; c <= 5; c++) mask[r * COLS + c] = 1;
+    const rings = traceWaterBoundary(mask, COLS, ROWS, X0, Z0, STEP);
+    expect(rings).toHaveLength(1);
+    const ring = rings[0];
+    // A 3×3 node block is 60 m × 60 m ≈ 3600 m².
+    let a = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const [x1, z1] = ring[i];
+      const [x2, z2] = ring[(i + 1) % ring.length];
+      a += x1 * z2 - x2 * z1;
+    }
+    expect(Math.abs(a) / 2).toBeCloseTo(3600, -1);
+  });
+
+  it('hole emission: a land island inside water yields a negative (island) ring', () => {
+    const mask = new Uint8Array(COLS * ROWS).fill(1);
+    // A single-node land hole at (5,5) — traces an island ring inside the outer.
+    mask[5 * COLS + 5] = 0;
+    const rings = traceWaterBoundary(mask, COLS, ROWS, X0, Z0, STEP);
+    expect(rings).toHaveLength(2);
+    const signed = rings.map((r) => {
+      let a = 0;
+      for (let i = 0; i < r.length; i++) {
+        const [x1, z1] = r[i];
+        const [x2, z2] = r[(i + 1) % r.length];
+        a += x1 * z2 - x2 * z1;
+      }
+      return a / 2;
+    });
+    const positives = signed.filter((s) => s > 0); // outer shoreline (water inside)
+    const negatives = signed.filter((s) => s < 0); // island holes (land inside)
+    expect(positives).toHaveLength(1);
+    expect(negatives).toHaveLength(1);
+  });
+
+  it('contourWaterRings: an elevated island is emitted as its own ring, not flipped (parity land)', () => {
+    // Heights: sea level 0 except a block island (Goat-Island scale) set to 8 m.
+    const heights = new Array(COLS * ROWS).fill(0);
+    for (let r = 2; r <= 7; r++) for (let c = 2; c <= 7; c++) heights[r * COLS + c] = 8;
+    const { rings } = contourWaterRings({
+      ring: WHOLE,
+      level: 0,
+      heights,
+      cols: COLS,
+      rows: ROWS,
+      x0: X0,
+      z0: Z0,
+      step: STEP,
+    });
+    // Outer shoreline (water inside) + island hole.
+    expect(rings.length).toBeGreaterThanOrEqual(2);
+    const pointIn = (x: number, z: number, poly: Array<[number, number]>) => {
+      let ins = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i];
+        const [xj, yj] = poly[j];
+        const straddles = yi > z !== yj > z;
+        if (straddles && x < ((xj - xi) * (z - yi)) / (yj - yi) + xi) ins = !ins;
+      }
+      return ins;
+    };
+    // A point in the island is inside exactly two rings (outer + island = even → LAND).
+    expect(rings.filter((r) => pointIn(90, 90, r)).length).toBe(2);
+    // A point in open water (inside the grid, off the island) is inside exactly one ring (odd → WATER).
+    expect(rings.filter((r) => pointIn(30, 30, r)).length).toBe(1);
+  });
+
+  it('chaikin softens a square (doubles vertices, stays closed)', () => {
+    const sq: Array<[number, number]> = [
+      [0, 0],
+      [100, 0],
+      [100, 100],
+      [0, 100],
+    ];
+    const out = chaikin(sq, 1);
+    expect(out).toHaveLength(8);
+    // Edge (0,0)→(100,0): first new vertex is the 0.75/0.25 blend = 25.
+    expect(out[0][0]).toBeCloseTo(25, 5);
+    expect(out[0][1]).toBeCloseTo(0, 5);
+    expect(out[1][0]).toBeCloseTo(75, 5);
+    expect(out[1][1]).toBeCloseTo(0, 5);
+  });
+
+  it('convertOverpass: --water-dem replaces a sloppy giant with a shoreline + island hole', () => {
+    const DEG = Math.PI / 180;
+    const COS = Math.cos(ORIGIN.lat * DEG);
+    const xzToLonLat = (x: number, z: number) => ({
+      lon: ORIGIN.lon + x / (COS * 111320),
+      lat: ORIGIN.lat - z / 110574,
+    });
+    // A 4000×4000 m giant relation (16 km² ≥ 1 km²) with NO inner members: a
+    // SLOPPY solid polygon that would swallow any elevated island as water.
+    const corners: Array<[number, number]> = [
+      [0, 0],
+      [4000, 0],
+      [4000, 4000],
+      [0, 4000],
+    ];
+    const geom = corners.map(([x, z]) => xzToLonLat(x, z));
+    geom.push(geom[0]);
+    const elements = [
+      {
+        type: 'relation',
+        id: 3000,
+        tags: { type: 'multipolygon', natural: 'water', name: 'Port Jackson' },
+        members: [{ type: 'way', role: 'outer', ref: 1, geometry: geom }],
+      },
+    ];
+    const bbox: Array<number> = [
+      ORIGIN.lon,
+      ORIGIN.lat - 4500 / 110574,
+      ORIGIN.lon + 4500 / (COS * 111320),
+      ORIGIN.lat,
+    ];
+    // Bare-earth DEM: sea level (0) everywhere except an elevated island.
+    const stubDem = {
+      elevationAt(lat: number, lon: number) {
+        const [x, z] = project(lon, lat, ORIGIN);
+        const inIsland = x >= 1500 && x <= 2300 && z >= 1500 && z <= 2300;
+        return inIsland ? 8 : 0;
+      },
+    };
+    const opts = {
+      origin: ORIGIN,
+      bbox,
+      dem: stubDem,
+      step: 20,
+    };
+    // Without waterDem the sloppy giant is emitted whole — no island.
+    const plain = convertOverpass({ elements }, opts);
+    expect(plain.water).toHaveLength(1);
+    // (The island reads water under the single solid ring.)
+
+    // With waterDem the giant is DEM-contoured: shoreline + island hole.
+    const dembed = convertOverpass({ elements }, { ...opts, waterDem: true });
+    const rings = dembed.water ?? [];
+    expect(rings.length).toBeGreaterThanOrEqual(2);
+    expect(dembed.waterLevels?.length).toBe(rings.length);
+    const pointIn = (x: number, z: number, poly: Array<[number, number]>) => {
+      let ins = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i];
+        const [xj, yj] = poly[j];
+        const straddles = yi > z !== yj > z;
+        if (straddles && x < ((xj - xi) * (z - yi)) / (yj - yi) + xi) ins = !ins;
+      }
+      return ins;
+    };
+    // Island point inside two rings (even → LAND); open water inside one (WATER).
+    expect(rings.filter((r) => pointIn(1900, 1900, r)).length).toBe(2);
+    expect(rings.filter((r) => pointIn(200, 200, r)).length).toBe(1);
+    // Without waterDem, terrain flattening reads the island point as water.
+    const plainT = plain.terrain as {
+      x0: number;
+      z0: number;
+      step: number;
+      cols: number;
+      rows: number;
+      heights: number[];
+    };
+    const cIs = Math.round((1900 - plainT.x0) / plainT.step);
+    const rIs = Math.round((1900 - plainT.z0) / plainT.step);
+    expect(plainT.heights[rIs * plainT.cols + cIs]).toBeLessThanOrEqual(2); // water-flattened
   });
 });
 

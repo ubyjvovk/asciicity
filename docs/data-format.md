@@ -546,6 +546,35 @@ by accident. The water-relation path therefore:
    `fetchDemTiles` covers the query bbox and `dem.elevationAt` throws
    loudly if a water-vertex tile is not loaded (Sydney's harbour spans
    only S34E151, so no new tiles are needed there).
+4. **`--water-dem` (Answers 5, T-0116) — DEM-contoured shoreline for sloppy
+   giants.** OSM's harbour polygons can be label-grade: the Port Jackson outer
+   boundary contains long straight segments that cut across peninsula bases, so
+   even the full simple polygon encloses whole peninsulas (Overpass's own
+   `is_in` confirms Mrs Macquarie's Point inside it). No OSM layer carves the
+   shore out. `--water-dem 1` (fetch flag → `convertOverpass` `waterDem: true`)
+   therefore re-derives the shoreline from the bare-earth terrain grid, which
+   already carries the truth (peninsulas 5–20 m ASL, water ~0): for each kept
+   OUTER ring with |area| ≥ 1 km² (the giants — smaller rings are trusted
+   accurate and pass through untouched) it builds a node mask
+   (`inside giant AND bare-earth ≤ level + 2.0 m`, where `level` is the giant
+   ring's 10th-percentile DEM value, as today), cleans it in order (one 3×3
+   majority-vote pass; flip any 4-connected LAND component ≤ 8 nodes with no
+   road-vertex/building-centroid protection to water; drop any WATER component
+   < 6 nodes), extracts the boundary rings with marching squares at node
+   resolution, and applies one Chaikin corner-cut pass. These rings REPLACE the
+   giant ring and its inner-island rings (the contour's own hole rings take
+   over — no double-counting); each emitted ring's `waterLevels` entry is its
+   source body's level. Everything downstream (flattening, collision parity,
+   render, minimap) consumes rings exactly as today — zero `src/` changes. The
+   mask rules are pure and unit-tested with synthetic grids (threshold,
+   majority vote, speck/puddle flips, hole emission), no fetch. **Sydney status
+   (blocked, T-0116):** on the committed 20 m bare-earth grid the filter
+   (T-0108/T-0109 erode + double smooth) erases Sydney's small harbour
+   features — Fort Denison reads −3.5 m ASL, Bennelong Point −2 m, Garden
+   Island 0.9 m — and raises the shallow Circular Quay cove to 2.0 m ASL, so a
+   single elevation threshold cannot satisfy the AC water/land parity set. The
+   threshold/constants are PM-owned; the mechanism is kept on the branch while
+   the data question is resolved.
 
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 

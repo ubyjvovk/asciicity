@@ -69,7 +69,7 @@ out geom;`;
 }
 
 /** CLI flags that may appear bare (or with `1`/`true`). */
-const BOOLEAN_FLAGS = new Set(['tiles', 'dem-bare', 'water-full']);
+const BOOLEAN_FLAGS = new Set(['tiles', 'dem-bare', 'water-full', 'water-dem']);
 
 /** Parse CLI argv into a record; `--tiles` is a boolean flag, other `--key`s require a value. */
 export function parseArgs(argv) {
@@ -264,6 +264,10 @@ async function main() {
     args['water-full'] === true ||
     args['water-full'] === '1' ||
     args['water-full'] === 'true';
+  const waterDem =
+    args['water-dem'] === true ||
+    args['water-dem'] === '1' ||
+    args['water-dem'] === 'true';
   const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
@@ -346,6 +350,7 @@ async function main() {
       ...(dem ? { dem } : {}),
       ...(step !== undefined ? { step } : {}),
       ...(waterFull ? { waterFull: true } : {}),
+      ...(waterDem ? { waterDem: true } : {}),
     });
     if (!isCityShape(city)) {
       process.stderr.write('fetch: converted result failed shape check\n');
