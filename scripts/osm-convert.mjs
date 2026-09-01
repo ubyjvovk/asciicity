@@ -1264,8 +1264,13 @@ function ringCoverage(candRing, keptRings, cell) {
  */
 const DEM_GIANT_AREA = 1000000; // 1 km²
 
-/** Sea-level tolerance (m) above a giant ring's level for the node mask. */
-const DEM_THRESHOLD = 2.0;
+/**
+ * Sea-level tolerance (m) above a giant ring's level for the node mask
+ * (T-0116, Answers 6: raised 2.0 → 3.0 by the PM so the CQ cove, which the
+ * bare-earth filter smoothed up to ~2.0 ASL, clears the cutoff with margin
+ * instead of a knife-edge).
+ */
+const DEM_THRESHOLD = 3.0;
 
 /**
  * Node water-mask for a giant ring (`--water-dem` rule 1): a grid node is water
@@ -1557,6 +1562,14 @@ export function contourWaterRings({
   let mask = waterMaskFromRing(ring, lvl, threshold, heights, cols, rows, x0, z0, step);
   mask = majorityVoteGrid(mask, cols, rows);
   const prot = protectedNodes ?? new Uint8Array(cols * rows);
+  // Force-LAND override (T-0116, Answers 6 rule 3): any node whose cell
+  // (node ± half a step, i.e. the protected set from building centroids +
+  // non-bridge road vertices) is land — applied AFTER the majority vote so it
+  // cannot be eroded. Mechanically rescues Bennelong Point (the Opera House),
+  // Garden Island, Mrs Macquarie's tip, the wharf strips, etc.
+  for (let i = 0; i < mask.length; i++) {
+    if (prot[i]) mask[i] = 0;
+  }
   cleanupMask(mask, cols, rows, prot);
   const traces = traceWaterBoundary(mask, cols, rows, x0, z0, step);
   const rings = [];
@@ -1564,7 +1577,7 @@ export function contourWaterRings({
     const r = cleanRing(chaikin(t, 1).map(([x, z]) => [round1(x), round1(z)]));
     if (r.length >= 3) rings.push(r);
   }
-  return { rings };
+  return { rings, mask };
 }
 
 /**
@@ -1751,8 +1764,12 @@ export function convertOverpass(json, opts) {
     }
     if (!insideExisting) islandOut.push(iso);
   }
-  // Island rings inside a DEM-contoured giant are redundant: the contour's own
-  // hole rings take over that job (no double-counting).
+  // Island rings nested inside a DEM-contoured giant: under `--water-dem`
+  // these are saved for the Answers-6 rule-5 rescue (emitted when the final
+  // mask still reads them as water); outside giants they go straight to water.
+  // A contour hole already carved an elevated island, so a rescued inner is
+  // never double-emitted with a contour hole of the same feature.
+  const islandInGiant = [];
   for (const iso of islandOut) {
     let insideGiant = false;
     for (const g of giantRings) {
@@ -1761,7 +1778,11 @@ export function convertOverpass(json, opts) {
         break;
       }
     }
-    if (!insideGiant) water.push(iso);
+    if (insideGiant) {
+      if (waterDem) islandInGiant.push(iso);
+    } else {
+      water.push(iso);
+    }
   }
 
   // Coastline (data-format.md "Coastline water" — bays/seas as OSM
@@ -2054,11 +2075,14 @@ export function convertOverpass(json, opts) {
       const prot = protectedNodesFrom(protectPts, g.cols, g.rows, g.x0, g.z0, g.step);
       // Contoured giants: each produces shoreline + island rings carrying the
       // giant's own (10th-percentile OSM-shoreline) level, per the rule
-      // "waterLevels for each emitted ring = level of its source body".
+      // "waterLevels for each emitted ring = level of its source body". The
+      // final cleaned mask per giant is kept for the Answers-6 rule-5
+      // relation-inner island rescue.
       const contourAppend = [];
+      const giantDetails = [];
       for (const giant of giantRings) {
         const level = ringGridLevel(giant, g.heights, g.cols, g.rows, g.x0, g.z0, g.step);
-        const { rings } = contourWaterRings({
+        const { rings, mask } = contourWaterRings({
           ring: giant,
           level,
           heights: g.heights,
@@ -2069,18 +2093,47 @@ export function convertOverpass(json, opts) {
           step: g.step,
           protectedNodes: prot,
         });
+        giantDetails.push({ mask, level });
         for (const ring of rings) contourAppend.push({ ring, level });
       }
-      const finalWater = [...water, ...contourAppend.map((c) => c.ring)];
-      // Per-ring level: source body level for contour rings, otherwise each
-      // ring's own bilinear 10th percentile (buildTerrain's formula).
+      // Relation-inner island rescue (Answers 6 rule 5): an inner island ring
+      // nested in a giant is emitted when the contour's final mask still reads
+      // its centroid as WATER (the DEM erased the feature — e.g. Fort Denison
+      // and Bennelong, which the bare-earth filter smoothed to/below sea
+      // level). One already carved by a contour hole reads LAND in the mask
+      // and stays dropped (no double ring). Rescued rings take their giant's
+      // level.
+      const rescueAppend = [];
+      for (const iso of islandInGiant) {
+        const c = ringCentroid(iso);
+        for (let gi = 0; gi < giantRings.length; gi++) {
+          if (!pointInPolygon(c, giantRings[gi])) continue;
+          const { mask: gmask, level } = giantDetails[gi];
+          const ci = Math.round((c[0] - g.x0) / g.step);
+          const ri = Math.round((c[1] - g.z0) / g.step);
+          if (
+            ci >= 0 && ci < g.cols && ri >= 0 && ri < g.rows &&
+            gmask[ri * g.cols + ci] === 1
+          ) {
+            rescueAppend.push({ ring: iso, level });
+          }
+          break;
+        }
+      }
+      const finalWater = [
+        ...water,
+        ...rescueAppend.map((c) => c.ring),
+        ...contourAppend.map((c) => c.ring),
+      ];
+      // Per-ring level: source body level for contour + rescued rings, otherwise
+      // each ring's own bilinear 10th percentile (buildTerrain's formula).
       const levelOf = new Array(finalWater.length);
       for (let i = 0; i < water.length; i++) {
         levelOf[i] = ringGridLevel(water[i], g.heights, g.cols, g.rows, g.x0, g.z0, g.step);
       }
-      for (let i = 0; i < contourAppend.length; i++) {
-        levelOf[water.length + i] = contourAppend[i].level;
-      }
+      let li = water.length;
+      for (const c of rescueAppend) levelOf[li++] = c.level;
+      for (const c of contourAppend) levelOf[li++] = c.level;
       // Flatten by odd parity (data-format.md "Coastline water" rule 6): a node
       // is flattened only inside an ODD number of rings, to the level of the last
       // ring that flipped the parity to odd. Mirrors buildTerrain exactly.

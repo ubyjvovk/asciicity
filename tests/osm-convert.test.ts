@@ -1176,6 +1176,137 @@ describe('osm-convert water-dem DEM contour (T-0116)', () => {
     const rIs = Math.round((1900 - plainT.z0) / plainT.step);
     expect(plainT.heights[rIs * plainT.cols + cIs]).toBeLessThanOrEqual(2); // water-flattened
   });
+
+  it('rule 3: a building/road node below threshold is FORCED LAND after the majority vote', () => {
+    // All nodes at sea level (water under the whole ring) except one node
+    // occupied by a protected building centroid / non-bridge road vertex.
+    const heights = new Array(COLS * ROWS).fill(0);
+    const prot = new Uint8Array(COLS * ROWS);
+    prot[5 * COLS + 5] = 1;
+    const { mask } = contourWaterRings({
+      ring: WHOLE,
+      level: 0,
+      heights,
+      cols: COLS,
+      rows: ROWS,
+      x0: X0,
+      z0: Z0,
+      step: STEP,
+      protectedNodes: prot,
+    });
+    // The protected node reads LAND in the final mask (force-LAND beats water).
+    expect(mask[5 * COLS + 5]).toBe(0);
+    // An unprotected below-threshold node stays WATER.
+    expect(mask[2 * COLS + 2]).toBe(1);
+  });
+
+  /** Build a giant `natural=water` relation (outer + optional inner ring) fixture. */
+  function giantRelation(inner?: Array<[number, number]>) {
+    const DEG = Math.PI / 180;
+    const COS = Math.cos(ORIGIN.lat * DEG);
+    const xzToLonLat = (x: number, z: number) => ({
+      lon: ORIGIN.lon + x / (COS * 111320),
+      lat: ORIGIN.lat - z / 110574,
+    });
+    const corners: Array<[number, number]> = [
+      [0, 0],
+      [4000, 0],
+      [4000, 4000],
+      [0, 4000],
+    ];
+    const geom = corners.map(([x, z]) => xzToLonLat(x, z));
+    geom.push(geom[0]);
+    const members: unknown[] = [{ type: 'way', role: 'outer', ref: 1, geometry: geom }];
+    if (inner) {
+      const ig = inner.map(([x, z]) => xzToLonLat(x, z));
+      ig.push(ig[0]);
+      members.push({ type: 'way', role: 'inner', ref: 2, geometry: ig });
+    }
+    return { DEG, COS, xzToLonLat, elements: [
+      { type: 'relation', id: 4000, tags: { type: 'multipolygon', natural: 'water' }, members },
+    ] };
+  }
+
+  it('rule 5: an inner island ring on mask-WATER is rescued and emitted (parity LAND)', () => {
+    // Inner island 300×300 m mid-giant; DEM is all sea level so the contour
+    // carves NO hole — the mask reads WATER at the island, so the OSM inner
+    // ring is rescued and emitted to flip its interior to land by parity.
+    const island: Array<[number, number]> = [
+      [1900, 1800],
+      [2200, 1800],
+      [2200, 2100],
+      [1900, 2100],
+    ];
+    const { elements } = giantRelation(island);
+    const bbox: Array<number> = [
+      ORIGIN.lon,
+      ORIGIN.lat - 4500 / 110574,
+      ORIGIN.lon + 4500 / (111320 * Math.cos(ORIGIN.lat * (Math.PI / 180))),
+      ORIGIN.lat,
+    ];
+    const stubDem = { elevationAt() { return 0; } }; // all sea level
+    const opts = { origin: ORIGIN, bbox, dem: stubDem, step: 20 };
+    const dembed = convertOverpass({ elements }, { ...opts, waterDem: true });
+    const rings = dembed.water ?? [];
+    const pointIn = (x: number, z: number, poly: Array<[number, number]>) => {
+      let ins = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i];
+        const [xj, yj] = poly[j];
+        const straddles = yi > z !== yj > z;
+        if (straddles && x < ((xj - xi) * (z - yi)) / (yj - yi) + xi) ins = !ins;
+      }
+      return ins;
+    };
+    // Island centre: contour outer (1) + rescued inner (1) = 2 → LAND.
+    expect(rings.filter((r) => pointIn(2050, 1950, r)).length).toBe(2);
+    // Open water: only the contour outer (1) → WATER.
+    expect(rings.filter((r) => pointIn(200, 200, r)).length).toBe(1);
+    expect(dembed.waterLevels?.length).toBe(rings.length);
+  });
+
+  it('rule 5: an inner island on a contour HOLE (elevated DEM) is NOT double-emitted', () => {
+    // Same giant but the DEM is elevated over the island → the contour carves
+    // its own hole, the mask reads LAND at the island, so the OSM inner ring
+    // must NOT be added a second time (no double ring).
+    const island: Array<[number, number]> = [
+      [1900, 1800],
+      [2200, 1800],
+      [2200, 2100],
+      [1900, 2100],
+    ];
+    const { elements } = giantRelation(island);
+    const bbox: Array<number> = [
+      ORIGIN.lon,
+      ORIGIN.lat - 4500 / 110574,
+      ORIGIN.lon + 4500 / (111320 * Math.cos(ORIGIN.lat * (Math.PI / 180))),
+      ORIGIN.lat,
+    ];
+    const stubDem = {
+      elevationAt(_lat: number, lon: number) {
+        const [x, z] = project(lon, _lat, ORIGIN);
+        return x >= 1800 && x <= 2200 && z >= 1800 && z <= 2200 ? 8 : 0;
+      },
+    };
+    const opts = { origin: ORIGIN, bbox, dem: stubDem, step: 20 };
+    const dembed = convertOverpass({ elements }, { ...opts, waterDem: true });
+    const rings = dembed.water ?? [];
+    // Exactly outer + contour hole — the inner was dropped (no third ring).
+    expect(rings.length).toBe(2);
+    const pointIn = (x: number, z: number, poly: Array<[number, number]>) => {
+      let ins = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i];
+        const [xj, yj] = poly[j];
+        const straddles = yi > z !== yj > z;
+        if (straddles && x < ((xj - xi) * (z - yi)) / (yj - yi) + xi) ins = !ins;
+      }
+      return ins;
+    };
+    // Island centre inside outer + contour hole = 2 → LAND (no double ring).
+    expect(rings.filter((r) => pointIn(2050, 1950, r)).length).toBe(2);
+    expect(dembed.waterLevels?.length).toBe(rings.length);
+  });
 });
 
 describe('osm-convert assembleRings', () => {
