@@ -19,6 +19,7 @@ const KYIV: CityData = loadTiledCity('kyiv');
 const LONDON: CityData = loadTiledCity('london');
 const SF: CityData = loadSfCity();
 const NYC: CityData = loadTiledCity('nyc');
+const SYDNEY: CityData = loadTiledCity('sydney');
 
 function byName(buildings: Building[]): Record<string, Building> {
   const out: Record<string, Building> = {};
@@ -480,5 +481,82 @@ describe('applyLandmarks (Tokyo)', () => {
     const city = applyLandmarks(before, 'tokyo');
     expect(city.buildings.length).toBe(before.buildings.length);
     expect(city.buildings.filter((b) => b.id <= -1000)).toHaveLength(0);
+  });
+});
+
+// Wave 14 Sydney landmarks (T-0111): fix-table names must all resolve in the
+// committed sydney tiles (T-0116 refetch); Opera House lands as an ivory
+// podium (h 18.5 straight from OSM `building:levels=5`); St Mary's Cathedral
+// takes a spire cap + sandstone colour with its OSM h 28.4 preserved (above
+// the <20 m stub threshold); Sydney Tower + Crown Sydney ship at real heights
+// with no fix. No extras: Luna Park and Fort Denison have no OSM building
+// footprint in the shipped bbox and are handled by their (fixed-coordinate)
+// presets instead.
+describe('applyLandmarks (Sydney)', () => {
+  it('every sydney fix name exists in the committed sydney dataset', () => {
+    const present = new Set(
+      SYDNEY.buildings.filter((b) => b.name !== undefined).map((b) => b.name),
+    );
+    for (const name of Object.keys(LANDMARK_FIXES.sydney)) {
+      expect(present.has(name), `fix name "${name}" must exist in sydney tiles`).toBe(true);
+    }
+  });
+
+  it('applies ivory to the Sydney Opera House podium (no h override — OSM 18.5 already > 5 m)', () => {
+    const city = applyLandmarks(SYDNEY, 'sydney');
+    const opera = city.buildings.find((b) => b.name === 'Sydney Opera House');
+    expect(opera).toBeDefined();
+    // Colour registered via the fix table.
+    expect(colorFor(opera!)).toBe(0xf5f0e6);
+    // The OSM outline h stays (18.5 podium; the sails are a T-0114 addition).
+    const before = SYDNEY.buildings.find((b) => b.name === 'Sydney Opera House')!;
+    expect(opera!.h).toBe(before.h);
+    expect(opera!.shape).toBe(before.shape);
+  });
+
+  it("applies spire cap + sandstone colour to St Mary's Cathedral (no h override — OSM 28.4 above the <20 m stub threshold)", () => {
+    const city = applyLandmarks(SYDNEY, 'sydney');
+    const stmarys = city.buildings.find((b) => b.name === "St Mary's Cathedral");
+    expect(stmarys).toBeDefined();
+    expect(stmarys!.shape).toBe('spire');
+    expect(colorFor(stmarys!)).toBe(0xcbb69a);
+    const before = SYDNEY.buildings.find((b) => b.name === "St Mary's Cathedral")!;
+    expect(stmarys!.h).toBe(before.h);
+  });
+
+  it('leaves Sydney Tower and Crown Sydney untouched (well tagged in OSM at real heights)', () => {
+    // Sydney Tower part: h=270, minH=240. Crown Sydney Hotel Resort: h=271.
+    // Both are already right, so the fix table intentionally omits them.
+    const city = applyLandmarks(SYDNEY, 'sydney');
+    const tower = city.buildings.find((b) => b.name === 'Sydney Tower');
+    expect(tower).toBeDefined();
+    expect(tower!.h).toBe(270);
+    expect(tower!.minH).toBe(240);
+    const crown = city.buildings.find((b) => b.name === 'Crown Sydney Hotel Resort');
+    expect(crown).toBeDefined();
+    expect(crown!.h).toBe(271);
+  });
+
+  it('appends no extra buildings for Sydney (Luna Park + Fort Denison are absent from OSM in the bbox)', () => {
+    const city = applyLandmarks(SYDNEY, 'sydney');
+    expect(city.buildings.length).toBe(SYDNEY.buildings.length);
+    expect(city.buildings.filter((b) => b.id <= -1000)).toHaveLength(0);
+  });
+
+  it('is idempotent — applying twice produces the same building list', () => {
+    const once = applyLandmarks(SYDNEY, 'sydney');
+    const twice = applyLandmarks(once, 'sydney');
+    expect(twice.buildings.length).toBe(once.buildings.length);
+    expect(twice.buildings.length).toBe(SYDNEY.buildings.length);
+  });
+
+  it('does not disturb other cities (per-city fence)', () => {
+    // Applying the sydney fixes must not lift any Sydney fix onto Tokyo,
+    // London etc. Sanity: Empire State stays as it was.
+    const city = applyLandmarks(NYC, 'nyc');
+    const esb = city.buildings.find((b) => b.name === 'Empire State Building')!;
+    expect(esb.shape).toBe('spire');
+    // Sydney colours never leak to Manhattan.
+    expect(colorFor(esb)).toBe(0xd9cfbf);
   });
 });

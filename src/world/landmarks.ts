@@ -112,6 +112,26 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
     'Tokyo Skytree': { shape: 'tower' },
     'Tokyo Tower': { h: 333, shape: 'tower', color: 0xc0362c },
   },
+  // Sydney (wave 14, docs/architecture.md §4.13 wave-14 table). Verified
+  // against the committed tiles (T-0116 refetch): Sydney Opera House lands at
+  // h 18.5 from `building:levels=5` (podium only — the sails come in T-0114);
+  // Sydney Tower part carries h 270 / minH 240 and Crown Sydney Hotel Resort
+  // h 271 straight from OSM, so both need no fix (see the Worker report for
+  // the actual heights). St Mary's Cathedral outlines to h 28.4 — above the
+  // ticket's <20 m stub threshold — so h stays; the spire cap and sandstone
+  // colour still land here (matches the SF/NYC "aesthetic-only fix" pattern:
+  // e.g. Empire State's `{ shape: 'spire', color: … }`). Luna Park has no OSM
+  // building footprint in the shipped bbox (only `Luna Lounge`) and Fort
+  // Denison is a coastline island ring (no building) — so no label fix
+  // applies to either; both are called out by their preset instead.
+  sydney: {
+    // T-0116 lands the Opera House as h 18.5 (podium; > 5 m stub threshold,
+    // so no h override): just paint the podium ivory.
+    'Sydney Opera House': { color: 0xf5f0e6 },
+    // OSM outlines the cathedral at h 28.4 (above the <20 m stub threshold,
+    // so no h override). Cap the silhouette with a spire and paint sandstone.
+    "St Mary's Cathedral": { shape: 'spire', color: 0xcbb69a },
+  },
 };
 
 /** Per-city extra synthetic buildings appended at load. */
@@ -164,6 +184,12 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
   ],
   // Tokyo needs no extras — both towers ship in the OSM data (T-0098).
   tokyo: [],
+  // Sydney needs no extras — the four named landmarks with OSM buildings
+  // (Opera House podium, Sydney Tower, Crown Sydney, St Mary's Cathedral)
+  // all land from OSM (Opera House arrived via T-0116's relation refetch).
+  // Luna Park and Fort Denison have no OSM building in the shipped bbox and
+  // are not fabricated here — their presets are fixed-coordinate vantages.
+  sydney: [],
 };
 
 /**

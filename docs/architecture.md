@@ -1248,6 +1248,56 @@ feeds fast travel as usual. Bridges' tower positions come from OSM
 (`bridge:support=pier` / `man_made=tower` ways, as the GGB's did), never from
 memory; walkway names are read from the fetched file.
 
+### 4.13 (wave 14) Sydney landmarks
+
+`data/sydney/` (data-format "Sydney") + PM-curated tables in `landmarks.ts`
+/ `spawn.ts`. Four named landmarks land from OSM (T-0116 building-relation
+assembly brought the Opera House); only two need touching, and both are
+aesthetic (shape/colour) — the OSM heights are within the ticket's
+stub threshold. No extras: Luna Park and Fort Denison have no OSM building
+footprint in the shipped bbox and are handled by their fixed-coordinate
+preset instead.
+
+| # | OSM name (verify) | actual h | fix | preset key |
+|---|---|---|---|---|
+| 1 | Sydney Opera House (rel 9596872) | 18.5 (podium; sails come in §4.22) | 0xf5f0e6 (ivory podium) | `operahouse` (building preset — landmarkSpawn on the outline) |
+| 2 | Sydney Tower (`building:part`) | 270 (minH 240) | — (well tagged) | — |
+| 3 | Crown Sydney Hotel Resort | 271 | — (well tagged) | — |
+| 4 | St Mary's Cathedral | 28.4 | shape spire, 0xcbb69a (sandstone) | — |
+
+Plus twelve fast-travel presets — `circularquay` (DEFAULT spawn — western
+promenade at 151.20996, −33.85736, bearing 84° toward the Opera House
+across Sydney Cove), `operahouse` (building preset on `Sydney Opera House`
+with a Cahill Walk fallback), `harbourbridge` (mid-span of the 1503 m
+Cahill Walk harbour-crossing chain at 151.21050, −33.85299 — arc-frac
+0.500 — bearing 208° along the deck axis toward the western CBD; the
+deck hump T-0112 puts the player at y ≈ 45.1 m),
+`mrsmacquarie` (151.22189, −33.85942, bearing 294° — the postcard: Opera
+House with the Harbour Bridge behind), `lunapark` (Milsons Point boardwalk
+at 151.21194, −33.84748, bearing 184° south across Sydney Cove toward the
+CBD; Luna Park has no OSM building so this is fixed-coordinate),
+`therocks` (Argyle/Playfair pedestrian alleys at 151.20861, −33.86004,
+bearing 30°), `barangaroo` (Reserve headland at 151.20150, −33.86190,
+bearing 2° north to the harbour), `darlingharbour` (Cockle Bay Wharf at
+151.20231, −33.87080, bearing 0° up the bay), `botanicgarden` (Royal
+Botanic Garden interior pedestrian path at 151.21731, −33.86411, bearing
+90°), `kingscross` (Victoria Street at 151.22227, −33.87452, bearing 0°),
+`centralstation` (Chalmers Street entrance at 151.20676, −33.88240,
+bearing 0°), `northsydney` (Miller Street at 151.20753, −33.83556,
+bearing 167° south toward the CBD). `presetsFor('sydney')` feeds fast
+travel as usual; insertion order = submenu order.
+
+All coordinates are DERIVED FROM the committed tiled dataset (T-0111 read
+road vertices out of `sydney/tiles/*.json`) — every preset passes the
+T-0059 clear-corridor rule (`blocked(pt + k·forward, 1.5) === false` for
+k = 4…40 m), and the five view presets additionally pass a buildings-only
+sightline test to their subject (`circularquay`/`mrsmacquarie` → Opera
+House anchor, `operahouse` → its own outline (self-excluded from the
+blockers grid), `harbourbridge` → Sydney Tower anchor 2.3 km SSW along the
+deck, `lunapark` → Circular Quay place anchor 1.54 km across the water).
+Water is not a blocker on the sightline grid so postcards across the cove
+survive.
+
 ### 4.19 Sector streaming (wave 11) — `src/world/tiles.ts`, tiled boot path
 
 Central Tokyo is 112 k buildings — past what one JSON download and one
