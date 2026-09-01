@@ -29,6 +29,7 @@ port = 8766
 
 [workers]
 max_concurrent = 10                        # 12-core host; each container gets --cpus 2
+memory = "6g"                              # was the 3g default: the sydney --water-full/--water-dem fetch peaks ~2.5-4 GB (T-0116 attempt 7 OOM); host has 31 GB, realistic concurrency is one fetch ticket at a time
 image = "tigerteam-agents:base"           # machine-local; also set in ~/.tigerteam.toml
 agents_home = "/home/d/.agents-home"
 secrets_dir = "/home/d/.tigerteam-secrets"
