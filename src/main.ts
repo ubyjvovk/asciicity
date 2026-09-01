@@ -36,6 +36,7 @@ import {
   deckHumps,
   makeBridgesObject,
 } from './world/bridge';
+import { makeOperaObject } from './world/opera';
 import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
@@ -642,6 +643,7 @@ async function main(): Promise<void> {
 
   await buildStep('BRIDGES');
   scene.add(makeBridgesObject(cityId, city, groundAt));
+  scene.add(makeOperaObject(cityId, city, groundAt));
   if (tileIndex) {
     // Permanent pseudo-tile: whole bridge polylines, never streamed.
     scene.add(makeRoadsObject(tileIndex.bridgeRoads, groundAt, humps));

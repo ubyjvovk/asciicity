@@ -1492,6 +1492,35 @@ export function makeOperaObject(cityId, city, heightAt): THREE.Object3D; // empt
   Restaurant group (SE of the theatre): sails `[16]`, halfWidth 14.
   Group bases/axes are hypotheses — reconcile against the podium
   footprint in the committed tiles so every sail stands ON the podium.
+- **T-0114 as-built (against the T-0116 podium, id 9596872, poly bbox
+  x 316.9…452.0, z −552.3…−372.7 in local metres; datum 3.9 m):**
+  Concert Hall base moved 3 m east and 5 m south to `[151.21473,
+  -33.85741]` (local ≈ (344.8, −430.1)) so sail 0's landward
+  half-width edge clears the podium's west notch. Joan Sutherland base
+  set 45 m ENE at `[151.21518, -33.85757]` (local ≈ (386.4, −412.4)),
+  keeping the shipped axis offset. Bennelong Restaurant repositioned
+  from the "SE of the theatre" hypothesis to `[151.21560, −33.85669]`
+  — the polygon's real Bennelong-side bulge (local ≈ (425.2, −509.7));
+  the earlier hypothesis dropped it outside the ring. Sails leaning
+  bearing + 180° use back-sail half-width = 0.6 × the group's
+  landward main halfWidth; sail tip lean = min(sphereR·0.35, rise·0.6)
+  m along `bearingDeg`. Sphere centre `C` per sail is solved from the
+  two-equation system that puts the apex AND the two base corners
+  `(0, 0, ±halfWidth)` on the same sphere of radius `sphereR` (negative
+  root — `C` behind base). Each sail patch is 8×12 quads (both faces),
+  the mouth wall is a single inset triangle also both faces; total
+  = 9 sails × 1152 shell verts + 6 mouth-wall verts ≈ **10 420
+  vertices**, one draw call.
+- **Part suppression as-built (T-0114):** the shipped tile
+  `sydney/tiles/0_-1.json` carries three unnamed `building:part`s
+  inside the outline (ids `681506197` h 14, `681506198` h 14,
+  `1427781151` h 14 — all west-side ribbons under the sails). All are
+  shorter than the 18.5 m podium so they hide under it visually, but
+  they still block collision and clip the sails on inspection. The
+  sydney `LANDMARK_FIXES` entry now sets `suppressParts: true` on
+  `Sydney Opera House`; `applyLandmarks` drops every non-extra
+  building whose centroid falls inside a named ring flagged that way,
+  keeping the parent podium and any landmark extras.
 - **Sail geometry**: each sail = two mirrored patches of the `sphereR`
   sphere meeting at a ridge great-circle arc that rises from the base to
   the tip, the open mouth facing `bearingDeg`; triangulate at ≤ 4 m
