@@ -10,6 +10,18 @@ import type { CityData, Vec2 } from '../data/types';
 import { project } from '../geo';
 import { registerLandmarkColors } from './palette';
 
+/** Even-odd point-in-polygon test on a single ring. */
+function pointInRing(x: number, z: number, ring: readonly Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, zi] = ring[i]!;
+    const [xj, zj] = ring[j]!;
+    const intersect = zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 /** A single overridable landmark property. Omit any to leave it unchanged. */
 export interface LandmarkFix {
   /** Replacement height in metres. */
@@ -20,6 +32,14 @@ export interface LandmarkFix {
   shape?: 'dome' | 'spire' | 'tower';
   /** Floating tag label (architecture §4.13); default is the OSM name. */
   label?: string;
+  /**
+   * Suppress every OSM `building:part` that sits INSIDE this landmark's
+   * footprint — dropped by centroid-in-ring test. Used by the Sydney Opera
+   * House entry (architecture.md §4.22) so the podium keeps rendering but
+   * the fake roof `building:part`s do not poke through the synthesised
+   * sails. The named parent building itself is never suppressed.
+   */
+  suppressParts?: boolean;
 }
 
 /** A synthetic building to append: a square footprint of side `size` centred on `(lon, lat)`. */
@@ -126,8 +146,11 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
   // applies to either; both are called out by their preset instead.
   sydney: {
     // T-0116 lands the Opera House as h 18.5 (podium; > 5 m stub threshold,
-    // so no h override): just paint the podium ivory.
-    'Sydney Opera House': { color: 0xf5f0e6 },
+    // so no h override): paint the podium ivory and drop the three unnamed
+    // `building:part`s (ids 681506197 / 681506198 / 1427781151) that live
+    // inside the outline — they would clip through the T-0114 sails
+    // (architecture.md §4.22).
+    'Sydney Opera House': { color: 0xf5f0e6, suppressParts: true },
     // OSM outlines the cathedral at h 28.4 (above the <20 m stub threshold,
     // so no h override). Cap the silhouette with a spire and paint sandstone.
     "St Mary's Cathedral": { shape: 'spire', color: 0xcbb69a },
@@ -232,7 +255,7 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
   // Apply height/shape overrides by exact OSM name. Extras keep the h/shape
   // they were created with, even when they share an OSM name (Nelson's
   // Column is both a 6 m plinth and a 52 m extra).
-  const buildings = city.buildings.map((b) => {
+  let buildings = city.buildings.map((b) => {
     if (b.id <= -1000) return b;
     const fix = b.name !== undefined ? fixes[b.name] : undefined;
     if (fix === undefined) return b;
@@ -242,6 +265,39 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
     }
     return b;
   });
+
+  // Part suppression: drop any OSM building whose centroid falls inside the
+  // ring of a named landmark whose fix has `suppressParts: true`. The named
+  // parent building itself and any extras (id ≤ −1000) are always kept.
+  const suppressRings: Vec2[][] = [];
+  const suppressIds = new Set<number>();
+  for (const [name, fix] of Object.entries(fixes)) {
+    if (fix.suppressParts !== true) continue;
+    for (const b of buildings) {
+      if (b.name === name) {
+        suppressRings.push(b.poly);
+        suppressIds.add(b.id);
+      }
+    }
+  }
+  if (suppressRings.length > 0) {
+    buildings = buildings.filter((b) => {
+      if (b.id <= -1000) return true;
+      if (suppressIds.has(b.id)) return true;
+      let cx = 0;
+      let cz = 0;
+      for (const [x, z] of b.poly) {
+        cx += x;
+        cz += z;
+      }
+      cx /= b.poly.length;
+      cz /= b.poly.length;
+      for (const ring of suppressRings) {
+        if (pointInRing(cx, cz, ring)) return false;
+      }
+      return true;
+    });
+  }
 
   // Append extras, skipping any extra already present (idempotency). An OSM
   // building of the same name does not block the extra.
