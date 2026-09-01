@@ -1159,6 +1159,22 @@ A third hull class, `kind: 'ferry'`, in the same table/instancing scheme
 - Budget: ≤ 20 instances total for the city, 6 draw calls (3 classes ×
   hull/lights), no per-frame allocation.
 
+**As-built (T-0113):** the ferry hull is fore-aft symmetric about local z=0
+(two wheelhouses at z≤∓11 pad the upper deck, funnel amidships), so
+`reverseAtEnds` needs no flip; hull spans 38 m (z −19…19) × 9 m (x
+±4.5), waterline at y 0, funnel crown y 11. `SHIP_LANES.sydney` carries
+six lanes — Manly (2), Taronga (1), Parramatta (2, running under the
+Harbour Bridge, min ~10 m to the configured spec axis), Darling Harbour (1),
+Neutral Bay (1), plus Harbour sails (4) — 11 instances total, all lane
+vertices and every 25 m sample water under the §4.6 odd-parity ring test on
+the committed sydney dataset. Final waypoints were nudged from the ticket's
+route-intent start values so every segment stays on harbour water (the
+binding mechanical contract). Goat Island is NOT present as a land ring in the
+committed sydney water dataset (its sampled DEM/terrain height is below the
+water datum), so the only guarding island ring the water test enforces is
+Fort Denison (lanes stay ≥ 30 m out); the Parramatta waypoints still sit
+north of the Goat Island reference to honour the route intent.
+
 ### 4.18 Loading indicator (wave 10) — `src/ui/loading.ts`
 
 SF is 14.7 MB and Manhattan ~20 MB; on a phone that is seconds of blank

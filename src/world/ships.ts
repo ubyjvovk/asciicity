@@ -19,6 +19,9 @@ const CARGO_SPEED_MPS = 6;
 /** Metres sailed per second by a sailboat. */
 const SAIL_SPEED_MPS = 3;
 
+/** Metres steamed per second by a Sydney ferry (architecture.md §4.17b). */
+export const FERRY_SPEED_MPS = 6.5;
+
 const UV: UV = [0, 0];
 
 /** One curated shipping lane: a WGS84 polyline plus how many ships sail it. */
@@ -26,7 +29,7 @@ export interface ShipLane {
   /** Display name, e.g. `'Shipping channel'`. */
   name: string;
   /** Hull class — selects geometry, lights and speed. */
-  kind: 'cargo' | 'sail';
+  kind: 'cargo' | 'sail' | 'ferry';
   /** WGS84 vertices as `[lon, lat]` (walked in order, reversed at the ends). */
   pts: [number, number][];
   /** Number of ships instanced on this lane. */
@@ -34,8 +37,9 @@ export interface ShipLane {
 }
 
 /**
- * Per-city shipping lanes (architecture.md §4.17). Only `sf` has entries;
- * any other city id yields an inert fleet (`count 0`).
+ * Per-city shipping lanes (architecture.md §4.17). `sf` (cargo/sail) and
+ * `sydney` (five ferry routes + one sail lane) have entries; any other city
+ * id yields an inert fleet (`count 0`).
  */
 export const SHIP_LANES: Readonly<Record<string, readonly ShipLane[]>> = {
   sf: [
@@ -75,6 +79,74 @@ export const SHIP_LANES: Readonly<Record<string, readonly ShipLane[]>> = {
       count: 6,
     },
   ],
+  sydney: [
+    {
+      name: 'Manly reach',
+      kind: 'ferry',
+      pts: [
+        [151.2135, -33.857],
+        [151.21479, -33.8561],
+        [151.22669, -33.85407],
+        [151.24291, -33.8509],
+      ],
+      count: 2,
+    },
+    {
+      name: 'Taronga run',
+      kind: 'ferry',
+      pts: [
+        [151.2135, -33.857],
+        [151.22047, -33.85248],
+        [151.23318, -33.84864],
+        [151.23696, -33.84389],
+      ],
+      count: 1,
+    },
+    {
+      name: 'Parramatta River service',
+      kind: 'ferry',
+      pts: [
+        [151.2135, -33.857],
+        [151.20559, -33.8509],
+        [151.19748, -33.8509],
+        [151.19694, -33.85113],
+        [151.1899, -33.8509],
+      ],
+      count: 2,
+    },
+    {
+      name: 'Darling Harbour service',
+      kind: 'ferry',
+      pts: [
+        [151.2135, -33.857],
+        [151.20884, -33.85339],
+        [151.20586, -33.85384],
+        [151.20045, -33.85542],
+        [151.20018, -33.8561],
+        [151.1991, -33.85994],
+      ],
+      count: 1,
+    },
+    {
+      name: 'Neutral Bay hop',
+      kind: 'ferry',
+      pts: [
+        [151.2135, -33.857],
+        [151.2137, -33.85384],
+        [151.21397, -33.8509],
+      ],
+      count: 1,
+    },
+    {
+      name: 'Harbour sails',
+      kind: 'sail',
+      pts: [
+        [151.2265, -33.8509],
+        [151.23291, -33.8487],
+      ],
+      count: 4,
+    },
+  ],
 };
 
 /** Linear rgb of `hex` via `THREE.Color` (working colour space). */
@@ -99,6 +171,10 @@ const LIGHT_GREEN = linearRgb(0x20ff40);
 const LIGHT_WHITE = linearRgb(0xffffff);
 const SAIL_HULL = linearRgb(0xf0f0f0);
 const SAIL_CANVAS = linearRgb(0xfaf3dc);
+const FERRY_HULL = linearRgb(0x2f5d46);
+const FERRY_DECK = linearRgb(0xf0e8d2);
+const FERRY_FUNNEL = linearRgb(0xd8b23a);
+const FERRY_WINDOW = linearRgb(0xffd98a);
 
 /**
  * Axis-aligned box in the ship local frame (+z bow, y up): six faces,
@@ -230,6 +306,50 @@ function buildSailLights(): MeshData {
   return mesh.build();
 }
 
+/**
+ * Double-ended Sydney ferry (Freshwater/Emerald silhouette, §4.17b): hull,
+ * main and upper decks, twin wheelhouses and a single funnel. Built fore-aft
+ * symmetric about local z = 0 so `reverseAtEnds` needs no flip. Waterline at
+ * local y = 0; +z is the bow.
+ */
+function buildFerryHull(): MeshData {
+  const mesh = new MeshBuilder();
+  // Hull 38 long × 9 wide, y −1…+2, dark green.
+  box(mesh, -4.5, 4.5, -1, 2, -19, 19, FERRY_HULL);
+  // Main deck 30 × 8, y 2…5, cream.
+  box(mesh, -4, 4, 2, 5, -15, 15, FERRY_DECK);
+  // Upper deck 22 × 7, y 5…7.6, cream.
+  box(mesh, -3.5, 3.5, 5, 7.6, -11, 11, FERRY_DECK);
+  // Twin wheelhouses 4 × 6 × 2.2 at both ends of the upper deck, y 7.6…9.8, green trim.
+  box(mesh, -2, 2, 7.6, 9.8, 5, 11, FERRY_HULL);
+  box(mesh, -2, 2, 7.6, 9.8, -11, -5, FERRY_HULL);
+  // Single funnel 2 × 2 from y 7.6 to 11, yellow ochre, amidships.
+  box(mesh, -1, 1, 7.6, 11, -1, 1, FERRY_FUNNEL);
+  return mesh.build();
+}
+
+/** Unlit Sydney ferry running lights (toggled by `setNight`), §4.17b. */
+function buildFerryLights(): MeshData {
+  const mesh = new MeshBuilder();
+  // Warm 0.7 m window cubes down both sides of each deck, ≈ 4 m spacing.
+  for (let z = -14; z <= 14; z += 4) {
+    cube(mesh, -4, 3.5, z, 0.7, FERRY_WINDOW);
+    cube(mesh, 4, 3.5, z, 0.7, FERRY_WINDOW);
+  }
+  for (let z = -10; z <= 10; z += 4) {
+    cube(mesh, -3.5, 6.3, z, 0.7, FERRY_WINDOW);
+    cube(mesh, 3.5, 6.3, z, 0.7, FERRY_WINDOW);
+  }
+  // White masthead cube on the funnel.
+  cube(mesh, 0, 11.5, 0, 1.5, LIGHT_WHITE);
+  // Red (port, −x) / green (starboard, +x) 0.6 m cubes at both ends (double-ended).
+  for (const zEnd of [19, -19]) {
+    cube(mesh, -4.5, 1, zEnd, 0.6, LIGHT_RED);
+    cube(mesh, 4.5, 1, zEnd, 0.6, LIGHT_GREEN);
+  }
+  return mesh.build();
+}
+
 /** Isolated polyline graph for one lane (same trick `BoatFleet` uses on rivers). */
 function laneGraph(pts: Vec2[], id: number) {
   return buildRoadGraph(
@@ -239,11 +359,11 @@ function laneGraph(pts: Vec2[], id: number) {
 }
 
 /**
- * Instanced cargo + sail fleet on a city's curated lanes. Empty / unknown
- * city → `count 0`, an empty `Group`, and a no-op `update`.
+ * Instanced cargo + sail + ferry fleet on a city's curated lanes. Empty /
+ * unknown city → `count 0`, an empty `Group`, and a no-op `update`.
  */
 export class ShipFleet {
-  /** Scene object: a Group of up to four InstancedMeshes (hull + lights × class). */
+  /** Scene object: a Group of up to six InstancedMeshes (hull + lights × class). */
   readonly object: THREE.Object3D;
   /** Total ships currently sailing (0 when the city has no lanes). */
   readonly count: number;
@@ -251,10 +371,13 @@ export class ShipFleet {
   private readonly dummy: THREE.Object3D;
   private readonly cargoWalkers: PathWalker[] = [];
   private readonly sailWalkers: PathWalker[] = [];
+  private readonly ferryWalkers: PathWalker[] = [];
   private cargoHull: THREE.InstancedMesh | null = null;
   private cargoLights: THREE.InstancedMesh | null = null;
   private sailHull: THREE.InstancedMesh | null = null;
   private sailLights: THREE.InstancedMesh | null = null;
+  private ferryHull: THREE.InstancedMesh | null = null;
+  private ferryLights: THREE.InstancedMesh | null = null;
   private _lightsOn = false;
 
   /**
@@ -275,17 +398,24 @@ export class ShipFleet {
       const pts: Vec2[] = lane.pts.map(([lon, lat]) => project(lon, lat, city.origin));
       const graph = laneGraph(pts, i);
       if (graph.edges.length === 0) continue;
-      const dest = lane.kind === 'cargo' ? this.cargoWalkers : this.sailWalkers;
+      const dest =
+        lane.kind === 'cargo'
+          ? this.cargoWalkers
+          : lane.kind === 'sail'
+            ? this.sailWalkers
+            : this.ferryWalkers;
       for (let k = 0; k < lane.count; k++) {
         dest.push(new PathWalker(graph, mulberry32(seed + i), true));
         i++;
       }
     }
-    this.count = this.cargoWalkers.length + this.sailWalkers.length;
+    this.count =
+      this.cargoWalkers.length + this.sailWalkers.length + this.ferryWalkers.length;
     if (this.count === 0) return;
 
     const nCargo = this.cargoWalkers.length;
     const nSail = this.sailWalkers.length;
+    const nFerry = this.ferryWalkers.length;
     if (nCargo > 0) {
       this.cargoHull = new THREE.InstancedMesh(
         toGeometry(buildCargoHull()),
@@ -320,6 +450,23 @@ export class ShipFleet {
       group.add(this.sailHull);
       group.add(this.sailLights);
     }
+    if (nFerry > 0) {
+      this.ferryHull = new THREE.InstancedMesh(
+        toGeometry(buildFerryHull()),
+        new THREE.MeshLambertMaterial({ vertexColors: true }),
+        nFerry,
+      );
+      this.ferryHull.frustumCulled = false;
+      this.ferryLights = new THREE.InstancedMesh(
+        toGeometry(buildFerryLights()),
+        new THREE.MeshBasicMaterial({ vertexColors: true }),
+        nFerry,
+      );
+      this.ferryLights.frustumCulled = false;
+      this.ferryLights.visible = false;
+      group.add(this.ferryHull);
+      group.add(this.ferryLights);
+    }
   }
 
   /** Whether the running-lights meshes are currently visible. */
@@ -327,11 +474,12 @@ export class ShipFleet {
     return this._lightsOn;
   }
 
-  /** Show or hide both classes' unlit lights meshes. */
+  /** Show or hide all classes' unlit lights meshes. */
   setNight(on: boolean): void {
     this._lightsOn = on;
     if (this.cargoLights) this.cargoLights.visible = on;
     if (this.sailLights) this.sailLights.visible = on;
+    if (this.ferryLights) this.ferryLights.visible = on;
   }
 
   /**
@@ -343,6 +491,7 @@ export class ShipFleet {
     if (this.count === 0) return;
     this.writeClass(this.cargoWalkers, dt * CARGO_SPEED_MPS, this.cargoHull, this.cargoLights);
     this.writeClass(this.sailWalkers, dt * SAIL_SPEED_MPS, this.sailHull, this.sailLights);
+    this.writeClass(this.ferryWalkers, dt * FERRY_SPEED_MPS, this.ferryHull, this.ferryLights);
   }
 
   /** Advance one class's walkers and stamp hull + lights instance matrices. */
