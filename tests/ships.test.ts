@@ -7,12 +7,14 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { FLAT_HEIGHT, type CityData, type Vec2 } from '../src/data/types';
 import { loadSfGlobals } from './sfCity';
+import { loadTiledGlobals } from './tiledCity';
 import { syntheticCity } from '../src/data/synthetic';
 import { project } from '../src/geo';
-import { pointInPolygon } from '../src/world/collision';
+import { distToSegment, pointInPolygon } from '../src/world/collision';
 import { SHIP_LANES, ShipFleet } from '../src/world/ships';
 
 const SF: CityData = loadSfGlobals();
+const SYD: CityData = loadTiledGlobals('sydney');
 
 const SYNTH = syntheticCity();
 
@@ -38,6 +40,79 @@ function isLambert(mesh: THREE.InstancedMesh): boolean {
 
 function isBasic(mesh: THREE.InstancedMesh): boolean {
   return mesh.material instanceof THREE.MeshBasicMaterial;
+}
+
+/** Shortest distance from local point `p` to a water ring's edges. */
+function distToRing(p: Vec2, ring: Vec2[]): number {
+  let m = Infinity;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    m = Math.min(m, distToSegment(p, ring[i], ring[j]!));
+  }
+  return m;
+}
+
+/**
+ * Water rings that are ISLANDS (centroid is land by odd parity) whose
+ * centroid lies within `radius` m of the projected WGS84 reference. Used to
+ * locate Fort Denison and (had the data kept it) Goat Island.
+ */
+function islandRingsNear(lon: number, lat: number, radius: number): Vec2[][] {
+  const ref = project(lon, lat, SYD.origin);
+  const found: Vec2[][] = [];
+  for (const ring of SYD.water ?? []) {
+    let cx = 0;
+    let cz = 0;
+    for (const p of ring) {
+      cx += p[0];
+      cz += p[1];
+    }
+    cx /= ring.length;
+    cz /= ring.length;
+    if (Math.hypot(cx - ref[0], cz - ref[1]) > radius) continue;
+    // An island's centroid is land: it sits inside an even number of rings.
+    if (waterParity([cx, cz], SYD.water ?? []) % 2 !== 0) continue;
+    found.push(ring);
+  }
+  return found;
+}
+
+/** The Harbour Bridge axis: the longest `Bradfield Highway` bridge polyline. */
+function harbourBridgeAxis(): Vec2[] {
+  let best: Vec2[] | null = null;
+  let bestSpan = -1;
+  for (const road of SYD.roads ?? []) {
+    if (String(road.name ?? '').toLowerCase().includes('bradfield highway')) {
+      const zs = road.pts.map((p) => p[1]);
+      const span = Math.max(...zs) - Math.min(...zs);
+      if (span > bestSpan) {
+        bestSpan = span;
+        best = road.pts;
+      }
+    }
+  }
+  return best ?? [];
+}
+
+/** Every point on a lane polyline: its vertices plus 25 m samples per segment. */
+function lanePoints(lane: { pts: [number, number][] }): Vec2[] {
+  const local = lane.pts.map(([lon, lat]) => project(lon, lat, SYD.origin));
+  const out: Vec2[] = [];
+  for (let i = 0; i < local.length - 1; i++) {
+    const a = local[i]!;
+    const b = local[i + 1]!;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    for (let d = 0; d <= len; d += 25) {
+      const t = d / len;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  return out;
+}
+
+/** True when every Float32 inside `array` is finite (no NaN/Infinity). */
+function allFinite(arr: Float32Array): boolean {
+  for (let i = 0; i < arr.length; i++) if (!Number.isFinite(arr[i]!)) return false;
+  return true;
 }
 
 describe('SHIP_LANES', () => {
@@ -144,5 +219,108 @@ describe('ShipFleet', () => {
         expect(Number.isFinite(te[o + 14]!)).toBe(true);
       }
     }
+  });
+});
+
+describe('SHIP_LANES.sydney', () => {
+  it('defines six lanes — five ferry routes plus one sail lane', () => {
+    const lanes = SHIP_LANES.sydney ?? [];
+    expect(lanes.length).toBe(6);
+    const ferries = lanes.filter((l) => l.kind === 'ferry');
+    const sails = lanes.filter((l) => l.kind === 'sail');
+    expect(ferries.length).toBe(5);
+    expect(sails.length).toBe(1);
+    const total = lanes.reduce((n, l) => n + l.count, 0);
+    // Budget: ≤ 20 instances total for the city (architecture.md §4.17b).
+    expect(total).toBeLessThanOrEqual(20);
+    expect(total).toBe(11);
+  });
+
+  it('every sydney lane vertex and every 25 m sample lies on water (odd parity)', () => {
+    const rings = SYD.water ?? [];
+    expect(rings.length).toBeGreaterThan(0);
+    const lanes = SHIP_LANES.sydney ?? [];
+    expect(lanes.length).toBe(6);
+    for (const lane of lanes) {
+      for (const p of lanePoints(lane)) {
+        expect(waterParity(p, rings) % 2).toBe(1);
+      }
+    }
+  });
+
+  it('the Parramatta service passes under the Harbour Bridge (within 250 m of its axis)', () => {
+    const axis = harbourBridgeAxis();
+    expect(axis.length).toBeGreaterThan(0);
+    const lane = (SHIP_LANES.sydney ?? []).find((l) => l.name === 'Parramatta River service')!;
+    let minDist = Infinity;
+    for (const p of lanePoints(lane)) {
+      for (let i = 0, j = axis.length - 1; i < axis.length; j = i++) {
+        minDist = Math.min(minDist, distToSegment(p, axis[i]!, axis[j]!));
+      }
+    }
+    expect(minDist).toBeLessThanOrEqual(250);
+  });
+
+  it('no sydney lane point is within 30 m of the Goat Island or Fort Denison ring', () => {
+    const guardRings = [
+      ...islandRingsNear(151.2258, -33.8547, 400), // Fort Denison
+      ...islandRingsNear(151.1925, -33.851, 400), // Goat Island
+    ];
+    // Fort Denison is a committed island ring; Goat Island is not in the
+    // current dataset, so the Goat Island guard is vacuous today. The lane
+    // parramatta waypoints still sit north of the Goat Island reference.
+    expect(guardRings.length).toBeGreaterThan(0);
+    for (const lane of SHIP_LANES.sydney ?? []) {
+      for (const p of lanePoints(lane)) {
+        for (const ring of guardRings) {
+          expect(distToRing(p, ring)).toBeGreaterThanOrEqual(30);
+        }
+      }
+    }
+  });
+});
+
+describe('Sydney ferry fleet', () => {
+  it('ShipFleet(sydney) has 7 ferries + 4 sails = 11 instances (sum of lane counts)', () => {
+    const fleet = new ShipFleet('sydney', SYD, FLAT_HEIGHT);
+    expect(fleet.count).toBe(11);
+    const hulls = instances(fleet).filter(isLambert);
+    const lights = instances(fleet).filter(isBasic);
+    expect(hulls.map((m) => m.count).sort((a, b) => a - b)).toEqual([4, 7]);
+    expect(lights.map((m) => m.count).sort((a, b) => a - b)).toEqual([4, 7]);
+  });
+
+  it('ferry hull is 38 long × 9 wide, double-ended (fore/aft |z| equal) with no NaN', () => {
+    const fleet = new ShipFleet('sydney', SYD, FLAT_HEIGHT);
+    const ferryHull = instances(fleet).find((m) => isLambert(m) && m.count === 7);
+    expect(ferryHull).toBeDefined();
+    const geo = ferryHull!.geometry;
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    expect(bb.max.x - bb.min.x).toBeCloseTo(9, 5);
+    expect(bb.max.z - bb.min.z).toBeCloseTo(38, 5);
+    expect(bb.min.y).toBeCloseTo(-1, 5);
+    expect(bb.max.y).toBeCloseTo(11, 5);
+    expect(Math.abs(Math.abs(bb.max.z) - Math.abs(bb.min.z))).toBeLessThan(0.1);
+    // No NaN anywhere in the hull MeshData.
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    expect(allFinite(pos.array as Float32Array)).toBe(true);
+    const col = geo.getAttribute('color') as THREE.BufferAttribute;
+    expect(allFinite(col.array as Float32Array)).toBe(true);
+  });
+
+  it('ferry lights mesh has finite geometry and toggles with setNight', () => {
+    const fleet = new ShipFleet('sydney', SYD, FLAT_HEIGHT);
+    const ferryLights = instances(fleet).find((m) => isBasic(m) && m.count === 7);
+    expect(ferryLights).toBeDefined();
+    const geo = ferryLights!.geometry;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    expect(allFinite(pos.array as Float32Array)).toBe(true);
+    expect(ferryLights!.visible).toBe(false);
+    fleet.setNight(true);
+    expect(ferryLights!.visible).toBe(true);
+    expect(fleet.lightsOn).toBe(true);
+    fleet.setNight(false);
+    expect(ferryLights!.visible).toBe(false);
   });
 });
