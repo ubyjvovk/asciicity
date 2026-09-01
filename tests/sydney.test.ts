@@ -135,9 +135,15 @@ describe('sydney registry + spawn wiring', () => {
     expect(fixed.lat).toBeLessThanOrEqual(BBOX[3]);
   });
 
-  it("presetsFor('sydney') returns exactly the single circularquay preset", () => {
+  it("presetsFor('sydney') begins with circularquay (defaultSpawn) and includes it", () => {
+    // T-0110 shipped just `circularquay`; T-0111 extended the list to twelve
+    // Sydney presets (see `tests/spawn.test.ts` "Sydney presets (wave 14)"
+    // for the full-order assertion). Here we only bind what this ticket
+    // originally cared about: the defaultSpawn key exists and comes first.
     const keys = presetsFor('sydney').map(([k]) => k);
-    expect(keys).toEqual(['circularquay']);
+    expect(keys.length).toBeGreaterThanOrEqual(1);
+    expect(keys[0]).toBe('circularquay');
+    expect(keys).toContain('circularquay');
   });
 });
 

@@ -597,15 +597,152 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     label: 'Shinjuku East Exit, facing Kabukicho',
     city: 'tokyo',
   },
-  // Sydney preset (wave 14, docs/integration.md §Sydney presets). The
-  // default spawn is `circularquay` — a fixed coordinate at Circular Quay
-  // (the city origin, `151.2110,-33.8613`), facing north toward the Opera
-  // House. T-0111 adds the full Sydney preset list later.
+  // Sydney presets (wave 14, docs/architecture.md §4.13 wave-14 table). All
+  // coordinates are DERIVED FROM the committed tiled Sydney dataset (T-0116
+  // refetch) — never hand-typed. For each preset a road vertex was picked
+  // out of the tile files and unprojected to WGS84 (via the origin
+  // 151.2110,-33.8613), each one passing the T-0059 clear-corridor rule
+  // (`blocked(pt + k·forward, 1.5) === false` for k = 4…40 m); the five view
+  // presets (`circularquay`, `operahouse`, `harbourbridge`, `mrsmacquarie`,
+  // `lunapark`) additionally pass a buildings-only sightline test (ray
+  // sampled every 10 m, `blocked(pt, 2) === false` — T-0098 pattern; water
+  // is not a blocker so sightlines across the cove/harbour survive) to
+  // their subject (Opera House anchor for four of them; Sydney Tower anchor
+  // for `harbourbridge`; Circular Quay place anchor for `lunapark`). Default
+  // spawn: `circularquay`.
   circularquay: {
-    lon: 151.211,
-    lat: -33.8613,
-    bearingDeg: 0,
+    // Circular Quay West promenade / service road vertex at (-96.5, -436.0),
+    // 71 m south of the ticket-suggested `151.2100,-33.8580` vantage (which
+    // itself falls inside a building footprint — the pier terminal). Bearing
+    // 84° across the cove to the Sydney Opera House anchor at (377.2,
+    // -489.2), 477 m away — the postcard "Opera House across Sydney Cove"
+    // shot, corridor + sightline clean.
+    lon: 151.209956,
+    lat: -33.857357,
+    bearingDeg: 84,
     label: 'CIRCULAR QUAY',
+    city: 'sydney',
+  },
+  operahouse: {
+    // Building preset: `landmarkSpawn` resolves against the OSM outline
+    // (T-0116 relation-assembly landed it; h 18.5 podium — the sails come
+    // in T-0114). The picked vertex is Cahill Walk at (294.9, -375.9),
+    // 140 m from the centroid, facing 36° at the podium. Fallback coord =
+    // that same lon/lat/bearing in case the outline goes missing upstream.
+    building: 'Sydney Opera House',
+    label: 'Facing the Sydney Opera House',
+    city: 'sydney',
+    lon: 151.214190,
+    lat: -33.857900,
+    bearingDeg: 36,
+  },
+  harbourbridge: {
+    // Cahill Walk (the eastern pedestrian walkway on the Harbour Bridge
+    // deck) vertex at (114.3, -1224.8), ~45 m from the ticket-suggested
+    // `151.2111,-33.8503` mid-span target. Bearing 188° faces south along
+    // the deck at the Sydney Tower anchor (2.3 km SSW — the CBD skyline
+    // fills the frame). The Harbour Bridge deck humps (T-0112, deckApexASL
+    // 49) put the player at y ≈ 45–50 m ASL here.
+    lon: 151.212236,
+    lat: -33.850223,
+    bearingDeg: 188,
+    label: 'Harbour Bridge east walkway, facing the CBD skyline',
+    city: 'sydney',
+  },
+  mrsmacquarie: {
+    // Mrs Macquarie's Point pedestrian path vertex at (1006.5, -207.6),
+    // 85 m from the ticket-suggested `151.2222,-33.8587` centre. Bearing
+    // 294° WNW toward the Opera House anchor 689 m across Farm Cove — the
+    // postcard: Opera House framed with the Harbour Bridge behind (both
+    // are aligned along this bearing from Mrs Macquarie's Chair, T-0110).
+    lon: 151.221888,
+    lat: -33.859423,
+    bearingDeg: 294,
+    label: "Mrs Macquarie's Point, facing the Opera House and bridge",
+    city: 'sydney',
+  },
+  lunapark: {
+    // Fitzroy Street (Milsons Point) tertiary road vertex at (86.5,
+    // -1528.1), 55 m NE of the `Milsons Point` place anchor. Bearing 184°
+    // south across Sydney Cove toward the Circular Quay place anchor
+    // 1.54 km away — the harbour + CBD + Harbour Bridge all fill the frame
+    // (Luna Park itself is not an OSM building in the shipped bbox, so the
+    // preset is fixed-coordinate rather than building-based).
+    lon: 151.211936,
+    lat: -33.847480,
+    bearingDeg: 184,
+    label: 'Milsons Point boardwalk, facing the harbour and CBD',
+    city: 'sydney',
+  },
+  therocks: {
+    // Pedestrian street vertex in The Rocks at (-220.9, -139.7), 27 m NE
+    // of the `The Rocks` place anchor. Bearing 30° NNE up the historic
+    // sandstone alleys of the Argyle/Playfair district.
+    lon: 151.208610,
+    lat: -33.860037,
+    bearingDeg: 30,
+    label: 'The Rocks, historic sandstone alleys',
+    city: 'sydney',
+  },
+  barangaroo: {
+    // Barangaroo waterfront: service road vertex at (-878.0, 66.7), 57 m
+    // south of the `Barangaroo` place anchor. Bearing 2° due north along
+    // the Barangaroo Reserve headland toward the harbour.
+    lon: 151.201502,
+    lat: -33.861903,
+    bearingDeg: 2,
+    label: 'Barangaroo Reserve, facing the harbour',
+    city: 'sydney',
+  },
+  darlingharbour: {
+    // Cockle Bay Wharf pedestrian vertex at (-803.7, 1050.8) — the eastern
+    // promenade of Darling Harbour. Bearing 0° due north up Cockle Bay
+    // toward Pyrmont Bridge and the CBD skyline.
+    lon: 151.202306,
+    lat: -33.870803,
+    bearingDeg: 0,
+    label: 'Darling Harbour, Cockle Bay Wharf',
+    city: 'sydney',
+  },
+  botanicgarden: {
+    // Royal Botanic Garden interior pedestrian path (Carrick Chambers
+    // Bridge) at (583.0, 310.2), just south of the Bennelong Lawn cluster.
+    // Bearing 90° due east through the garden groves.
+    lon: 151.217307,
+    lat: -33.864105,
+    bearingDeg: 90,
+    label: 'Royal Botanic Garden',
+    city: 'sydney',
+  },
+  kingscross: {
+    // Victoria Street (Kings Cross residential) vertex at (1041.3, 1461.4),
+    // 4 m from the `Kings Cross` place anchor. Bearing 360° north along
+    // Victoria Street toward the Coca-Cola Billboard corner.
+    lon: 151.222265,
+    lat: -33.874516,
+    bearingDeg: 0,
+    label: 'Kings Cross, Victoria Street',
+    city: 'sydney',
+  },
+  centralstation: {
+    // Service road vertex 4 m from the `Central Station's Chalmers Street
+    // entrance` landmark anchor at (-391.7, 2333.1). Bearing 0° north up
+    // Chalmers Street toward the station colonnade.
+    lon: 151.206763,
+    lat: -33.882400,
+    bearingDeg: 0,
+    label: 'Central Station, Chalmers Street entrance',
+    city: 'sydney',
+  },
+  northsydney: {
+    // Miller Street (North Sydney CBD secondary road) vertex at (-320.8,
+    // -2846.4), 72 m from the `North Sydney` place anchor. Bearing 167°
+    // south along Miller Street toward the Harbour Bridge and the CBD
+    // skyline 1.4 km away.
+    lon: 151.207530,
+    lat: -33.835558,
+    bearingDeg: 167,
+    label: 'North Sydney, Miller Street facing the CBD',
     city: 'sydney',
   },
 };

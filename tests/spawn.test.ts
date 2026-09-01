@@ -306,7 +306,8 @@ describe('resolveSpawn', () => {
 
   it('exposes presets with lower-case keys and labels', () => {
     // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8)
-    // + Manhattan (wave 10, T-0087) + Tokyo (wave 11, T-0098).
+    // + Manhattan (wave 10, T-0087) + Tokyo (wave 11, T-0098) + Sydney
+    // (wave 14, T-0111).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
       'akihabara',
       'alcatraz',
@@ -314,15 +315,19 @@ describe('resolveSpawn', () => {
       'arch',
       'arsenalna',
       'bank',
+      'barangaroo',
       'barbican',
       'batterypark',
       'bessarabka',
       'bigben',
+      'botanicgarden',
       'brooklynbridge',
       'centralpark',
+      'centralstation',
       'chrysler',
       'circularquay',
       'coittower',
+      'darlingharbour',
       'dumbo',
       'embankment',
       'empirestate',
@@ -335,22 +340,28 @@ describe('resolveSpawn', () => {
       'glassbridge',
       'goldengate',
       'grandcentral',
+      'harbourbridge',
       'hydropark',
       'imperialpalace',
+      'kingscross',
       'lavra',
       'leadenhall',
       'liverpoolst',
       'lloyds',
       'lombard',
+      'lunapark',
       'maidan',
       'manhattanbridge',
       'metrobridge',
       'michael',
       'monument',
       'motherland',
+      'mrsmacquarie',
       'nicholas',
+      'northsydney',
       'olimpiyskiy',
       'onewtc',
+      'operahouse',
       'paintedladies',
       'parkbridge',
       'parliament',
@@ -366,6 +377,7 @@ describe('resolveSpawn', () => {
       'stpatricks',
       'stpauls',
       'sumida',
+      'therocks',
       'timessquare',
       'tokyostation',
       'tokyotower',
@@ -1774,5 +1786,290 @@ describe('Tokyo wave-12 west presets (T-0103)', () => {
     // registry points to a phantom key.
     expect(SPAWN_PRESETS.shibuya).toBeDefined();
     expect(SPAWN_PRESETS.shibuya.city).toBe('tokyo');
+  });
+});
+
+// Wave 14 Sydney presets (T-0111): twelve presets in insertion order, each
+// resolving against the committed tiled Sydney dataset (T-0116 refetch) to
+// an unblocked point (walkable with 6 m of footprint clearance under the same
+// CollisionGrid main.ts builds — buildings + water rings as fake footprints +
+// bridge road corridors). The five view presets (`circularquay`,
+// `operahouse`, `harbourbridge`, `mrsmacquarie`, `lunapark`) additionally
+// pass a buildings-only sightline test to their subject (T-0098 pattern;
+// water is not a blocker so sightlines across the cove/harbour survive).
+describe('Sydney presets (wave 14)', () => {
+  const SYDNEY_KEYS = [
+    'circularquay',
+    'operahouse',
+    'harbourbridge',
+    'mrsmacquarie',
+    'lunapark',
+    'therocks',
+    'barangaroo',
+    'darlingharbour',
+    'botanicgarden',
+    'kingscross',
+    'centralstation',
+    'northsydney',
+  ];
+
+  it('every Sydney preset key parses to its preset', () => {
+    for (const key of SYDNEY_KEYS) {
+      expect(parseAt(key), key).toEqual({ preset: key });
+      expect(parseAt(key.toUpperCase()), key).toEqual({ preset: key });
+      expect(SPAWN_PRESETS[key], key).toBeDefined();
+      expect(SPAWN_PRESETS[key].city, key).toBe('sydney');
+      expect(SPAWN_PRESETS[key].label.trim().length, key).toBeGreaterThan(0);
+    }
+  });
+
+  it("presetsFor('sydney') returns every Sydney preset in insertion order and no foreign keys", () => {
+    // Insertion order = fast-travel submenu order (architecture.md §4.13).
+    // The ticket locks the twelve keys AND their order.
+    const keys = presetsFor('sydney').map(([k]) => k);
+    expect(keys).toEqual(SYDNEY_KEYS);
+    expect(keys.length).toBe(SYDNEY_KEYS.length);
+    expect(keys).not.toContain('bank');
+    expect(keys).not.toContain('brooklynbridge');
+    expect(keys).not.toContain('tokyostation');
+  });
+
+  it('no Sydney preset key collides with a London / Kyiv / SF / NYC / Tokyo key', () => {
+    const foreign = new Set([
+      ...presetsFor('london').map(([k]) => k),
+      ...presetsFor('kyiv').map(([k]) => k),
+      ...presetsFor('sf').map(([k]) => k),
+      ...presetsFor('nyc').map(([k]) => k),
+      ...presetsFor('tokyo').map(([k]) => k),
+    ]);
+    for (const key of SYDNEY_KEYS) {
+      expect(foreign.has(key), `${key} collides with an older city`).toBe(false);
+    }
+  });
+
+  it('operahouse is the only building preset; all others are fixed-coordinate', () => {
+    // The remaining eleven are places/roads/promenades — nothing else in
+    // Sydney resolves to a single OSM building the way Opera House does.
+    expect('building' in SPAWN_PRESETS.operahouse).toBe(true);
+    expect(SPAWN_PRESETS.operahouse).toMatchObject({ building: 'Sydney Opera House' });
+    for (const key of SYDNEY_KEYS) {
+      if (key === 'operahouse') continue;
+      expect('building' in SPAWN_PRESETS[key], `${key} should be fixed-coordinate`).toBe(false);
+    }
+  });
+
+  it('circularquay is the default spawn (city registry) and a fixed-coordinate preset', () => {
+    const sydney = cityById('sydney');
+    expect(sydney).toBeDefined();
+    expect(sydney!.defaultSpawn).toBe('circularquay');
+    const cq = SPAWN_PRESETS.circularquay;
+    expect(cq.city).toBe('sydney');
+    expect('building' in cq).toBe(false);
+    const fixed = cq as { lon: number; lat: number; bearingDeg: number };
+    expect(fixed.lon).toBe(151.209956);
+    expect(fixed.lat).toBe(-33.857357);
+    expect(fixed.bearingDeg).toBe(84);
+  });
+
+  it('every Sydney preset coordinate falls inside the sydney.json bbox', () => {
+    const SYDNEY = loadTiledIndex('sydney');
+    for (const [key, preset] of presetsFor('sydney')) {
+      const p = preset as { lon?: number; lat?: number };
+      expect(p.lon, `${key} lon`).toBeDefined();
+      expect(p.lat, `${key} lat`).toBeDefined();
+      expect(p.lon!, key).toBeGreaterThanOrEqual(SYDNEY.bbox[0]);
+      expect(p.lon!, key).toBeLessThanOrEqual(SYDNEY.bbox[2]);
+      expect(p.lat!, key).toBeGreaterThanOrEqual(SYDNEY.bbox[1]);
+      expect(p.lat!, key).toBeLessThanOrEqual(SYDNEY.bbox[3]);
+    }
+  });
+
+  /**
+   * Build the same CollisionGrid main.ts builds (integration.md §5) for the
+   * WHOLE committed Sydney dataset — buildings + water rings as fake
+   * footprints (odd-parity islands stay walkable) + bridge road corridors
+   * over water — memoized here (see the beans in the closure) so each `it`
+   * below shares one grid instead of rebuilding it per test.
+   */
+  const SYDNEY = loadTiledCity('sydney');
+  const sydneyCity = applyLandmarks(SYDNEY, 'sydney');
+  const sydneyCollision = new CollisionGrid(
+    sydneyCity.buildings,
+    25,
+    sydneyCity.roads
+      .filter((r) => r.bridge)
+      .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
+    sydneyCity.water ?? [],
+  );
+  const sydneyBlocked = (p: Vec2, r?: number): boolean =>
+    sydneyCollision.blocked(p, r);
+
+  it('every Sydney preset resolves unblocked (blocked(p, 6) === false) and passes the T-0059 clear-corridor rule', () => {
+    // The four view presets face their subject; the other seven face along
+    // the preset's own bearing (a street vantage — corridor rule still
+    // holds). No preset may sit inside a building or with a wall filling the
+    // 40 m corridor ahead.
+    for (const key of SYDNEY_KEYS) {
+      const spawn = resolveSpawn(
+        key,
+        sydneyCity.origin,
+        sydneyBlocked,
+        sydneyCity,
+        'circularquay',
+      );
+      expect(sydneyCollision.blocked([spawn.x, spawn.z]), `${key} walkability`).toBe(false);
+      expect(sydneyCollision.blocked([spawn.x, spawn.z], 6), `${key} 6 m clearance`).toBe(false);
+      // Corridor rule: pt + k*forward not blocked (blocked(q, 1.5)) for
+      // k = 4..40 m. Any wall inside 40 m fills the frame (T-0059 rule).
+      const fx = Math.sin(spawn.yaw);
+      const fz = -Math.cos(spawn.yaw);
+      let firstBlocked: number | 'inf' = 'inf';
+      for (let k = 4; k <= 40; k += 4) {
+        const q: Vec2 = [spawn.x + k * fx, spawn.z + k * fz];
+        if (sydneyCollision.blocked(q, 1.5)) {
+          firstBlocked = k;
+          break;
+        }
+      }
+      expect(firstBlocked, `corridor for ${key}`).toBe('inf');
+    }
+  });
+
+  /**
+   * Buildings-only sightline (T-0098 pattern): a ray from spawn to the
+   * preset's subject, sampled every 10 m out to `min(400, dist − 50) m`,
+   * must never enter a building (`blocked(pt, 2) === false`). Water is not
+   * a blocker on this grid — sightlines across the cove/harbour are the
+   * whole point of Sydney's postcards. Subjects locked per the ticket:
+   * Opera House anchor for four presets; Sydney Tower anchor for
+   * `harbourbridge`; Circular Quay place anchor for `lunapark`. For the
+   * `operahouse` building preset the subject is the Opera House ITSELF, so
+   * the ray passes through the podium: filter the Opera House out of the
+   * blockers grid (mirrors the "subject is not its own obstacle" reading).
+   */
+  const OPERA_ANCHOR: Vec2 = [377.184, -489.175];
+  const SYDNEY_TOWER_ANCHOR: Vec2 = [-189.75, 1016.2];
+  const CIRC_QUAY_PLACE: Vec2 = [-25.9, 6.6];
+  const SIGHTLINE_SUBJECTS: Record<string, { target: Vec2; excludeBuildingName?: string }> = {
+    circularquay: { target: OPERA_ANCHOR },
+    operahouse: { target: OPERA_ANCHOR, excludeBuildingName: 'Sydney Opera House' },
+    harbourbridge: { target: SYDNEY_TOWER_ANCHOR },
+    mrsmacquarie: { target: OPERA_ANCHOR },
+    lunapark: { target: CIRC_QUAY_PLACE },
+  };
+
+  for (const [key, { target, excludeBuildingName }] of Object.entries(SIGHTLINE_SUBJECTS)) {
+    it(`${key}: buildings-only sightline to the subject is clear (no foreground wall)`, () => {
+      const filteredBuildings = excludeBuildingName
+        ? sydneyCity.buildings.filter((b) => b.name !== excludeBuildingName)
+        : sydneyCity.buildings;
+      const sightGrid = new CollisionGrid(filteredBuildings, 25);
+      const sightBlocked = (p: Vec2, r?: number): boolean => sightGrid.blocked(p, r);
+      // Resolve via the SAME (whole-city) grid as the walkability test so the
+      // sightline test doesn't accidentally re-pick a different vertex.
+      const spawn = resolveSpawn(
+        key,
+        sydneyCity.origin,
+        sydneyBlocked,
+        sydneyCity,
+        'circularquay',
+      );
+      const dx = target[0] - spawn.x;
+      const dz = target[1] - spawn.z;
+      const dist = Math.hypot(dx, dz);
+      expect(dist, `${key} distance to subject`).toBeGreaterThan(50);
+      const ux = dx / dist;
+      const uz = dz / dist;
+      const limit = Math.min(400, dist - 50);
+      for (let k = 10; k <= limit; k += 10) {
+        const pt: Vec2 = [spawn.x + k * ux, spawn.z + k * uz];
+        expect(
+          sightBlocked(pt, 2),
+          `sightline ${key} at k=${k} m (of ${limit.toFixed(0)})`,
+        ).toBe(false);
+      }
+    });
+  }
+
+  it("operahouse resolves via landmarkSpawn (not the WGS84 fallback) against the Sydney Opera House outline", () => {
+    // T-0116 landed the Opera House as building id 9596872 (57-vertex
+    // outline). The landmark preset must pick a road vertex 52–152 m from
+    // the centroid (h=18.5 → targetDist 92.2, range [52, 152]) — exactly the
+    // way trafalgar picks Nelson's Column.
+    const opera = sydneyCity.buildings.find((b) => b.name === 'Sydney Opera House');
+    expect(opera, 'Sydney Opera House building').toBeDefined();
+    let cx = 0;
+    let cz = 0;
+    for (const [x, z] of opera!.poly) {
+      cx += x;
+      cz += z;
+    }
+    cx /= opera!.poly.length;
+    cz /= opera!.poly.length;
+    const spawn = resolveSpawn(
+      'operahouse',
+      sydneyCity.origin,
+      sydneyBlocked,
+      sydneyCity,
+      'circularquay',
+    );
+    // Prove landmarkSpawn (not the coord fallback) was picked.
+    const viaLandmark = landmarkSpawn('Sydney Opera House', sydneyCity, undefined, sydneyBlocked);
+    expect(viaLandmark).not.toBeNull();
+    expect(spawn.x).toBeCloseTo(viaLandmark!.x, 6);
+    expect(spawn.z).toBeCloseTo(viaLandmark!.z, 6);
+    const dist = Math.hypot(spawn.x - cx, spawn.z - cz);
+    expect(dist).toBeGreaterThanOrEqual(52);
+    expect(dist).toBeLessThanOrEqual(152);
+    // Bearing points at the centroid within ±10°.
+    const expectedYaw = Math.atan2(cx - spawn.x, -(cz - spawn.z));
+    const delta = Math.abs(normalizeAngle(spawn.yaw - expectedYaw));
+    expect(delta).toBeLessThan((10 * Math.PI) / 180);
+  });
+
+  it('harbourbridge sits on the Cahill Walk pedestrian walkway within 3 m of the deck bridge road', () => {
+    // Cahill Walk is the eastern pedestrian walkway on the Harbour Bridge
+    // deck (bridge=true pedestrian in `index.bridgeRoads`). The preset must
+    // land ≤ 3 m from one of its polylines (like the Kyiv `parkbridge`
+    // T-0047 pattern) so the deck-humps ASL applies at boot.
+    const spawn = resolveSpawn(
+      'harbourbridge',
+      sydneyCity.origin,
+      sydneyBlocked,
+      sydneyCity,
+      'circularquay',
+    );
+    const cahill = sydneyCity.roads.filter(
+      (r) => r.name === 'Cahill Walk' && r.bridge === true,
+    );
+    expect(cahill.length).toBeGreaterThan(0);
+    let best = Infinity;
+    for (const r of cahill) {
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        best = Math.min(
+          best,
+          distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]),
+        );
+      }
+    }
+    expect(best, 'distance to nearest Cahill Walk segment').toBeLessThan(3);
+  });
+
+  it('mrsmacquarie sits ≤ 100 m from Mrs Macquarie\'s Chair, facing Opera House within ±10°', () => {
+    const SYDNEY_INDEX = loadTiledIndex('sydney');
+    const chair = (SYDNEY_INDEX.places ?? []).find((p) => p.name === "Mrs Macquarie's Chair");
+    expect(chair, "Mrs Macquarie's Chair place anchor").toBeDefined();
+    const spawn = resolveSpawn(
+      'mrsmacquarie',
+      sydneyCity.origin,
+      sydneyBlocked,
+      sydneyCity,
+      'circularquay',
+    );
+    const dist = Math.hypot(spawn.x - chair!.x, spawn.z - chair!.z);
+    expect(dist, 'distance to Mrs Macquarie\'s Chair').toBeLessThan(100);
+    const expectedYaw = Math.atan2(OPERA_ANCHOR[0] - spawn.x, -(OPERA_ANCHOR[1] - spawn.z));
+    const delta = Math.abs(normalizeAngle(spawn.yaw - expectedYaw));
+    expect(delta, 'bearing at Opera House').toBeLessThan((10 * Math.PI) / 180);
   });
 });

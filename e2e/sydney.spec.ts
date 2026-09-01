@@ -70,3 +70,42 @@ test('sydney: default spawn moves the player out of the gate (≥ 0.5 m)', async
   const moved = await readPos();
   expect(Math.hypot(moved.x - start.x, moved.z - start.z)).toBeGreaterThanOrEqual(0.5);
 });
+
+test('sydney: ?at=harbourbridge lands on the Harbour Bridge deck (y > 35)', async ({
+  page,
+}) => {
+  // Cahill Walk (eastern walkway) at ~-33.85° lat sits on the bridge deck.
+  // Sydney datum is ≈ 3.9 m ASL (T-0110 transect); the Harbour Bridge deck
+  // apex is 49 m ASL (T-0112 deckApexASL) so mid-span y ≈ 45–50 relative to
+  // the datum. y > 35 separates the walkway from the harbour water (y ≈ −4).
+  await page.goto('/?city=sydney&at=harbourbridge&tileradius=600');
+  await waitReady(page);
+  const out = await page.evaluate(() => {
+    const api = (
+      window as unknown as { __asciicity?: { state?: { y: number }; city?: string } }
+    ).__asciicity;
+    return { y: api?.state?.y ?? NaN, city: api?.city ?? '' };
+  });
+  expect(out.city).toBe('sydney');
+  expect(out.y).toBeGreaterThan(35);
+});
+
+test('sydney: ?at=mrsmacquarie renders a non-empty LANDMARK / ZONE HUD row', async ({
+  page,
+}) => {
+  // Mrs Macquarie's Point vantage faces the Opera House across Farm Cove.
+  // With that landmark 689 m away in the frame, the LANDMARK row (nearest
+  // named building in facing direction, src/hud/hud.ts:69) must resolve to
+  // a non-empty label; the ZONE row is also non-empty as we sit inside the
+  // Domain / Royal Botanic Garden district.
+  await page.goto('/?city=sydney&at=mrsmacquarie&tileradius=600');
+  await waitReady(page);
+  const hud = (await page.locator('#hud').textContent()) ?? '';
+  // Both rows must exist AND carry a non-empty value.
+  for (const label of ['LANDMARK', 'ZONE']) {
+    const line = hud.split('\n').find((l) => l.includes(label));
+    expect(line, `${label} row missing`).toBeTruthy();
+    const value = (line ?? '').replace(new RegExp(label, 'g'), '').replace(/^[\s>]+/, '').trim();
+    expect(value.length, `${label} value empty`).toBeGreaterThan(0);
+  }
+});
