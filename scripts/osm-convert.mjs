@@ -162,6 +162,20 @@ function isBuildingPart(tags) {
 }
 
 /**
+ * True when tags describe a horizontal ROOF part, not volumetric massing:
+ * `building:part=roof`. OSM maps the podium fill / canopies of an actual
+ * structure (notably the Sydney Opera House) as such sheets; treating them as
+ * `building:part` massing makes them replace the authoritative multipolygon
+ * outline via building-parts replacement (T-0116), leaving only a flat slab.
+ * They are skipped as PARTS so the real outline survives. (`building=roof`
+ * outlines are left untouched — their suppression is a landmark-fix concern,
+ * architecture §4.22.)
+ */
+function isRoofPart(tags) {
+  return tags['building:part'] === 'roof';
+}
+
+/**
  * True when the element is below grade — an OSM subway-station footprint or
  * similar underground structure. Data-format.md "Building parts" rule 3b:
  * such elements are not buildings for our render (they would surface as boxes
@@ -1138,19 +1152,506 @@ function thinFills(mapped, fills, cap) {
 }
 
 /**
+ * Dedup overlapping large water bodies (T-0116). OSM often maps one bay as
+ * two (or more) overlapping `natural=water` multipolygon relations (e.g.
+ * Port Jackson ⊇ Sydney Harbour in the Sydney bbox), whose assembled outer
+ * rings overlap. Under the odd-parity water rule (a point inside an odd
+ * number of rings is water) their overlap reads as LAND, letting the player
+ * walk on the harbour. Locked rule (PM, T-0116):
+ *   - only rings with |area| ≥ 0.1 km² are candidates (small ponds skip the
+ *     O(n²) work);
+ *   - sort candidates by |area| descending; walk down; for each candidate
+ *     compute `coverage` = the fraction of 50 m-grid cell centres over the
+ *     candidate's bbox that lie inside the candidate AND inside any
+ *     already-KEPT ring;
+ *   - drop the candidate iff `coverage ≥ 0.85`, else keep it.
+ * Deterministic; no polygon booleans. Kept rings keep their original order.
+ * @param {Array<{ring: Array<[number,number]>, relId: unknown}>} outers
+ *   projected outer rings plus the relation id they came from (null = a
+ *   standalone way)
+ * @returns {{keptOuter: Array<{ring: Array<[number,number]>, relId: unknown}>,
+ *   keptRelIds: Set<unknown>}} kept rings (original order) and the set of
+ *   relation ids with at least one kept outer ring
+ */
+function dedupWaterRings(outers) {
+  const AREA_MIN = 100000; // 0.1 km² in m²
+  const KEEP_COVERAGE = 0.85;
+  const CELL = 50;
+  const withArea = outers.map((o, i) => ({
+    ring: o.ring,
+    relId: o.relId,
+    area: ringArea(o.ring),
+    idx: i,
+  }));
+  const big = withArea
+    .filter((o) => o.area >= AREA_MIN)
+    .sort((a, b) => b.area - a.area);
+  const dropped = new Set();
+  const keptBig = [];
+  for (const cand of big) {
+    const coverage = ringCoverage(cand.ring, keptBig.map((k) => k.ring), CELL);
+    if (coverage >= KEEP_COVERAGE) dropped.add(cand.idx);
+    else keptBig.push(cand);
+  }
+  const keptOuter = [];
+  const keptRelIds = new Set();
+  for (let i = 0; i < outers.length; i++) {
+    if (dropped.has(i)) continue;
+    keptOuter.push({ ring: outers[i].ring, relId: outers[i].relId });
+    if (outers[i].relId != null) keptRelIds.add(outers[i].relId);
+  }
+  return { keptOuter, keptRelIds };
+}
+
+/**
+ * Fraction of 50 m-grid cell centres over `candRing`'s bbox that fall
+ * inside `candRing` AND inside at least one kept ring. Deterministic sample
+ * used by `dedupWaterRings` (T-0116), matching the locked parameter (50 m
+ * grid over the candidate's bbox).
+ * @param {Array<[number, number]>} candRing
+ * @param {Array<Array<[number, number]>>} keptRings
+ * @param {number} cell grid spacing in metres
+ * @returns {number} fraction in [0, 1]
+ */
+function ringCoverage(candRing, keptRings, cell) {
+  if (keptRings.length === 0) return 0;
+  const bb = ringBBox(candRing);
+  let inside = 0;
+  let covered = 0;
+  const cxMin = Math.floor(bb.minX / cell);
+  const cxMax = Math.floor(bb.maxX / cell);
+  const czMin = Math.floor(bb.minZ / cell);
+  const czMax = Math.floor(bb.maxZ / cell);
+  for (let cx = cxMin; cx <= cxMax; cx++) {
+    for (let cz = czMin; cz <= czMax; cz++) {
+      const px = cx * cell + cell / 2;
+      const pz = cz * cell + cell / 2;
+      if (!pointInPolygon([px, pz], candRing)) continue;
+      inside++;
+      for (const k of keptRings) {
+        if (pointInPolygon([px, pz], k)) {
+          covered++;
+          break;
+        }
+      }
+    }
+  }
+  return inside === 0 ? 0 : covered / inside;
+}
+
+// ---------------------------------------------------------------------------
+// DEM-contoured water rings (T-0116, Answers 5 — `--water-dem`).
+//
+// OSM's Sydney harbour polygons are label-grade: the Port Jackson / Sydney
+// Harbour outer boundaries contain long straight segments that cut across
+// peninsula bases, so the assembled simple polygon genuinely encloses the
+// eastern peninsulas as water (Overpass's own `is_in` confirms it). No OSM
+// layer carves the shore out. The bare-earth terrain grid already carries the
+// shoreline truth (peninsulas 5–20 m ASL, water ~0), so for each SLOPPY giant
+// ring (|area| ≥ 1 km²) the converter re-derives the boundary from the DEM:
+// a node inside the giant AND ≤ `level + threshold` is water; marching squares
+// turns the node mask into a shoreline ring + island holes; a Chaikin pass
+// softens the 20 m staircase. Small rings (< 1 km²) are trusted accurate and
+// pass through untouched. Everything after this (flattening, collision parity,
+// render, minimap) consumes rings exactly as today — zero src/ changes.
+//
+// These are pure helpers so they are unit-testable with synthetic grids, no
+// fetch (data-format.md "Water relations" rule 4).
+
+/**
+ * Minimum |area| (m²) for a water ring to be DEM-contoured: the giants. Smaller
+ * rings are trusted accurate (perimeter mapping) and pass through untouched.
+ */
+const DEM_GIANT_AREA = 1000000; // 1 km²
+
+/**
+ * Sea-level tolerance (m) above a giant ring's level for the node mask
+ * (T-0116, Answers 6: raised 2.0 → 3.0 by the PM so the CQ cove, which the
+ * bare-earth filter smoothed up to ~2.0 ASL, clears the cutoff with margin
+ * instead of a knife-edge).
+ */
+const DEM_THRESHOLD = 3.0;
+
+/**
+ * Node water-mask for a giant ring (`--water-dem` rule 1): a grid node is water
+ * iff it lies inside `ring` (single-ring test) AND its bare-earth height is
+ * ≤ `level + threshold`. Pure — `heights` is the row-major DEM grid (local m,
+ * already datum-subtracted).
+ * @param {Array<[number,number]>} ring giant outer ring (local metres)
+ * @param {number} level the ring's 10th-percentile water level (local m)
+ * @param {number} threshold sea-level tolerance above `level` (default 2.0)
+ * @param {number[]} heights row-major bare-earth grid (local m)
+ * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
+ * @returns {Uint8Array} 1 = water, 0 = land
+ */
+export function waterMaskFromRing(ring, level, threshold, heights, cols, rows, x0, z0, step) {
+  const mask = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = x0 + c * step;
+      const z = z0 + r * step;
+      if (pointInPolygon([x, z], ring) && heights[r * cols + c] <= level + threshold) {
+        mask[r * cols + c] = 1;
+      }
+    }
+  }
+  return mask;
+}
+
+/**
+ * One 3×3 majority-vote pass over a binary node mask (clean-up rule 1): each
+ * node takes the majority of its (clip-at-border) 3×3 window; ties round up
+ * to water. Pure — returns a new mask, input untouched.
+ * @param {Uint8Array} mask binary mask (1 = water)
+ * @param {number} cols @param {number} rows
+ * @returns {Uint8Array} voted mask
+ */
+export function majorityVoteGrid(mask, cols, rows) {
+  const out = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let sum = 0;
+      let cnt = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if (rr < 0 || rr >= rows || cc < 0 || cc >= cols) continue;
+          cnt++;
+          sum += mask[rr * cols + cc];
+        }
+      }
+      out[r * cols + c] = sum >= Math.ceil(cnt / 2) ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+/**
+ * Mark grid nodes occupied by any point — the protection set for the speck
+ * rule: a small LAND component containing a protected node (a road vertex or
+ * a building centroid) is NOT flipped to water.
+ * @param {Array<[number,number]>} points road vertices + building centroids (local m)
+ * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
+ * @returns {Uint8Array} 1 = protected node
+ */
+export function protectedNodesFrom(points, cols, rows, x0, z0, step) {
+  const prot = new Uint8Array(cols * rows);
+  for (const [x, z] of points) {
+    const c = Math.round((x - x0) / step);
+    const r = Math.round((z - z0) / step);
+    if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
+    prot[r * cols + c] = 1;
+  }
+  return prot;
+}
+
+/**
+ * Mask clean-up (`--water-dem` rules 2–3): flip any 4-connected LAND component
+ * ≤ 8 nodes with zero protected node to water (specks on open water), then drop
+ * any WATER component < 6 nodes (puddles). Operates in place.
+ * @param {Uint8Array} mask binary mask (mutated)
+ * @param {number} cols @param {number} rows @param {Uint8Array} prot protected-node mask
+ * @returns {Uint8Array} the cleaned mask (same reference as `mask`)
+ */
+export function cleanupMask(mask, cols, rows, prot) {
+  const visited = new Uint8Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      if (visited[idx]) continue;
+      const val = mask[idx];
+      const comp = [];
+      const queue = [idx];
+      visited[idx] = 1;
+      while (queue.length) {
+        const i = queue.pop();
+        comp.push(i);
+        const rr = Math.floor(i / cols);
+        const cc = i % cols;
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nr = rr + dr;
+          const nc = cc + dc;
+          if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+          const ni = nr * cols + nc;
+          if (visited[ni] || mask[ni] !== val) continue;
+          visited[ni] = 1;
+          queue.push(ni);
+        }
+      }
+      if (val === 1) {
+        // WATER component — drop puddles (< 6 nodes).
+        if (comp.length < 6) for (const i of comp) mask[i] = 0;
+      } else {
+        // LAND component — flip specks (≤ 8 nodes) with no protection to water.
+        if (comp.length <= 8) {
+          let protectedFound = false;
+          for (const i of comp) {
+            if (prot[i]) {
+              protectedFound = true;
+              break;
+            }
+          }
+          if (!protectedFound) for (const i of comp) mask[i] = 1;
+        }
+      }
+    }
+  }
+  return mask;
+}
+
+/**
+ * Trace the water/land boundary of a binary node mask into closed rings
+ * (clean-up rule 4 — marching squares at node resolution). Each grid node is a
+ * `step`-wide water pixel; the boundary is the set of pixel sides where water
+ * meets land (or the grid edge). Boundary sides are directed with water on the
+ * left, threaded into loops by the planar face-tracing "angular successor" rule
+ * (at each corner continue on the outgoing side whose angle is the first one
+ * strictly CCW of the arrival direction). This resolves ambiguous saddle corners
+ * (diagonal water pixels meeting at a point) deterministically, so every emitted
+ * ring is a simple cycle and the closure hold for any mask complexity — unlike a
+ * "always follow the first neighbour" tracer, this does not balloon into a
+ * near-endless ring on fractal shorelines. Returns one closed ring per boundary
+ * loop: outer rings (water interior) come out CCW (positive signed area), island
+ * holes (land interior) come out CW (negative signed area). Memory is O(boundary
+ * edges) and bounded by the grid size regardless of mask shape.
+ * @param {Uint8Array} mask binary mask (1 = water)
+ * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
+ * @returns {Array<Array<[number, number]>>} closed boundary rings (local m)
+ */
+export function traceWaterBoundary(mask, cols, rows, x0, z0, step) {
+  const half = step / 2;
+  const W = cols + 1; // corner-code width (one extra corner per row/col)
+  const waterAt = (r, c) => (r < 0 || r >= rows || c < 0 || c >= cols ? 0 : mask[r * cols + c]);
+  const corner = (r, c) => r * W + c;
+  const dirAngle = (dc, dr) => Math.atan2(dr, dc);
+  // Outgoing directed boundary sides per corner (water pixel sides where the
+  // neighbour is land/edge), oriented with water on the left. Direction = (dc,dr).
+  const outAt = new Map();
+  const addSide = (r, c, dc, dr) => {
+    const k = corner(r, c);
+    let a = outAt.get(k);
+    if (!a) { a = []; outAt.set(k, a); }
+    a.push([dc, dr]);
+  };
+  for (let r = 0; r < rows; r++) {
+    const base = r * cols;
+    for (let c = 0; c < cols; c++) {
+      if (mask[base + c] !== 1) continue;
+      if (waterAt(r - 1, c) !== 1) addSide(r, c, 1, 0);            // top
+      if (waterAt(r, c + 1) !== 1) addSide(r, c + 1, 0, 1);        // right
+      if (waterAt(r + 1, c) !== 1) addSide(r + 1, c + 1, -1, 0);   // bottom
+      if (waterAt(r, c - 1) !== 1) addSide(r + 1, c, 0, -1);       // left
+    }
+  }
+  // Flatten the directed sides into an edge list; each edge knows its start
+  // corner and travel direction, and (filled below) its continuation edge id.
+  const edges = [];
+  for (const [k, arr] of outAt) {
+    for (const [dc, dr] of arr) edges.push({ k, dc, dr, next: -1 });
+  }
+  const startAt = new Map();
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i];
+    let a = startAt.get(e.k);
+    if (!a) { a = []; startAt.set(e.k, a); }
+    a.push(i);
+  }
+  // Sort each corner's outgoing directions CCW so the successor is well-defined.
+  for (const arr of startAt.values()) {
+    arr.sort((ia, ib) => {
+      const a = edges[ia];
+      const b = edges[ib];
+      return dirAngle(a.dc, a.dr) - dirAngle(b.dc, b.dr);
+    });
+  }
+  // Continuation: an edge arriving at its end corner continues on the outgoing
+  // side there whose angle is the first one strictly CCW of the arrival direction.
+  for (const e of edges) {
+    const endR = (e.k / W | 0) + e.dr;
+    const endC = (e.k % W) + e.dc;
+    const endK = corner(endR, endC);
+    const inAng = dirAngle(-e.dc, -e.dr);
+    const cands = startAt.get(endK) || [];
+    let best = -1;
+    let bestAng = Infinity;
+    for (const ci of cands) {
+      const ce = edges[ci];
+      let da = dirAngle(ce.dc, ce.dr) - inAng;
+      if (da <= 0) da += 2 * Math.PI;
+      if (da < bestAng) { bestAng = da; best = ci; }
+    }
+    e.next = best;
+  }
+  // Thread the loops: follow `next`, converting each directed-side loop into a
+  // ring of corner points (metres). A side from corner A with direction (dc,dr)
+  // passes through its start corner A; consecutive sides share a corner, so the
+  // start corners of the loop's sides are the ring's vertices in order.
+  const visited = new Uint8Array(edges.length);
+  const toMetre = (r, c) => [x0 + (c - 0.5) * step, z0 + (r - 0.5) * step];
+  const rings = [];
+  for (let i = 0; i < edges.length; i++) {
+    if (visited[i]) continue;
+    const loop = [];
+    let cur = i;
+    let g = 0;
+    const guard = edges.length + 1;
+    while (cur !== -1 && !visited[cur] && g++ <= guard) {
+      visited[cur] = 1;
+      loop.push(cur);
+      cur = edges[cur].next;
+      if (cur === i) break;
+    }
+    if (loop.length >= 3) {
+      const ring = [];
+      for (const li of loop) {
+        const e = edges[li];
+        ring.push(toMetre(e.k / W | 0, e.k % W));
+      }
+      rings.push(ring);
+    }
+  }
+  return rings;
+}
+
+/**
+ * One Chaikin corner-cut smoothing pass on a closed ring (softens the 20 m
+ * staircase); each edge midpoint pair replaces an old vertex.
+ * @param {Array<[number,number]>} ring closed ring (local m)
+ * @param {number} passes number of corner-cut passes (spec: 1)
+ * @returns {Array<[number,number]>} smoothed ring (unrounded)
+ */
+export function chaikin(ring, passes) {
+  let r = ring.map((p) => [p[0], p[1]]);
+  for (let u = 0; u < passes; u++) {
+    const n = r.length;
+    const nw = [];
+    for (let i = 0; i < n; i++) {
+      const a = r[i];
+      const b = r[(i + 1) % n];
+      nw.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]]);
+      nw.push([0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+    }
+    r = nw;
+  }
+  return r;
+}
+
+/**
+ * 10th-percentile bare-earth DEM value over a ring's vertices (bilinearly
+ * sampled on the local grid) — the `--water-dem` water level, matching
+ * buildTerrain's per-ring 10th-percentile rule "as today". Far-out-of-grid
+ * vertices skip sampling; the grid clips at its outer cells so those behave
+ * like buildTerrain (which clips to the grid edge).
+ * @param {Array<[number,number]>} ring ring (local m)
+ * @param {number[]} heights row-major grid (local m)
+ * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
+ * @returns {number} 10th-percentile level (local m) or 0 when it cannot be sampled
+ */
+function ringGridLevel(ring, heights, cols, rows, x0, z0, step) {
+  const vals = [];
+  for (const [x, z] of ring) {
+    if (x < x0 || x > x0 + (cols - 1) * step || z < z0 || z > z0 + (rows - 1) * step) {
+      continue;
+    }
+    vals.push(sampleGridBilinear(heights, cols, rows, x0, z0, step, x, z));
+  }
+  if (vals.length === 0) return 0;
+  vals.sort((a, b) => a - b);
+  return vals[Math.floor(0.1 * (vals.length - 1))];
+}
+
+/**
+ * Bilinear sample of a row-major `[x,z]` grid at a continuous point, clipping
+ * to the grid's outer cells (mirrors dem.mjs's private `sampleGridBilinear` —
+ * reproduced here so the `--water-dem` level matches buildTerrain's formula).
+ * @param {number[]} grid row-major grid (local m)
+ * @param {number} cols @param {number} rows @param {number} x0 @param {number} z0 @param {number} step
+ * @param {number} x @param {number} z
+ * @returns {number} interpolated height (local m)
+ */
+function sampleGridBilinear(grid, cols, rows, x0, z0, step, x, z) {
+  const fc = (x - x0) / step;
+  const fr = (z - z0) / step;
+  const c0 = Math.min(cols - 2, Math.max(0, Math.floor(fc)));
+  const r0 = Math.min(rows - 2, Math.max(0, Math.floor(fr)));
+  const u = fc - c0;
+  const v = fr - r0;
+  const idx = (r) => r * cols;
+  const g00 = grid[idx(r0) + c0];
+  const g01 = grid[idx(r0) + (c0 + 1)];
+  const g10 = grid[idx(r0 + 1) + c0];
+  const g11 = grid[idx(r0 + 1) + (c0 + 1)];
+  return (
+    (1 - u) * (1 - v) * g00 +
+    u * (1 - v) * g01 +
+    (1 - u) * v * g10 +
+    u * v * g11
+  );
+}
+
+/**
+ * DEM-contour one giant water ring (`--water-dem`): node mask → majority vote
+ * → speck/puddle cleanup → marching-squares boundary → Chaikin + round. Returns
+ * the shoreline ring(s) plus island holes (both already local-metre, 0.1 m
+ * rounded and `cleanRing`ed).
+ * @param {{ring: Array<[number,number]>, level?: number, threshold?: number,
+ *   heights: number[], cols: number, rows: number, x0: number, z0: number,
+ *   step: number, protectedNodes?: Uint8Array}} o
+ * @returns {{rings: Array<Array<[number, number]>>}} `{rings}` contour output
+ */
+export function contourWaterRings({
+  ring,
+  level,
+  threshold = DEM_THRESHOLD,
+  heights,
+  cols,
+  rows,
+  x0,
+  z0,
+  step,
+  protectedNodes,
+}) {
+  const lvl = level !== undefined ? level : ringGridLevel(ring, heights, cols, rows, x0, z0, step);
+  let mask = waterMaskFromRing(ring, lvl, threshold, heights, cols, rows, x0, z0, step);
+  mask = majorityVoteGrid(mask, cols, rows);
+  const prot = protectedNodes ?? new Uint8Array(cols * rows);
+  // Force-LAND override (T-0116, Answers 6 rule 3): any node whose cell
+  // (node ± half a step, i.e. the protected set from building centroids +
+  // non-bridge road vertices) is land — applied AFTER the majority vote so it
+  // cannot be eroded. Mechanically rescues Bennelong Point (the Opera House),
+  // Garden Island, Mrs Macquarie's tip, the wharf strips, etc.
+  for (let i = 0; i < mask.length; i++) {
+    if (prot[i]) mask[i] = 0;
+  }
+  cleanupMask(mask, cols, rows, prot);
+  const traces = traceWaterBoundary(mask, cols, rows, x0, z0, step);
+  const rings = [];
+  for (const t of traces) {
+    const r = cleanRing(chaikin(t, 1).map(([x, z]) => [round1(x), round1(z)]));
+    if (r.length >= 3) rings.push(r);
+  }
+  return { rings, mask };
+}
+
+/**
  * Convert an Overpass `[out:json]` response into a `CityData` object.
  * @param {{elements: unknown[]}} json Overpass response (`out geom;`)
  * @param {{origin: LatLon, bbox?: [number,number,number,number],
  *   lang?: string,
  *   dem?: {elevationAt(lat:number, lon:number): number},
  *   step?: number,
- *   treeCap?: number}} opts
+ *   treeCap?: number,
+ *   waterFull?: boolean,
+ *   waterDem?: boolean}} opts
  * @returns {CityData} city model (see `src/data/types.ts`)
  */
 export function convertOverpass(json, opts) {
   const { origin } = opts;
   const bbox = opts.bbox ?? DEFAULT_BBOX;
   const { lang, dem, step } = opts;
+  const waterFull = opts.waterFull === true;
+  const waterDem = opts.waterDem === true;
   const treeCap = opts.treeCap !== undefined ? opts.treeCap : TREE_CAP;
   const outlines = [];
   const parts = [];
@@ -1166,29 +1667,56 @@ export function convertOverpass(json, opts) {
 
   let skippedRelations = 0;
 
-  // --- Water (the Thames, docks): standalone `natural=water`/`waterway`
-  // `riverbank` ways plus the outer members of water relations. All are
-  // assembled into closed rings, projected to local metres, clipped to the
-  // bbox expanded by 300 m (the Thames relation extends far beyond it) and
-  // cleaned/dropped like building rings.
-  const waterWays = [];
+  // --- Water (the Thames, docks, Sydney harbour). Standalone
+  // `natural=water`/`waterway` `riverbank` ways plus water relations: outer
+  // members become water rings, inner members become island rings so a hole
+  // carries the odd-parity count of a single water body correctly.
+  const waterStandaloneOuter = [];
+  const waterRelations = [];
   for (const el of elements) {
     if (!el || typeof el !== 'object') continue;
     const tags = el.tags || {};
     if (!(tags.natural === 'water' || tags.waterway === 'riverbank')) continue;
     if (el.type === 'way') {
-      waterWays.push({ id: el.id, geometry: el.geometry });
+      waterStandaloneOuter.push({ id: el.id, geometry: el.geometry });
     } else if (el.type === 'relation') {
       const members = Array.isArray(el.members) ? el.members : [];
+      const outer = [];
+      const inner = [];
       members.forEach((m, k) => {
-        if (m && typeof m === 'object' && m.role === 'outer') {
-          waterWays.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        if (!m || typeof m !== 'object') return;
+        if (m.role === 'outer') {
+          outer.push({ id: `${el.id}:${k}`, geometry: m.geometry });
+        } else if (m.role === 'inner') {
+          inner.push({ id: `${el.id}:i${k}`, geometry: m.geometry });
         }
       });
+      waterRelations.push({ id: el.id, outer, inner });
     }
   }
-  const { rings: waterRings, dropped: droppedOpenWaterChains } =
-    assembleRingsInternal(waterWays);
+  // Assemble outer rings per body: the standalone ways form one group, each
+  // relation another, so every ring stays attributed to the body it came
+  // from (needed to know which relation's inner islands are live after the
+  // dedup below). Stitching itself is unchanged (`assembleRingsInternal`).
+  // With `waterFull` (T-0116, Answers 4): relation rings are assembled from
+  // FULL member geometry (fetched by fetch-osm.mjs's follow-up query) and
+  // are marked `full: true` so the projection pass below skips the bbox
+  // clip that would slice a shoreline-hugging harbour boundary through
+  // open ocean and enclose the peninsulas.
+  let droppedOpenWaterChains = 0;
+  const outerGroups = [];
+  const standaloneAssembled = assembleRingsInternal(waterStandaloneOuter);
+  droppedOpenWaterChains += standaloneAssembled.dropped;
+  for (const ring of standaloneAssembled.rings) {
+    outerGroups.push({ relId: null, ring, full: false });
+  }
+  for (const rel of waterRelations) {
+    const assembled = assembleRingsInternal(rel.outer);
+    droppedOpenWaterChains += assembled.dropped;
+    for (const ring of assembled.rings) {
+      outerGroups.push({ relId: rel.id, ring, full: waterFull });
+    }
+  }
 
   // Local-metre bbox of the source query, expanded by 300 m for clipping.
   const boxP = {
@@ -1203,19 +1731,112 @@ export function convertOverpass(json, opts) {
     maxX: boxP.maxX + 300,
     maxZ: boxP.maxZ + 300,
   };
-  const water = [];
-  for (const ring of waterRings) {
-    if (ring.length < 4) continue;
-    const poly = ring.slice(0, -1).map((p) => {
+  // Project + clip every assembled outer ring (same pipeline as before).
+  // FULL relation rings (T-0116, Answers 4 — waterFull) skip the bbox clip
+  // so a correct simple polygon is parity-correct in any window: peninsulas
+  // are excluded by the boundary path itself instead of by an ocean-side
+  // clip artifact.
+  const projectedOuters = [];
+  for (const grp of outerGroups) {
+    if (grp.ring.length < 4) continue;
+    const poly = grp.ring.slice(0, -1).map((p) => {
       const [x, z] = project(p.lon, p.lat, origin);
       return [round1(x), round1(z)];
     });
     const cleaned = cleanRing(poly);
     if (cleaned.length < 3) continue;
-    const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
-    if (clipped.length < 3) continue;
-    if (ringArea(clipped) < 25) continue; // degenerate / sliver
-    water.push(clipped);
+    let ring;
+    if (grp.full) {
+      ring = cleaned;
+    } else {
+      const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+      if (clipped.length < 3) continue;
+      ring = clipped;
+    }
+    if (ringArea(ring) < 25) continue; // degenerate / sliver
+    projectedOuters.push({ ring, relId: grp.relId });
+  }
+  // Dedup overlapping large water bodies (T-0116): one bay is often mapped
+  // as several overlapping `natural=water` relations whose outer rings
+  // overlap and read as LAND under the odd-parity rule.
+  const dedup = dedupWaterRings(projectedOuters);
+  const keptOuter = dedup.keptOuter;
+  const keptRelIds = dedup.keptRelIds;
+  // Giant rings (|area| ≥ 1 km²) are SLOPPY OSM polygons that enclose whole
+  // peninsulas (T-0116). With `--water-dem` they are not emitted directly;
+  // instead each is DEM-contoured into a shoreline ring + island holes below.
+  // Smaller rings are trusted accurate and pass through unchanged.
+  const giantRings = [];
+  let water = [];
+  for (const o of keptOuter) {
+    if (waterDem && ringArea(o.ring) >= DEM_GIANT_AREA) {
+      giantRings.push(o.ring);
+    } else {
+      water.push(o.ring);
+    }
+  }
+  // Inner members (islands) of bodies at least one of whose outer rings
+  // survived the dedup. Assembled with the same stitcher; an unstitchable
+  // inner chain is skipped and counted, never emitted partially. Residual
+  // island duplicates (the same island is often an inner of both overlapping
+  // relations) are dropped by centroid containment.
+  let droppedOpenInnerChains = 0;
+  const islands = [];
+  for (const rel of waterRelations) {
+    if (!keptRelIds.has(rel.id)) continue;
+    const assembled = assembleRingsInternal(rel.inner);
+    droppedOpenInnerChains += assembled.dropped;
+    for (const ring of assembled.rings) {
+      if (ring.length < 4) continue;
+      const poly = ring.slice(0, -1).map((p) => {
+        const [x, z] = project(p.lon, p.lat, origin);
+        return [round1(x), round1(z)];
+      });
+      const cleaned = cleanRing(poly);
+      if (cleaned.length < 3) continue;
+      let iso;
+      if (waterFull) {
+        iso = cleaned;
+      } else {
+        const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+        if (clipped.length < 3) continue;
+        iso = clipped;
+      }
+      if (ringArea(iso) < 25) continue;
+      islands.push(iso);
+    }
+  }
+  const islandOut = [];
+  for (const iso of islands) {
+    const c = ringCentroid(iso);
+    let insideExisting = false;
+    for (const existing of islandOut) {
+      if (pointInPolygon(c, existing)) {
+        insideExisting = true;
+        break;
+      }
+    }
+    if (!insideExisting) islandOut.push(iso);
+  }
+  // Island rings nested inside a DEM-contoured giant: under `--water-dem`
+  // these are saved for the Answers-6 rule-5 rescue (emitted when the final
+  // mask still reads them as water); outside giants they go straight to water.
+  // A contour hole already carved an elevated island, so a rescued inner is
+  // never double-emitted with a contour hole of the same feature.
+  const islandInGiant = [];
+  for (const iso of islandOut) {
+    let insideGiant = false;
+    for (const g of giantRings) {
+      if (pointInPolygon(ringCentroid(iso), g)) {
+        insideGiant = true;
+        break;
+      }
+    }
+    if (insideGiant) {
+      if (waterDem) islandInGiant.push(iso);
+    } else {
+      water.push(iso);
+    }
   }
 
   // Coastline (data-format.md "Coastline water" — bays/seas as OSM
@@ -1327,7 +1948,7 @@ export function convertOverpass(json, opts) {
 
     if (el.type === 'way') {
       if (isBuildingPart(tags)) {
-        if (isBelowGrade(tags)) continue;
+        if (isBelowGrade(tags) || isRoofPart(tags)) continue;
         const poly = toRing(el.geometry, origin);
         if (poly) parts.push(buildPartEntry(el.id, tags, poly));
       } else if (tags.building !== undefined) {
@@ -1383,7 +2004,7 @@ export function convertOverpass(json, opts) {
       }
     } else if (el.type === 'relation') {
       if (isBuildingPart(tags) && tags['type'] === 'multipolygon') {
-        if (isBelowGrade(tags)) continue;
+        if (isBelowGrade(tags) || isRoofPart(tags)) continue;
         let emitted = 0;
         for (const m of el.members || []) {
           if (m.role === 'outer') {
@@ -1398,21 +2019,31 @@ export function convertOverpass(json, opts) {
         if (emitted === 0) skippedRelations++;
       } else if (tags.building !== undefined && tags['type'] === 'multipolygon') {
         if (isBelowGrade(tags)) continue;
+        // Assemble the outer members into closed rings exactly like the
+        // water/woods paths (data-format.md "Building relations"): an outer
+        // boundary may be a single closed way or several open ways stitched
+        // end-to-end (the Sydney Opera House is 16 separate outer ways).
+        // Each assembled ring becomes one building; an outer boundary that
+        // cannot be closed stays skipped — a partial ring is never emitted.
+        // Inner rings (courtyards, role=inner) are ignored.
+        const outer = (el.members || []).filter(
+          (m) => m && typeof m === 'object' && m.role === 'outer',
+        );
+        const { rings } = assembleRingsInternal(
+          outer.map((m, k) => ({ id: `${el.id}:${k}`, geometry: m.geometry })),
+        );
         let emitted = 0;
-        for (const m of el.members || []) {
-          if (m.role === 'outer') {
-            const poly = toRing(m.geometry, origin);
-            if (poly) {
-              // A relation may hold several disjunct outer rings; give each a
-              // unique id (the first keeps the relation id) so all emitted
-              // rings pass `validateCity`'s per-array id-uniqueness rule.
-              const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
-              outlines.push(buildEntry(id, tags, poly));
-              emitted++;
-            }
-          }
+        for (const ring of rings) {
+          const poly = toRing(ring, origin);
+          if (!poly) continue;
+          // A relation may hold several disjunct outer rings; give each a
+          // unique id (the first keeps the relation id) so all emitted
+          // rings pass `validateCity`'s per-array id-uniqueness rule.
+          const id = emitted === 0 ? el.id : el.id * 1000 + emitted;
+          outlines.push(buildEntry(id, tags, poly));
+          emitted++;
         }
-        if (emitted === 0) skippedRelations++; // ring assembly across ways not done
+        if (emitted === 0) skippedRelations++;
       }
     } else if (el.type === 'node') {
       if (tags.natural === 'tree') {
@@ -1474,16 +2105,133 @@ export function convertOverpass(json, opts) {
   let terrain;
   let waterLevels;
   if (dem) {
-    const built = buildTerrain({
-      bbox,
-      origin,
-      dem,
-      ...(step !== undefined ? { step } : {}),
-      waterRings: water,
-    });
-    terrain = built.terrain;
-    // Omit waterLevels when there is no water (data-format.md §Terrain step 4).
-    if (water.length > 0) waterLevels = built.waterLevels;
+    if (waterDem && giantRings.length > 0) {
+      // Build the unflattened bare-earth grid once (grid building is independent
+      // of the water set). Then DEM-contour each giant, flatten by odd parity
+      // with each contour ring at its source body's level, and emit the final
+      // terrain + levels — all inside this module (dem.mjs stays byte-identical).
+      const t0 = buildTerrain({
+        bbox,
+        origin,
+        dem,
+        ...(step !== undefined ? { step } : {}),
+        waterRings: [],
+      });
+      const g = t0.terrain;
+      // Protection set for the speck rule: road vertices (non-bridge) and
+      // building centroids keep small land components from being flipped.
+      const protectPts = [];
+      for (const r of roads) {
+        if (r.bridge) continue;
+        for (const p of r.pts) protectPts.push(p);
+      }
+      for (const b of buildings) protectPts.push(ringCentroid(b.poly));
+      const prot = protectedNodesFrom(protectPts, g.cols, g.rows, g.x0, g.z0, g.step);
+      // Contoured giants: each produces shoreline + island rings carrying the
+      // giant's own (10th-percentile OSM-shoreline) level, per the rule
+      // "waterLevels for each emitted ring = level of its source body". The
+      // final cleaned mask per giant is kept for the Answers-6 rule-5
+      // relation-inner island rescue.
+      const contourAppend = [];
+      const giantDetails = [];
+      for (const giant of giantRings) {
+        const level = ringGridLevel(giant, g.heights, g.cols, g.rows, g.x0, g.z0, g.step);
+        const { rings, mask } = contourWaterRings({
+          ring: giant,
+          level,
+          heights: g.heights,
+          cols: g.cols,
+          rows: g.rows,
+          x0: g.x0,
+          z0: g.z0,
+          step: g.step,
+          protectedNodes: prot,
+        });
+        giantDetails.push({ mask, level });
+        for (const ring of rings) contourAppend.push({ ring, level });
+      }
+      // Relation-inner island rescue (Answers 6 rule 5): an inner island ring
+      // nested in a giant is emitted when the contour's final mask still reads
+      // its centroid as WATER (the DEM erased the feature — e.g. Fort Denison
+      // and Bennelong, which the bare-earth filter smoothed to/below sea
+      // level). One already carved by a contour hole reads LAND in the mask
+      // and stays dropped (no double ring). Rescued rings take their giant's
+      // level.
+      const rescueAppend = [];
+      for (const iso of islandInGiant) {
+        const c = ringCentroid(iso);
+        for (let gi = 0; gi < giantRings.length; gi++) {
+          if (!pointInPolygon(c, giantRings[gi])) continue;
+          const { mask: gmask, level } = giantDetails[gi];
+          const ci = Math.round((c[0] - g.x0) / g.step);
+          const ri = Math.round((c[1] - g.z0) / g.step);
+          if (
+            ci >= 0 && ci < g.cols && ri >= 0 && ri < g.rows &&
+            gmask[ri * g.cols + ci] === 1
+          ) {
+            rescueAppend.push({ ring: iso, level });
+          }
+          break;
+        }
+      }
+      const finalWater = [
+        ...water,
+        ...rescueAppend.map((c) => c.ring),
+        ...contourAppend.map((c) => c.ring),
+      ];
+      // Per-ring level: source body level for contour + rescued rings, otherwise
+      // each ring's own bilinear 10th percentile (buildTerrain's formula).
+      const levelOf = new Array(finalWater.length);
+      for (let i = 0; i < water.length; i++) {
+        levelOf[i] = ringGridLevel(water[i], g.heights, g.cols, g.rows, g.x0, g.z0, g.step);
+      }
+      let li = water.length;
+      for (const c of rescueAppend) levelOf[li++] = c.level;
+      for (const c of contourAppend) levelOf[li++] = c.level;
+      // Flatten by odd parity (data-format.md "Coastline water" rule 6): a node
+      // is flattened only inside an ODD number of rings, to the level of the last
+      // ring that flipped the parity to odd. Mirrors buildTerrain exactly.
+      const H = g.heights.slice();
+      if (finalWater.length > 0) {
+        for (let r = 0; r < g.rows; r++) {
+          for (let c = 0; c < g.cols; c++) {
+            const x = g.x0 + c * g.step;
+            const z = g.z0 + r * g.step;
+            let parity = 0;
+            let lastOddLevel = 0;
+            for (let i = 0; i < finalWater.length; i++) {
+              if (pointInPolygon([x, z], finalWater[i])) {
+                parity ^= 1;
+                if (parity === 1) lastOddLevel = levelOf[i];
+              }
+            }
+            if (parity === 1) H[r * g.cols + c] = lastOddLevel;
+          }
+        }
+      }
+      terrain = {
+        x0: g.x0,
+        z0: g.z0,
+        step: g.step,
+        cols: g.cols,
+        rows: g.rows,
+        datum: g.datum,
+        heights: H,
+      };
+      waterLevels = finalWater.length > 0 ? levelOf : undefined;
+      water = finalWater;
+    } else {
+      const built = buildTerrain({
+        bbox,
+        origin,
+        dem,
+        ...(step !== undefined ? { step } : {}),
+        waterRings: water,
+      });
+      terrain = built.terrain;
+      // Omit waterLevels when there is no water (data-format.md §Terrain step 4).
+      if (water.length > 0) waterLevels = built.waterLevels;
+    }
   }
 
   const result = {
@@ -1508,6 +2256,11 @@ export function convertOverpass(json, opts) {
   });
   Object.defineProperty(result, 'skippedOpenWaterChains', {
     value: droppedOpenWaterChains,
+    writable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(result, 'droppedOpenInnerChains', {
+    value: droppedOpenInnerChains,
     writable: false,
     enumerable: false,
   });

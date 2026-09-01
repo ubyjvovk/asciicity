@@ -252,16 +252,23 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   --tiles 1 --out public/data/sydney` (`npm run fetch-data:sydney`).
 - **Size budget: 12 MB** for `index.json` + all tiles combined (counts are
   ~half of SF's building total; blocked question if over).
-- Shipped counts (fetched 2026-08-31, T-0110, first S-hemisphere city):
-  **20 338 buildings** (max h 309 = Westfield Sydney tower block; Crown
-  Sydney 271, clamp 650) / 9 818 roads
-  (804 bridge roads global — the Harbour Bridge deck, Brisbane/Waterloo
-  overpasses) / 106 places / 89 water rings / 1 river / 28 962 trees
-  (17 333 filled) / 2 278 landmarks, terrain 291×347 @ 20 m (datum 3.9 m
-  ASL, 0 voids, tile S34E151, bare-earth), **57 tiles**, index 913 937 B +
-  tiles 5 877 059 B ≈ 6.5 MB (largest tile 292 600 B), zero bridge leaks
-  into tiles; Circular Quay origin confirmed ≈ 27 m from the OSM Circular
-  Quay place node (railway/ferry wharf, within the 100 m check).
+- Shipped counts (refetched 2026-09-01, T-0116 — multi-way building
+  relations assembled; water path now runs the composite DEM contour, see
+  "Water relations" below): **20 322 buildings** (incl. the Sydney Opera
+  House as its own relation footprint, id 9596872, h 18.5 from
+  `building:levels=5`, ~180 m long — its `building:part=roof` sheets are
+  skipped as parts so the real outline survives; max h 309 = Westfield Sydney)
+  / 9 818 roads (804 bridge roads global — the Harbour Bridge deck,
+  Brisbane/Waterloo overpasses) / 106 places / **138 water rings** (one
+  DEM-contoured harbour ring 9.45 km² + inner-member island rings incl. Fort
+  Denison / Goat Island / Garden Island + smaller ponds and inlets) /
+  1 river / 29 131 trees (17 501 filled) / 2 278 landmarks, terrain
+  291×347 @ 20 m (datum 3.9 m ASL, 0 voids, tile S34E151, bare-earth),
+  **57 tiles**, index 1 203 530 B + tiles 5 883 773 B ≈ 6.8 MB, zero bridge
+  leaks into tiles; Circular Quay origin confirmed ≈ 27 m from the OSM
+  Circular Quay place node (railway/ferry wharf, within the 100 m check).
+  Fetched with `--water-full 1 --water-dem 1` (see "Water relations" §4);
+  the sydney alias will flip to those flags at accept.
 
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
@@ -384,10 +391,18 @@ fallback `https://overpass.kumi.systems/api/interpreter`. Retry each once on
 - `way` with `building` tag and a closed geometry (first == last node) → one
   building; drop the repeated closing point. Skip `building=no` and
   `building:part` ways.
-- `relation` multipolygon: emit one building per member with `role=outer`
-  whose own geometry is a closed ring (ring assembly across several outer
-  ways is NOT done — document the count of skipped relations in the
-  script's summary line). Inner rings (courtyards) are ignored.
+- `relation` multipolygon: assemble the `role=outer` members into closed
+  rings exactly like the water/woods paths (rings end-to-start on
+  coinciding endpoints, either orientation, order-independent). A member
+  that is itself a closed way becomes a ring directly; several open ways
+  are stitched (T-0116 — the Sydney Opera House's outer boundary is 16
+  separate ways). Each assembled ring becomes one building; the first ring
+  keeps the relation id, later rings get `id*1000+1`, `+2`, … so ids stay
+  unique. An open (unstitchable) outer boundary stays skipped and counted;
+  a partial ring is never emitted. Tags (name, height, …) come from the
+  relation. Inner rings (courtyards) are ignored. `building:part=roof`
+  sheets are skipped as parts (a horizontal roof is not volumetric massing)
+  so they cannot replace the authoritative multipolygon outline.
 - Height, first rule that applies:
   1. `height` tag: parse leading number; if the string ends in `ft` multiply
      by 0.3048.
@@ -481,6 +496,121 @@ strait (west→east coast at the top, east→west at the bottom) → one middle
 band ring; a CCW closed square → island ring emitted, and a parity check
 shows a point inside it is NOT flattened while a point between island and
 outer ring is; a bbox with no coastline → no rings.
+
+## Water relations: overlapping bodies + inner islands (`scripts/osm-convert.mjs`, T-0116)
+
+Rivers, docks, harbours and bays arrive as `natural=water` /
+`waterway=riverbank` multipolygon RELATIONS as well as standalone closed
+ways. OSM often maps a single body as several **overlapping** relations
+(Port Jackson ⊇ Sydney Harbour in the Sydney bbox) whose assembled outer
+rings overlap. Under the odd-parity water rule (above, wave 8/9) two
+overlapping outer rings count as LAND in their overlap — the player could
+walk on the harbour — and an island inside both (count 2) reads as land only
+by accident. The water-relation path therefore:
+
+1. **Assemble outer rings per body**: the standalone `natural=water` ways
+   form one group, each relation another, so every ring stays attributed to
+   the body it came from. (Stitching itself is unchanged —
+   `assembleRingsInternal`, the same helper the building-relation and woods
+   paths use.)
+2. **Dedup overlapping large bodies**: only outer rings with |area| ≥
+   0.1 km² are candidates (small ponds skip the O(n²) work). Sort by |area|
+   descending and walk down; for each candidate compute `coverage` = the
+   fraction of 50 m-grid cell centres over the candidate's bbox that lie
+   inside the candidate AND inside any already-KEPT ring. Drop the
+   candidate iff `coverage ≥ 0.85`, else keep it. Deterministic, no polygon
+   booleans. (Sydney: one harbour ring survives and the overlapping Sydney
+   Harbour duplicate drops; the eastern shoreline behaviour is under review
+   — see T-0116 block.) Do not tune the 0.85 / 50 m constants.
+3. **Inner members become island rings**: a relation's `role=inner` members
+   are assembled with the same stitcher and emitted as bare water rings
+   (islands — no names/landmarks) so an island reads as land via odd parity
+   (harbour(1) + island(1) = 2). Inners are emitted ONLY from relations at
+   least one of whose outer rings was KEPT — a dropped duplicate contributes
+   no islands, which kills most cross-relation island duplicates for free.
+   An open (unstitchable) inner chain is skipped and counted, never emitted
+   partially. Residual island duplicates are dropped when an inner ring's
+   centroid lies inside an already-emitted island ring. Islands ride the
+   existing wave-8/9 odd-parity conventions in collision and DEM flattening
+   unchanged.
+4. **`--water-full` (Answers 4, T-0116) — full-relation geometry, no bbox
+   clip for relation rings.** Rationale: for a coastline-hugging harbour
+   relation whose outer boundary closes in the open ocean OUTSIDE the query
+   bbox (Port Jackson east of Sydney's Heads), bbox-clipping the outer
+   introduces a spurious closure segment along the bbox edge and encloses
+   the eastern peninsulas as "inside water" by parity. Under `--water-full`
+   `scripts/fetch-osm.mjs` issues ONE follow-up Overpass request
+   (`rel(id …); (._; way(r); >;); out geom;`) for the complete member
+   geometry of every water/riverbank relation, splices that full geometry
+   back over each relation's members, and passes `waterFull: true` to
+   `convertOverpass`. The water path then assembles those relation rings
+   from full geometry and skips `clipRingToBox` for them (steps 1–3 above
+   are otherwise identical). Standalone `natural=water` /
+   `waterway=riverbank` WAYS keep today's clipped path (a way is a whole
+   OSM object within the bbox, not a partial member of a bigger polygon).
+   Datasets fetched WITHOUT `--water-full` are byte-stable on refetch
+   (London's Thames stays clipped). DEM tiles: `waterLevels` samples ring
+   vertices, and full rings may carry vertices outside the query bbox —
+   `fetchDemTiles` covers the query bbox and `dem.elevationAt` throws
+   loudly if a water-vertex tile is not loaded (Sydney's harbour spans
+   only S34E151, so no new tiles are needed there).
+4. **`--water-dem` (Answers 5-6, T-0116) — composite DEM-contoured shoreline
+   for sloppy giants.** OSM's harbour polygons can be label-grade: the Port
+   Jackson outer boundary contains long straight segments that cut across
+   peninsula bases, so even the full simple polygon encloses whole peninsulas
+   (Overpass's own `is_in` confirms Mrs Macquarie's Point inside it). No OSM
+   layer carves the shore out. `--water-dem 1` (fetch flag → `convertOverpass`
+   `waterDem: true`) therefore re-derives the shoreline from the bare-earth
+   terrain grid, which already carries most of the truth (peninsulas 5–20 m
+   ASL, water ~0), combined with the pipeline's own built-up-area layers to
+   rescue small harbour features the 20 m bare-earth filter has erased
+   (Fort Denison, Bennelong Point, Garden Island). For each kept OUTER ring
+   with |area| ≥ 1 km² (the giants — smaller rings are trusted accurate and
+   pass through untouched) the mask is built as a **composite** of five
+   ordered rules:
+   1. **Base threshold** `bare-earth ≤ level + 3.0 m`, where `level` is the
+      giant ring's 10th-percentile DEM value (Circular Quay cove reads
+      ~2.0 m ASL after the T-0108/T-0109 smooth — the +3.0 m margin puts it
+      in the water with real slack rather than a knife-edge).
+   2. **3×3 majority vote** on the raw mask (as before).
+   3. **Force-LAND override**: any node whose cell (node ± half a step) contains
+      a BUILDING centroid or a NON-BRIDGE road vertex is forced to LAND after
+      the majority vote so it cannot be eroded. This mechanically rescues
+      Bennelong Point (the Opera House itself), Garden Island (naval buildings
+      + roads), Mrs Macquarie's tip (Mrs Macquarie's Road), Woolloomooloo, and
+      the Botanic paths, and makes the wharf strips walkable — the protection
+      is generative, not just preservative.
+   4. **Speck/puddle cleanup** (flip 4-connected LAND components ≤ 8 nodes with
+      no protection to water; drop WATER components < 6 nodes).
+   5. **Relation-inner island rescue**: an inner ring belonging to a kept giant
+      is emitted iff its centroid reads WATER in the final mask (the contour
+      missed it — Fort Denison's 3 030 m² OSM inner comes back with its exact
+      geometry, parity giant(1) + island(1) = LAND). An inner already carved
+      by a contour hole reads LAND in the mask and stays dropped (no double
+      ring).
+
+   Marching squares at node resolution extracts the shoreline + island holes
+   (planar face-tracing with the angular-successor rule, so ambiguous saddle
+   corners resolve deterministically and mask fractality never produces an
+   unbounded ring); one Chaikin corner-cut pass follows. These rings REPLACE
+   the giant ring and its previously emitted inner-island rings (the contour's
+   own hole rings take over — no double-counting); each emitted ring's
+   `waterLevels` entry is its source body's level. Everything downstream
+   (flattening, collision parity, render, minimap) consumes rings exactly as
+   today — zero `src/` changes. The mask rules and marching-squares tracer are
+   pure and unit-tested with synthetic grids (threshold, majority vote, force-
+   LAND override, speck/puddle flips, hole emission, saddle-heavy mask
+   closure, elevated-island parity, inner rescue), no fetch. Sydney parity
+   after the composite (assertions in `tests/sydney.test.ts`): the six PM
+   WATER probes (mid-harbour, CQ cove, under-bridge, west-of-Goat, mid-Farm-
+   Cove, mid-Woolloomooloo-Bay) and the nine LAND probes (CBD, Fort Denison,
+   Goat Island, Mrs Macquarie's Point, Sydney Opera House / Bennelong Point,
+   Woolloomooloo Finger Wharf, Garden Island naval yard, Kirribilli, Blues
+   Point) all pass; the global non-bridge wet-road-vertex rate drops from
+   ~195/53 555 (0.36 %, attempt-4 baseline) to 14/53 555 (0.026 %) — the
+   remainder is the Sydney Harbour Tunnel (a genuine under-harbour tunnel,
+   surface points must read water) and a handful of unnamed wharf-approach
+   segments OSM maps as roads over water.
 
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 

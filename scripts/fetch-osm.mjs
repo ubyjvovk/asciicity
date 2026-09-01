@@ -69,7 +69,7 @@ out geom;`;
 }
 
 /** CLI flags that may appear bare (or with `1`/`true`). */
-const BOOLEAN_FLAGS = new Set(['tiles', 'dem-bare']);
+const BOOLEAN_FLAGS = new Set(['tiles', 'dem-bare', 'water-full', 'water-dem']);
 
 /** Parse CLI argv into a record; `--tiles` is a boolean flag, other `--key`s require a value. */
 export function parseArgs(argv) {
@@ -275,6 +275,14 @@ async function main() {
   const tiles =
     args.tiles === true || args.tiles === '1' || args.tiles === 'true';
   const demBare = resolveDemBare(args['dem-bare'] ?? false);
+  const waterFull =
+    args['water-full'] === true ||
+    args['water-full'] === '1' ||
+    args['water-full'] === 'true';
+  const waterDem =
+    args['water-dem'] === true ||
+    args['water-dem'] === '1' ||
+    args['water-dem'] === 'true';
   const chunks = args.chunks !== undefined ? parseChunks(args.chunks) : null;
   const step = args.step !== undefined ? Number(args.step) : undefined;
   if (step !== undefined && (!Number.isFinite(step) || step <= 0)) {
@@ -309,12 +317,55 @@ async function main() {
     } else {
       json = await fetchJson(query);
     }
+    // --water-full (T-0116, Answers 4): the shipped bbox often clips a
+    // shoreline-hugging harbour relation whose outer boundary closes through
+    // open ocean OUTSIDE the box, leaving the peninsulas enclosed and
+    // parity-wrong. Fetch the FULL member geometry of every water /
+    // riverbank relation in one follow-up request and splice it back over
+    // the (clipped) member geometries, then flag the converter so those
+    // relations are assembled without bbox clipping. Standalone water WAYS
+    // keep today's path unchanged.
+    if (waterFull) {
+      const relIds = [];
+      for (const el of json.elements) {
+        if (!el || typeof el !== 'object') continue;
+        if (el.type !== 'relation') continue;
+        const tags = el.tags || {};
+        if (!(tags.natural === 'water' || tags.waterway === 'riverbank')) continue;
+        relIds.push(el.id);
+      }
+      if (relIds.length > 0) {
+        const followUp = `[out:json][timeout:${timeoutSec}];\nrelation(id:${relIds.join(',')});\n(._;way(r);>;);\nout geom;`;
+        const fu = await fetchJson(followUp);
+        const wayFullGeom = new Map();
+        for (const el of fu.elements || []) {
+          if (el && el.type === 'way' && Array.isArray(el.geometry)) {
+            wayFullGeom.set(el.id, el.geometry);
+          }
+        }
+        // Splice full-geometry ways back into every relation's members that
+        // reference them; standalone water ways in json.elements are left alone.
+        for (const el of json.elements) {
+          if (!el || typeof el !== 'object') continue;
+          if (el.type !== 'relation') continue;
+          const tags = el.tags || {};
+          if (!(tags.natural === 'water' || tags.waterway === 'riverbank')) continue;
+          for (const m of el.members || []) {
+            if (m && m.type === 'way' && wayFullGeom.has(m.ref)) {
+              m.geometry = wayFullGeom.get(m.ref);
+            }
+          }
+        }
+      }
+    }
     const city = convertOverpass(json, {
       origin,
       bbox,
       ...(lang ? { lang } : {}),
       ...(dem ? { dem } : {}),
       ...(step !== undefined ? { step } : {}),
+      ...(waterFull ? { waterFull: true } : {}),
+      ...(waterDem ? { waterDem: true } : {}),
     });
     if (!isCityShape(city)) {
       process.stderr.write('fetch: converted result failed shape check\n');
