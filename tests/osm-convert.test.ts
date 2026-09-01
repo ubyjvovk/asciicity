@@ -859,6 +859,59 @@ describe('osm-convert water relations — overlapping bodies + inner islands (T-
     expect(ringAreaLocal(rings[0])).toBeGreaterThan(150000);
     expect(city.droppedOpenInnerChains).toBe(1);
   });
+
+  it('waterFull skips bbox clipping for RELATION rings only (standalone ways still clip)', () => {
+    // T-0116, Answers 4: fetch-osm.mjs pre-fetches the complete member
+    // geometry of every water relation so its assembled outer ring includes
+    // vertices way outside the bbox. With `waterFull: true` the converter
+    // must NOT clip those rings (a shoreline-hugging closure through open
+    // ocean is preferable to a bbox slice that encloses the peninsulas).
+    // Standalone `natural=water` ways still clip as before — they are
+    // full ways within the bbox, not partial members of a bigger relation.
+    const FAR_EAST = 20000; // 20 km east — well outside any real clipBox
+    const OUTER_FAR = [
+      [-500, -500],
+      [FAR_EAST, -500],
+      [FAR_EAST, 500],
+      [-500, 500],
+    ] as Array<[number, number]>;
+    const relEl = {
+      type: 'relation',
+      id: 3001,
+      tags: { type: 'multipolygon', natural: 'water', name: 'Port Jackson (full)' },
+      members: [closedMember('outer', OUTER_FAR)],
+    };
+    const standaloneWay = {
+      type: 'way',
+      id: 3002,
+      tags: { natural: 'water' },
+      // Same shape as a standalone way — the projection lands 20 km east.
+      geometry: OUTER_FAR
+        .concat([OUTER_FAR[0]])
+        .map(([x, z]) => xzToLonLat(x, z)),
+    };
+    const bbox: [number, number, number, number] = [-0.09, 51.512, -0.087, 51.514];
+
+    const full = convertOverpass(
+      { elements: [relEl, standaloneWay] },
+      { origin: ORIGIN, bbox, waterFull: true },
+    );
+    const fullRings = full.water ?? [];
+    // The relation ring KEEPS its far-east vertex (no clip); the standalone
+    // way ring is clipped to bbox+300 m and does NOT reach the far east.
+    const reachesFarEast = (ring: Array<[number, number]>) =>
+      ring.some(([x]) => x > FAR_EAST - 100);
+    expect(fullRings.some(reachesFarEast)).toBe(true);
+    // Sanity: without `waterFull`, the RELATION ring gets clipped and no
+    // ring reaches the far east.
+    const clipped = convertOverpass(
+      { elements: [relEl, standaloneWay] },
+      { origin: ORIGIN, bbox },
+    );
+    for (const ring of clipped.water ?? []) {
+      expect(reachesFarEast(ring)).toBe(false);
+    }
+  });
 });
 
 describe('osm-convert assembleRings', () => {

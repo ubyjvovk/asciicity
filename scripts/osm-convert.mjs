@@ -1246,13 +1246,15 @@ function ringCoverage(candRing, keptRings, cell) {
  *   lang?: string,
  *   dem?: {elevationAt(lat:number, lon:number): number},
  *   step?: number,
- *   treeCap?: number}} opts
+ *   treeCap?: number,
+ *   waterFull?: boolean}} opts
  * @returns {CityData} city model (see `src/data/types.ts`)
  */
 export function convertOverpass(json, opts) {
   const { origin } = opts;
   const bbox = opts.bbox ?? DEFAULT_BBOX;
   const { lang, dem, step } = opts;
+  const waterFull = opts.waterFull === true;
   const treeCap = opts.treeCap !== undefined ? opts.treeCap : TREE_CAP;
   const outlines = [];
   const parts = [];
@@ -1299,18 +1301,23 @@ export function convertOverpass(json, opts) {
   // relation another, so every ring stays attributed to the body it came
   // from (needed to know which relation's inner islands are live after the
   // dedup below). Stitching itself is unchanged (`assembleRingsInternal`).
+  // With `waterFull` (T-0116, Answers 4): relation rings are assembled from
+  // FULL member geometry (fetched by fetch-osm.mjs's follow-up query) and
+  // are marked `full: true` so the projection pass below skips the bbox
+  // clip that would slice a shoreline-hugging harbour boundary through
+  // open ocean and enclose the peninsulas.
   let droppedOpenWaterChains = 0;
   const outerGroups = [];
   const standaloneAssembled = assembleRingsInternal(waterStandaloneOuter);
   droppedOpenWaterChains += standaloneAssembled.dropped;
   for (const ring of standaloneAssembled.rings) {
-    outerGroups.push({ relId: null, ring });
+    outerGroups.push({ relId: null, ring, full: false });
   }
   for (const rel of waterRelations) {
     const assembled = assembleRingsInternal(rel.outer);
     droppedOpenWaterChains += assembled.dropped;
     for (const ring of assembled.rings) {
-      outerGroups.push({ relId: rel.id, ring });
+      outerGroups.push({ relId: rel.id, ring, full: waterFull });
     }
   }
 
@@ -1328,6 +1335,10 @@ export function convertOverpass(json, opts) {
     maxZ: boxP.maxZ + 300,
   };
   // Project + clip every assembled outer ring (same pipeline as before).
+  // FULL relation rings (T-0116, Answers 4 — waterFull) skip the bbox clip
+  // so a correct simple polygon is parity-correct in any window: peninsulas
+  // are excluded by the boundary path itself instead of by an ocean-side
+  // clip artifact.
   const projectedOuters = [];
   for (const grp of outerGroups) {
     if (grp.ring.length < 4) continue;
@@ -1337,10 +1348,16 @@ export function convertOverpass(json, opts) {
     });
     const cleaned = cleanRing(poly);
     if (cleaned.length < 3) continue;
-    const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
-    if (clipped.length < 3) continue;
-    if (ringArea(clipped) < 25) continue; // degenerate / sliver
-    projectedOuters.push({ ring: clipped, relId: grp.relId });
+    let ring;
+    if (grp.full) {
+      ring = cleaned;
+    } else {
+      const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+      if (clipped.length < 3) continue;
+      ring = clipped;
+    }
+    if (ringArea(ring) < 25) continue; // degenerate / sliver
+    projectedOuters.push({ ring, relId: grp.relId });
   }
   // Dedup overlapping large water bodies (T-0116): one bay is often mapped
   // as several overlapping `natural=water` relations whose outer rings
@@ -1367,10 +1384,16 @@ export function convertOverpass(json, opts) {
       });
       const cleaned = cleanRing(poly);
       if (cleaned.length < 3) continue;
-      const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
-      if (clipped.length < 3) continue;
-      if (ringArea(clipped) < 25) continue;
-      islands.push(clipped);
+      let iso;
+      if (waterFull) {
+        iso = cleaned;
+      } else {
+        const clipped = cleanRing(clipRingToBox(cleaned, clipBox));
+        if (clipped.length < 3) continue;
+        iso = clipped;
+      }
+      if (ringArea(iso) < 25) continue;
+      islands.push(iso);
     }
   }
   const islandOut = [];

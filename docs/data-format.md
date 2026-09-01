@@ -525,6 +525,27 @@ by accident. The water-relation path therefore:
    centroid lies inside an already-emitted island ring. Islands ride the
    existing wave-8/9 odd-parity conventions in collision and DEM flattening
    unchanged.
+4. **`--water-full` (Answers 4, T-0116) — full-relation geometry, no bbox
+   clip for relation rings.** Rationale: for a coastline-hugging harbour
+   relation whose outer boundary closes in the open ocean OUTSIDE the query
+   bbox (Port Jackson east of Sydney's Heads), bbox-clipping the outer
+   introduces a spurious closure segment along the bbox edge and encloses
+   the eastern peninsulas as "inside water" by parity. Under `--water-full`
+   `scripts/fetch-osm.mjs` issues ONE follow-up Overpass request
+   (`rel(id …); (._; way(r); >;); out geom;`) for the complete member
+   geometry of every water/riverbank relation, splices that full geometry
+   back over each relation's members, and passes `waterFull: true` to
+   `convertOverpass`. The water path then assembles those relation rings
+   from full geometry and skips `clipRingToBox` for them (steps 1–3 above
+   are otherwise identical). Standalone `natural=water` /
+   `waterway=riverbank` WAYS keep today's clipped path (a way is a whole
+   OSM object within the bbox, not a partial member of a bigger polygon).
+   Datasets fetched WITHOUT `--water-full` are byte-stable on refetch
+   (London's Thames stays clipped). DEM tiles: `waterLevels` samples ring
+   vertices, and full rings may carry vertices outside the query bbox —
+   `fetchDemTiles` covers the query bbox and `dem.elevationAt` throws
+   loudly if a water-vertex tile is not loaded (Sydney's harbour spans
+   only S34E151, so no new tiles are needed there).
 
 ## Trees (`scripts/osm-convert.mjs`, wave 7)
 
