@@ -22,7 +22,7 @@ import {
 import { applyLandmarks } from '../src/world/landmarks';
 import { ROAD_WIDTH } from '../src/world/roads';
 import { deckHumps } from '../src/world/bridge';
-import { BridgeDecks, Terrain, makeGroundAt } from '../src/world/terrain';
+import { BridgeDecks, Terrain, chainBridgeRoads, makeGroundAt } from '../src/world/terrain';
 import { loadSfCity } from './sfCity';
 import { loadTiledCity, loadTiledGlobals, loadTiledIndex, loadTiledTile } from './tiledCity';
 
@@ -2027,11 +2027,22 @@ describe('Sydney presets (wave 14)', () => {
     expect(delta).toBeLessThan((10 * Math.PI) / 180);
   });
 
-  it('harbourbridge sits on the Cahill Walk pedestrian walkway within 3 m of the deck bridge road', () => {
-    // Cahill Walk is the eastern pedestrian walkway on the Harbour Bridge
-    // deck (bridge=true pedestrian in `index.bridgeRoads`). The preset must
-    // land ≤ 3 m from one of its polylines (like the Kyiv `parkbridge`
-    // T-0047 pattern) so the deck-humps ASL applies at boot.
+  it('harbourbridge stands mid-span on the 1503 m Cahill Walk chain (arc-frac 0.35–0.65) with the deck hump lifting the player to y ≥ 40 m', () => {
+    // Rework attempt-2 bindings (PM: attempt-1 preset resolved to
+    // (114.3, −1224.8) on the Milsons Point foreshore, y=4.5 UNDER the deck).
+    // Bind three facts that make "on the bridge deck" mechanical:
+    //  1. The chain is identified by ARC LENGTH, not just name — Cahill Walk
+    //     names both the harbour crossing (1503 m) and the disconnected
+    //     Circular Quay stretch. `chainBridgeRoads` joins the four pieces
+    //     into one polyline; the LONGEST same-name chain (T-0118 rule in
+    //     `chainHumpApex`) is the harbour crossing and the only one that
+    //     receives the Sydney Harbour Bridge deck hump.
+    //  2. The spawn sits within 3 m of that chain AND at arc-position
+    //     0.35–0.65 along it (mid-span band — outside this band the
+    //     parabolic deck profile falls below 40 m).
+    //  3. Resolved ground y — max(terrain, deck) — is ≥ 40 m, i.e. the
+    //     player stands ON the hump, not on the shoreline below it
+    //     (deckApexASL 49, datum ≈ 3.9 m ASL → apexY ≈ 45.1 at frac 0.5).
     const spawn = resolveSpawn(
       'harbourbridge',
       sydneyCity.origin,
@@ -2039,20 +2050,71 @@ describe('Sydney presets (wave 14)', () => {
       sydneyCity,
       'circularquay',
     );
-    const cahill = sydneyCity.roads.filter(
+
+    // (1) Identify the harbour-crossing Cahill Walk chain by arc length.
+    const chained = chainBridgeRoads(sydneyCity.roads);
+    const cahillChains = chained.filter(
       (r) => r.name === 'Cahill Walk' && r.bridge === true,
     );
-    expect(cahill.length).toBeGreaterThan(0);
-    let best = Infinity;
-    for (const r of cahill) {
-      for (let i = 0; i < r.pts.length - 1; i++) {
-        best = Math.min(
-          best,
-          distToSegment([spawn.x, spawn.z], r.pts[i], r.pts[i + 1]),
-        );
+    expect(cahillChains.length, 'chained Cahill Walk pieces').toBeGreaterThan(0);
+    const chainLen = (pts: Vec2[]): number => {
+      let s = 0;
+      for (let i = 1; i < pts.length; i++) {
+        s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       }
+      return s;
+    };
+    const crossing = cahillChains
+      .map((r) => ({ r, len: chainLen(r.pts) }))
+      .sort((a, b) => b.len - a.len)[0];
+    expect(crossing.len, 'harbour-crossing chain length').toBeGreaterThan(1400);
+    expect(crossing.len, 'harbour-crossing chain length').toBeLessThan(1600);
+
+    // (2) Distance to the chain ≤ 3 m AND arc-position in [0.35, 0.65].
+    const pts = crossing.r.pts;
+    let best: { d: number; segIndex: number; t: number } = {
+      d: Infinity,
+      segIndex: 0,
+      t: 0,
+    };
+    const cum: number[] = [0];
+    for (let i = 1; i < pts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
     }
-    expect(best, 'distance to nearest Cahill Walk segment').toBeLessThan(3);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const abx = b[0] - a[0];
+      const abz = b[1] - a[1];
+      const ab2 = abx * abx + abz * abz;
+      const t = ab2 > 0 ? Math.max(0, Math.min(1, ((spawn.x - a[0]) * abx + (spawn.z - a[1]) * abz) / ab2)) : 0;
+      const cx = a[0] + t * abx;
+      const cz = a[1] + t * abz;
+      const d = Math.hypot(spawn.x - cx, spawn.z - cz);
+      if (d < best.d) best = { d, segIndex: i, t };
+    }
+    expect(best.d, 'distance to Cahill Walk crossing chain').toBeLessThan(3);
+    const arcAtSpawn = cum[best.segIndex] +
+      best.t *
+        Math.hypot(
+          pts[best.segIndex + 1][0] - pts[best.segIndex][0],
+          pts[best.segIndex + 1][1] - pts[best.segIndex][1],
+        );
+    const frac = arcAtSpawn / crossing.len;
+    expect(frac, 'arc-position along chain').toBeGreaterThanOrEqual(0.35);
+    expect(frac, 'arc-position along chain').toBeLessThanOrEqual(0.65);
+
+    // (3) Resolved ground y ≥ 40 m — the deck hump lifted the player above
+    // the harbour. Recomputes `makeGroundAt` the way main.ts does (§4.9):
+    // Terrain sampler + BridgeDecks with per-city humps applied to the
+    // LONGEST same-name chain (chainHumpApex → 45.1 apex for Cahill Walk).
+    expect(sydneyCity.terrain, 'sydney terrain grid').toBeDefined();
+    const terrain = new Terrain(sydneyCity.terrain!);
+    const humps = deckHumps('sydney', sydneyCity);
+    const decks = new BridgeDecks(sydneyCity.roads, (x, z) => terrain.heightAt(x, z), 25, humps);
+    const groundAt = makeGroundAt(terrain, decks);
+    const y = groundAt(spawn.x, spawn.z);
+    expect(y, 'ground y at harbourbridge spawn').toBeGreaterThanOrEqual(40);
   });
 
   it('mrsmacquarie sits ≤ 100 m from Mrs Macquarie\'s Chair, facing Opera House within ±10°', () => {

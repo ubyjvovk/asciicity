@@ -1247,9 +1247,10 @@ preset instead.
 Plus twelve fast-travel presets — `circularquay` (DEFAULT spawn — western
 promenade at 151.20996, −33.85736, bearing 84° toward the Opera House
 across Sydney Cove), `operahouse` (building preset on `Sydney Opera House`
-with a Cahill Walk fallback), `harbourbridge` (Cahill Walk eastern
-pedestrian walkway at 151.21224, −33.85022, bearing 188° along the deck at
-the Sydney Tower — the deck hump T-0112 puts the player at y ≈ 45–50 m),
+with a Cahill Walk fallback), `harbourbridge` (mid-span of the 1503 m
+Cahill Walk harbour-crossing chain at 151.21050, −33.85299 — arc-frac
+0.500 — bearing 208° along the deck axis toward the western CBD; the
+deck hump T-0112 puts the player at y ≈ 45.1 m),
 `mrsmacquarie` (151.22189, −33.85942, bearing 294° — the postcard: Opera
 House with the Harbour Bridge behind), `lunapark` (Milsons Point boardwalk
 at 151.21194, −33.84748, bearing 184° south across Sydney Cove toward the

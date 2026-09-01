@@ -637,15 +637,34 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 36,
   },
   harbourbridge: {
-    // Cahill Walk (the eastern pedestrian walkway on the Harbour Bridge
-    // deck) vertex at (114.3, -1224.8), ~45 m from the ticket-suggested
-    // `151.2111,-33.8503` mid-span target. Bearing 188° faces south along
-    // the deck at the Sydney Tower anchor (2.3 km SSW — the CBD skyline
-    // fills the frame). The Harbour Bridge deck humps (T-0112, deckApexASL
-    // 49) put the player at y ≈ 45–50 m ASL here.
-    lon: 151.212236,
-    lat: -33.850223,
-    bearingDeg: 188,
+    // Mid-span of the 1503 m Cahill Walk HARBOUR-CROSSING chain (the
+    // longest same-named bridge road after `chainBridgeRoads`; the ONLY
+    // Cahill Walk chain that receives the Sydney Harbour Bridge deck hump —
+    // T-0118 rule in `chainHumpApex`). Rework attempt-2 note: attempt 1
+    // resolved to (114.3, −1224.8), which is the chain's arc-frac 0.73
+    // vertex on the Milsons Point foreshore, ~30 m from the NORTHERN
+    // shore crossing — the PM GPU probe found the player standing UNDER
+    // the deck at y = 4.5 (ALT 6 m ASL). The chain's true mid-span sits
+    // 77 m north of the ARCH mid-span at local (−46.1, −918.6) — an
+    // interpolated point on the 538 m harbour-crossing segment between
+    // chain vertices 10 (−135.6, −747.8) and 11 (114.3, −1224.8), arc
+    // position 751.6 m / 1503.3 m = 0.500. The Sydney Harbour Bridge deck
+    // hump (T-0112, deckApexASL 49, datum ≈ 3.9 m ASL → apexY ≈ 45.1)
+    // profiles Cahill Walk with y = apexY at chain arc-frac 0.5, so the
+    // player stands at y ≈ 45.1 m local (unit-test bound: ground y ≥ 40).
+    //
+    // Bearing 208° aligns with the deck axis at mid-span (v10→v11 goes
+    // NE at 27.6°; reversed = 207.6° SSW), keeping the 40 m clear-corridor
+    // rule (T-0059) satisfied on the narrow 6 m Cahill Walk pedestrian
+    // corridor. Bearings between the deck axis and the exact SSE Sydney
+    // Tower bearing (184°) drift ≥ 3 m off the corridor within 8 m of
+    // forward walk, dropping the player into the harbour water. 208° faces
+    // south-southwest along the deck at Wynyard / Barangaroo — the western
+    // CBD skyline still fills the frame; the Sydney Tower sightline test
+    // is bearing-independent (direct ray from spawn to subject).
+    lon: 151.210501,
+    lat: -33.852993,
+    bearingDeg: 208,
     label: 'Harbour Bridge east walkway, facing the CBD skyline',
     city: 'sydney',
   },

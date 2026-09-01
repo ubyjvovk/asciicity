@@ -97,9 +97,12 @@ test('sydney: ?at=mrsmacquarie renders a non-empty LANDMARK / ZONE HUD row', asy
   // With that landmark 689 m away in the frame, the LANDMARK row (nearest
   // named building in facing direction, src/hud/hud.ts:69) must resolve to
   // a non-empty label; the ZONE row is also non-empty as we sit inside the
-  // Domain / Royal Botanic Garden district.
+  // Domain / Royal Botanic Garden district. Wait until the HUD has actually
+  // painted the LANDMARK label (HUD_INTERVAL is 4 frames; `ready` flips on
+  // frame 1, so LANDMARK arrives ~3 frames later).
   await page.goto('/?city=sydney&at=mrsmacquarie&tileradius=600');
   await waitReady(page);
+  await expect(page.locator('#hud')).toContainText('LANDMARK', { timeout: 5_000 });
   const hud = (await page.locator('#hud').textContent()) ?? '';
   // Both rows must exist AND carry a non-empty value.
   for (const label of ['LANDMARK', 'ZONE']) {
