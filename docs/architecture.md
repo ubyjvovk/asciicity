@@ -685,7 +685,7 @@ Per cell, `c = pow(clamp(sampleSub(cell, 0, 0), 0, 1), gamma)`, `p = vUv`:
 
     v      = bright(c) · (1 − 0.25 · smoothstep(0.5, 1.0, length(p − 0.5) · 1.5))   // vignette
     t      = tintOf(c);  sat = max(t) − min(t)
-    ramp   = sat < 0.12 ? 0 : nearest r ∈ 1..11 by squared RGB between t and tintOf(shade 14 of ramp r)
+    ramp   = sat < 0.12 ? 0 : nearest r ∈ 1..11 by squared RGB between t and tintOf(dark_r)   // the dark end carries the hue (T-0124 finding: pale light ends misroute sky→night, grass→forest)
     d      = bayer8(cell.x, cell.y) − 0.5                                         // (−0.5, 0.5)
     i      = clamp(floor(v · 20 + d), 0, 19)                                      // one-step dither
     edge   = the lowpoly/edges depth rule (sky / inverse-depth second difference,
@@ -700,7 +700,7 @@ Per cell, `c = pow(clamp(sampleSub(cell, 0, 0), 0, 1), gamma)`, `p = vUv`:
 
 The ramps ship as a 20×12 RGB `THREE.DataTexture` (NearestFilter, no
 canvas needed) sampled at `((i + 0.5) / 20, (ramp + 0.5) / 12)`; the 11
-ramp tints are a `uniform vec3 rampTint[11]`. `bayer8(x, y) =
+ramp tints (`tintOf(dark_r)`) are a `uniform vec3 rampTint[11]`. `bayer8(x, y) =
 (M8[y][x] + 0.5) / 64` from the recursive construction `M2 = [[0,2],[3,1]]`,
 `M4[y][x] = M2[y>>1][x>>1] + 4·M2[y&1][x&1]` (= the pico8 matrix),
 `M8[y][x] = M4[y>>1][x>>1] + 16·M2[y&1][x&1]`… (any construction is fine
