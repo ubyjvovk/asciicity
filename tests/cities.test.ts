@@ -122,6 +122,19 @@ describe('CITIES registry', () => {
   });
 });
 
+describe('CityInfo.facade (architecture.md §4.23 "Facade")', () => {
+  it("minas-tirith.facade === 'stone'", () => {
+    expect(cityById('minas-tirith')?.facade).toBe('stone');
+  });
+
+  it('every other city has no facade (absent = windows)', () => {
+    for (const city of CITIES) {
+      if (city.id === 'minas-tirith') continue;
+      expect(city.facade, city.id).toBeUndefined();
+    }
+  });
+});
+
 describe('cityById', () => {
   it("cityById('KYIV ') → kyiv (trimmed + case-insensitive)", () => {
     expect(cityById('KYIV ')?.id).toBe('kyiv');
