@@ -105,6 +105,15 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   tile-city.d.ts) — accepted. Root `vite.config.ts` carries the user's
   uncommitted `server.allowedHosts: ['dub']` — set aside with a tagged
   stash for the accept and restored; never commit or discard it.
+- User review 2026-09-16 of the two new styles → wave 16 revisions
+  boarded: T-0129 lowpoly v2 (bug: cell-centre depth samples sit on the
+  2×2 sub-sample texel seam → full-width horizontal ink rows on the ground;
+  fix = texel-centre sampling; plus "upbeat and shiny": brighter bands,
+  pastel hues, chrome grey, specular shine band, brighter sky) and T-0130
+  quest v2 ("more like a drawing": six flat shades, no dither, one-sided
+  2-shade pencil outlines, vignette 0.15, banded sky) — both with a
+  mechanical "no full-width inked row below the horizon" e2e criterion.
+  Specs in §4.11 "lowpoly v2" / "quest v2" (0242ef2).
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
