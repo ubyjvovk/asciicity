@@ -130,6 +130,14 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (synthetic noon/night, London): flat drawing look, ground squares gone,
   thin lines. Both style revisions from the user's review are in; awaiting
   the user's second look.
+- T-0128 ACCEPTED 2026-09-17 (grok-1, attempt 1): Minas Tirith is live —
+  `?city=minas-tirith` boots at the Great Gate in `quest`; presets
+  greatgate/citadel/healing; README lists seven cities. PM verified in the
+  worker container (142 unit, 2 e2e) and walked it on the host GPU (gate,
+  citadel, healing, fly-over; HUD LANDMARK reads Great Gate / Tower Hall).
+- Wave 16b polish boarded from that walk: T-0131 (Citadel layout, queued
+  earlier), T-0132 (per-style ground grid — `RenderStyle.groundGrid`, PM
+  contract added), T-0133 (stone facade — `CityInfo.facade`, spec §4.23).
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
