@@ -41,6 +41,15 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (`daylightFactor` in sky.ts, `StyleRenderer.setDaylight`, 10 s refresh from
   main.ts; gate green) and boarded T-0122 (P2/C2, qwen): flat night/dusk/day
   sky bands in lowpoly + e2e assertions 5–6 at 12:00 and 23:00.
+- T-0122 ACCEPTED 2026-09-16 on attempt 1 (qwen, 16 min, 1.95M in / 28k
+  out, $0). PM GPU review: noon flat blue sky, 23:00 navy; pink band
+  unit-tested. Worker legitimately aimed the camera in the e2e (default view
+  has < 5 % sky; navy `#10143C` is within 12/255 of blue×band-0 facets) —
+  noted as a spec smell, not a defect. Wave 15b complete.
+- Fleet 2026-09-16 (user): grok ×2 + ds ×2 re-enabled next to qwen ×1; opus
+  stays 0. `tigerteam check` preflight ok for all three live lanes.
+- Spark spike drafted at `.tigerteam/board/drafts/T-0123-spark-spike.md`
+  (assignee pm, C3) — user: "don't start yet".
 - Spark (3D Gaussian splats, github.com/asundqui/spark) assessed 2026-09-16
   for the user — see the decision log entry "Spark" below when boarded.
 - (superseded by 15b) Polish candidate: the sky posterises to a dark grey band at
