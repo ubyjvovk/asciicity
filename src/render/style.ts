@@ -126,5 +126,6 @@ export const STYLE_ORDER = [
   'edges',
   'hatch',
   'matrix',
+  'lowpoly',
 ] as const;
 export type StyleId = (typeof STYLE_ORDER)[number];

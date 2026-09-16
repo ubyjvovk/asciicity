@@ -13,6 +13,7 @@ import { STYLES as pico8 } from './pico8';
 import { STYLES as edges } from './edges';
 import { STYLES as hatch } from './hatch';
 import { STYLES as matrix } from './matrix';
+import { STYLES as lowpoly } from './lowpoly';
 
 const modules: readonly (readonly RenderStyle[])[] = [
   ascii,
@@ -24,6 +25,7 @@ const modules: readonly (readonly RenderStyle[])[] = [
   edges,
   hatch,
   matrix,
+  lowpoly,
 ];
 
 const byId = new Map<string, RenderStyle>();

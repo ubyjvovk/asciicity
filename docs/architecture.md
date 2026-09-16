@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`. Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `hatch`, `matrix`, `lowpoly` (fourteen with `lowpoly`, wave 15). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
 
 ```ts
@@ -608,6 +608,48 @@ Pure mirrors, unit-tested in node: `amberDensity(v, gamma): number` and
 signature and its tests. The constants are a starting point: the ticket's
 mechanical criteria (dark floor, warm dominance) are the contract; tune
 within them and record final constants here.
+
+`lowpoly` (wave 15, T-0120) — '80s CGI, the *Money for Nothing* video look:
+crude flat-shaded facets, big square pixels, a handful of screaming
+saturated colours, and thick black outlines where polygons meet. Cell
+**6×6**, sub **2×2** (the target is exactly 640×360 at 1080p),
+`needsDepth: true`. The geometry is already low-poly boxes; the style makes
+it *read* that way by flattening every cell to one of a few colour × band
+combinations and inking the edges.
+
+Per cell, with `c = cellMean(cell)` (the 2×2 mean averages the window
+texture away — facets must look flat) and `v = shaped(bright(c))`:
+
+    level  = min(3, floor(v · 4))                       // 4 flat shading bands
+    lum    = LOWPOLY_LUM[level] = [0.22, 0.50, 0.78, 1.0]
+    t      = tintOf(c)                                  // hue at full brightness
+    sat    = max(t.r, t.g, t.b) − min(t.r, t.g, t.b)
+    hue    = sat < 0.25 ? (1, 1, 1)                     // low chroma → grey ramp
+           : nearest of LOWPOLY_HUES by squared RGB distance to t
+    col    = hue · lum
+
+`LOWPOLY_HUES` (8, in this order; ties → lower index):
+`#FF3030 #FF7A20 #FFE040 #70E040 #30E0E0 #3060FF #9040FF #FF40C0`
+(red, orange, yellow, lime, cyan, blue, purple, magenta).
+
+Outlines: the `edges` rule (`isEdge`, imported from `styles/edges.ts` —
+do not edit that module), but sampled one **cell** apart rather than one
+sub-sample apart (`stepUv = 1 / grid`), so lines are one cell (6 px) thick:
+`dC = linearDepth` at the cell centre, `dL/dR/dU/dD` one cell away,
+`sky = d ≥ 0.98·cameraFar`, edge when the centre and a neighbour disagree
+on sky, or (all non-sky) `|wL + wR − 2·wC| > k·wC` or `|wU + wD − 2·wC| > k·wC`,
+`w = 1/d`, `k = 0.02`. Edge → `LOWPOLY_INK = (0.02, 0.02, 0.04)`; else `col`.
+Sky cells are not special-cased: a daytime sky posterises to a flat
+blue band, night to black — both are period-correct.
+
+Pure mirrors, unit-tested in node (the shader mirrors them term for term):
+`LOWPOLY_HUES`, `LOWPOLY_LUM`, `LOWPOLY_INK`, `posterLevel(v): number`
+(0–3), `snapHue(tint): number` (index into `LOWPOLY_HUES`, or `-1` for the
+grey branch), `lowpolyColour(exposed, gamma): [r, g, b]` (the whole
+non-edge path from an exposed RGB sample). The band thresholds and the
+0.25 chroma cut are a starting point: the e2e ticket's mechanical criteria
+(palette purity, outline fraction) are the contract; tune within them and
+record final constants here via the Worker report.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
