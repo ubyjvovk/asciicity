@@ -46,14 +46,23 @@ model = "opus"
 login_auth = true
 max_complexity = 3
 ticket_timeout_s = 5400
-scale = 2
+scale = 0                                 # paused 2026-09-16: qwen-local is the only lane; PM handles C3 itself
 
 [worker.ds]
 engine = "pi"                             # DeepSeek V4 Flash via DeepInfra (pi catalog in secrets bundle)
 model = "deepseek-ai/DeepSeek-V4-Flash-0731"
 max_complexity = 2
 env_passthrough = ["DEEPINFRA_KEY"]
-scale = 4
+scale = 0                                 # paused 2026-09-16: qwen-local is the only lane
+
+[worker.qwen]
+engine = "pi"                             # Qwen3.8-27B Q8 served locally by llama.cpp (see ~/QWEN-LOCAL-API.md)
+model = "qwen-local/qwen3.8-27b-q8:medium" # pi "provider/id:thinking" form; container catalog entry in ~/.tigerteam-secrets/.pi/agent/models.json
+                                          # points at http://172.17.0.1:8080/v1 — the API binds 127.0.0.1 only, so a docker0 bridge
+                                          # (172.17.0.1:8080 -> 127.0.0.1:8080) must be running on the host for this lane to work
+max_complexity = 2
+ticket_timeout_s = 7200                   # ~65 tok/s single-slot server; one request generates at a time
+scale = 1
 
 # [worker.glm]  — GLM-5.2 on DeepInfra is too slow (user, 2026-08-23); re-enable only
 #                 when DeepInfra ships GLM-5.3. (Also 400'd via pi on 2026-08-23.)

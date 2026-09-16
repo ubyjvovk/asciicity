@@ -14,10 +14,17 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
-- Fleet (`tigerteam.toml`): `grok` ×2 (C3), `opus` ×2 (claude, login_auth, C3),
-  `ds` ×2 (pi → DeepSeek V4 Flash on DeepInfra, C2). `glm` parked: DeepInfra
-  only has GLM-5.2 (user: too slow; also 400'd via pi) — enable when GLM-5.3
-  ships. `max_concurrent = 6`.
+- Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
+  lane — pi → `qwen-local/qwen3.8-27b-q8:medium`, a local llama.cpp server
+  (`~/QWEN-LOCAL-API.md`, host 127.0.0.1:8080, one request at a time, $0).
+  `grok`, `opus`, `ds` are `scale = 0` (user: only the PM does C3 now). `glm`
+  parked as before. The qwen lane runs in container mode; the API binds
+  loopback only, so the container catalog (`~/.tigerteam-secrets/.pi/agent/
+  models.json`) points at `http://172.17.0.1:8080/v1` and a host bridge
+  172.17.0.1:8080 → 127.0.0.1:8080 must be running before `qwen` can claim
+  (creating that listener was blocked by the PM harness classifier on
+  2026-09-16 — the user has to start it or allow it). Without the bridge the
+  lane fast-fails and auto-STOPs.
 - Secrets in `<root>/.env` (DEEPINFRA_KEY, GITHUB_TOKEN). The supervisor must be
   restarted after `.env` changes (it was restarted 2026-08-23 23:40 for this).
 - `test_cmd = bash scripts/test.sh` (vitest; self-installs node_modules);
