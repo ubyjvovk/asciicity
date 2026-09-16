@@ -148,6 +148,12 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   cities draw the heightfield from `makeTerrainObject`, which keeps its own
   grid map — PM spec gap. Rework note adds terrain.ts to scope and a Minas
   Tirith citadel e2e case.
+- T-0133 ACCEPTED 2026-09-17 (qwen, attempt 1, ~25 min, $0): stone facade
+  for Minas Tirith (`CityInfo.facade`, `makeStoneTexture`, all three
+  buildings call sites); e2e near-black 0.0031; PM GPU review: masonry
+  courses on the White Tower and gate towers, office windows gone. Worker
+  flagged that §4.23 wrongly says the tile-group call is in tiles.ts (it is
+  main.ts `applyTileEvent`) — doc wording only.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
