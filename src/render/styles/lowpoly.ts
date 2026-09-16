@@ -5,9 +5,11 @@
  * outlines where polygons meet. Cell 6×6, sub 2×2, `needsDepth: true`;
  * the fragment flattens every cell to one of the 8-hue × 4-band (or grey ×
  * band) combinations and inks the cells whose depth test (imported
- * {@link isEdge}, sampled one CELL apart) fires. Pure helpers
- * (`LOWPOLY_HUES`, `LOWPOLY_LUM`, `LOWPOLY_INK`, `posterLevel`, `snapHue`,
- * `lowpolyColour`) mirror the shader term for term; unit-tested in node.
+ * {@link isEdge}, sampled one CELL apart) fires; sky cells get a flat
+ * period sky from `StyleContext.daylight` (wave 15b, T-0122). Pure helpers
+ * (`LOWPOLY_HUES`, `LOWPOLY_LUM`, `LOWPOLY_INK`, `LOWPOLY_SKY`,
+ * `posterLevel`, `snapHue`, `lowpolyColour`, `skyBand`) mirror the shader
+ * term for term; unit-tested in node.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -33,6 +35,22 @@ export const LOWPOLY_LUM: readonly [number, number, number, number] = [0.22, 0.5
 
 /** Ink colour written on outline cells (§4.11). */
 export const LOWPOLY_INK: readonly [number, number, number] = [0.02, 0.02, 0.04];
+
+/**
+ * The three flat period-sky colours in §4.11 "Sky cells" order: night
+ * navy `#10143C`, dusk/dawn pink `#E0508F`, day blue `#3A8CFF`.
+ */
+export const LOWPOLY_SKY: readonly (readonly [number, number, number])[] = [
+  hex('10143C'), hex('E0508F'), hex('3A8CFF'),
+];
+
+/**
+ * Period-sky band for a daylight factor in `[0, 1]`: `0` night,
+ * `1` dusk/dawn, `2` day — the thresholds of §4.11 "Sky cells".
+ */
+export function skyBand(daylight: number): number {
+  return daylight < 0.33 ? 0 : daylight < 0.66 ? 1 : 2;
+}
 
 /**
  * Shading band for a shaped brightness `v` in `[0, 1]`: `min(3, floor(v·4))`
@@ -109,9 +127,13 @@ export function isLowpolyEdge(
  * block is the `edges` test term for term with `isEdge` ({@link
  * isLowpolyEdge}), except the four neighbour samples sit one cell away
  * (`stepUv = 1.0 / grid`), making the ink lines one cell (6 px) thick.
+ * Sky cells (wave 15b) paint `lpSky[band]` with `band = daylight < 0.33 ?
+ * 0 : (daylight < 0.66 ? 1 : 2)`; sky edges keep the ink.
  */
 const LOWPOLY_FRAGMENT = `
 uniform vec3 lpHues[8];
+uniform vec3 lpSky[3];
+uniform float daylight;
 const float LOWPOLY_EDGE_K = 0.02;
 const float LOWPOLY_SKY_FRAC = 0.98;
 void main() {
@@ -170,13 +192,23 @@ void main() {
     if (abs(wU + wD - 2.0 * wC) > LOWPOLY_EDGE_K * wC) edge = true;
   }
 
-  gl_FragColor = vec4(edge ? vec3(0.02, 0.02, 0.04) : col, 1.0);
+  // Period sky (T-0122): flat band by daylight; edges keep the ink.
+  vec3 outCol;
+  if (edge) {
+    outCol = vec3(0.02, 0.02, 0.04);
+  } else if (cSky) {
+    int band = daylight < 0.33 ? 0 : (daylight < 0.66 ? 1 : 2);
+    outCol = lpSky[band];
+  } else {
+    outCol = col;
+  }
+  gl_FragColor = vec4(outCol, 1.0);
 }
 `;
 
 /**
- * '80s-CGI flat-facet + ink-outline look, cell 6×6, sub 2×2, depth.
- * `R` cycles, `?render=lowpoly`.
+ * '80s-CGI flat-facet + ink-outline + flat period sky (from `ctx.daylight`)
+ * look, cell 6×6, sub 2×2, depth. `R` cycles, `?render=lowpoly`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
@@ -188,9 +220,21 @@ export const STYLES: readonly RenderStyle[] = [
     subY: 2,
     needsDepth: true,
     fragment: LOWPOLY_FRAGMENT,
-    makeUniforms(_ctx: StyleContext): Record<string, THREE.IUniform> {
+    makeUniforms(ctx: StyleContext): Record<string, THREE.IUniform> {
       const lpHues = LOWPOLY_HUES.map(([r, g, b]) => new THREE.Vector3(r, g, b));
-      return { lpHues: { value: lpHues } };
+      const lpSky = LOWPOLY_SKY.map(([r, g, b]) => new THREE.Vector3(r, g, b));
+      return {
+        lpHues: { value: lpHues },
+        lpSky: { value: lpSky },
+        daylight: { value: ctx.daylight },
+      };
+    },
+    update(
+      uniforms: Record<string, THREE.IUniform>,
+      _timeS: number,
+      ctx: StyleContext,
+    ): void {
+      uniforms.daylight.value = ctx.daylight;
     },
   },
 ];
