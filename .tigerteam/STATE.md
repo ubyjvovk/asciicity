@@ -57,6 +57,29 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   same. A period-correct flat blue/pink sky would need a sky special-case in
   §4.11 — ask the user before adding.
 
+## Wave 16 (2026-09-16) — SVGA fantasy `quest` style + Minas Tirith
+- User brief: "a classic fantasy game renderer, plus a fantasy location —
+  Minas Tirith", refined to "SVGA-era classics from the 90s". PM decisions
+  locked in architecture.md §4.11 "`quest`" (12 painter's ramps × 20
+  hue-shifted shades, 3×3 cells = 640 wide, one-step ordered dither, soft
+  depth outlines, subtle vignette, banded painted sky from `daylight`) and
+  §4.23 "Minas Tirith" (generator: 7 tiers r 420→100 / h 0→200, gates
+  zig-zag 90/135/45…, rock prow one tier proud with road notches, walls as
+  48-segment ring buildings, ring roads + The Climbing Way, houses in
+  tangential rows, Citadel landmarks, Rath Dínen domes, White Tree; origin
+  Florence latitude; tiled like every fetched city; `defaultRender quest`).
+- PM wiring committed (b74ca2c, gate green): `Building.color`
+  (types/validate/colorFor), `quest` stub + STYLE_ORDER (15 styles, smoke
+  count 15), docs rows, `npm run gen-data:minas-tirith`.
+- Board: T-0124 quest shader (P1) · T-0125 quest e2e (P2, dep 0124) ·
+  T-0126 generator terrain/walls/roads (P1) · T-0127 houses/landmarks +
+  committed dataset (P1, dep 0126) · T-0128 registry/presets/README/e2e
+  (P1, dep 0127). Fleet: qwen ×1, grok ×2, ds ×2.
+- Review plan: verify unit + gate per ticket; GPU review of
+  `style-quest.png`; after T-0128, PM walk-through screenshots of the Great
+  Gate, the Climbing Way through a prow notch, and the Citadel.
+- Spark spike stays in drafts/ until the user says go.
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
