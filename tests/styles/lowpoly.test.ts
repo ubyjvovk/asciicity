@@ -7,11 +7,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  LOWPOLY_GREY,
   LOWPOLY_HUES,
   LOWPOLY_INK,
   LOWPOLY_LUM,
+  LOWPOLY_PASTEL,
+  LOWPOLY_SHINE,
   LOWPOLY_SKY,
   lowpolyColour,
+  lowpolyPaletteSet,
   posterLevel,
   skyBand,
   snapHue,
@@ -32,6 +36,11 @@ function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** `a + (b − a)·t` — GLSL `mix`, per channel, on `[0, 1]` triples. */
+function mixc(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
 }
 
 describe('LOWPOLY_HUES', () => {
@@ -81,31 +90,61 @@ describe('snapHue', () => {
 });
 
 describe('lowpolyColour', () => {
-  it('lowpolyColour([0, 0, 0], 0.45) → every channel ≤ 0.22', () => {
+  it('lowpolyColour([0, 0, 0], 0.45) → every channel ≤ LOWPOLY_LUM[0]', () => {
     const [r, g, b] = lowpolyColour([0, 0, 0], 0.45);
     expect(r).toBeLessThanOrEqual(LOWPOLY_LUM[0]);
     expect(g).toBeLessThanOrEqual(LOWPOLY_LUM[0]);
     expect(b).toBeLessThanOrEqual(LOWPOLY_LUM[0]);
   });
 
-  it('lowpolyColour([1, 1, 1], 0.45) → [1, 1, 1] (grey, top band)', () => {
+  it('lowpolyColour([1, 1, 1], 0.45) → chrome grey mixed toward white (shine, v = 1)', () => {
+    // v = 1 ≥ 0.92 so the top-band grey is the shine variant.
     const [r, g, b] = lowpolyColour([1, 1, 1], 0.45);
-    expect(r).toBeCloseTo(1, 10);
-    expect(g).toBeCloseTo(1, 10);
-    expect(b).toBeCloseTo(1, 10);
+    const exp = LOWPOLY_GREY.map((v) => mixc(v, 1, LOWPOLY_SHINE));
+    expect(r).toBeCloseTo(exp[0], 10);
+    expect(g).toBeCloseTo(exp[1], 10);
+    expect(b).toBeCloseTo(exp[2], 10);
   });
 
-  it('lowpolyColour([1, 0.1, 0.1], 0.45) → LOWPOLY_HUES[0] · LOWPOLY_LUM[3]', () => {
+  it('lowpolyColour([1, 0.1, 0.1], 0.45) → pastel red × band-3 then shine', () => {
     const [r, g, b] = lowpolyColour([1, 0.1, 0.1], 0.45);
-    const [hr, hg, hb] = LOWPOLY_HUES[0];
-    expect(r).toBeCloseTo(hr * LOWPOLY_LUM[3], 10);
-    expect(g).toBeCloseTo(hg * LOWPOLY_LUM[3], 10);
-    expect(b).toBeCloseTo(hb * LOWPOLY_LUM[3], 10);
+    const pastel = LOWPOLY_HUES[0].map((h) => mixc(h, 1, LOWPOLY_PASTEL));
+    const exp = pastel.map((v) => mixc(v * LOWPOLY_LUM[3], 1, LOWPOLY_SHINE));
+    expect(r).toBeCloseTo(exp[0], 10);
+    expect(g).toBeCloseTo(exp[1], 10);
+    expect(b).toBeCloseTo(exp[2], 10);
   });
 
-  it('output is always one of the 4 × 9 (hue or grey × band) combinations on a random grid', () => {
+  it('ADD lowpolyColour([0.5, 0.5, 0.5], 0.45) → grey branch: LOWPOLY_GREY · LOWPOLY_LUM[posterLevel(0.5^0.45)]', () => {
+    const [r, g, b] = lowpolyColour([0.5, 0.5, 0.5], 0.45);
+    const lum = LOWPOLY_LUM[posterLevel(0.5 ** 0.45)];
+    expect(r).toBeCloseTo(LOWPOLY_GREY[0] * lum, 10);
+    expect(g).toBeCloseTo(LOWPOLY_GREY[1] * lum, 10);
+    expect(b).toBeCloseTo(LOWPOLY_GREY[2] * lum, 10);
+  });
+
+  it('ADD lowpolyColour([1, 0.1, 0.1], 0.45) → each channel equals mix(mix(HUES[0], 1, 0.12)·1.0, 1, 0.75)', () => {
+    const [r, g, b] = lowpolyColour([1, 0.1, 0.1], 0.45);
+    const exp = LOWPOLY_HUES[0].map((h) =>
+      mixc(mixc(h, 1, LOWPOLY_PASTEL) * LOWPOLY_LUM[3], 1, LOWPOLY_SHINE),
+    );
+    expect(r).toBeCloseTo(exp[0], 10);
+    expect(g).toBeCloseTo(exp[1], 10);
+    expect(b).toBeCloseTo(exp[2], 10);
+  });
+
+  it('ADD lowpolyColour([0.8, 0.08, 0.08], 0.45) (v ≈ 0.905 < 0.92) → NO shine: mix(HUES[0], 1, 0.12)·LOWPOLY_LUM[3]', () => {
+    const [r, g, b] = lowpolyColour([0.8, 0.08, 0.08], 0.45);
+    const exp = LOWPOLY_HUES[0].map((h) => mixc(h, 1, LOWPOLY_PASTEL) * LOWPOLY_LUM[3]);
+    expect(r).toBeCloseTo(exp[0], 10);
+    expect(g).toBeCloseTo(exp[1], 10);
+    expect(b).toBeCloseTo(exp[2], 10);
+  });
+
+  it('output is always one of the §4.11 v2 palette set on a random grid', () => {
     const gamma = 0.45;
     const rand = mulberry32(0x10f25);
+    const palette = lowpolyPaletteSet();
     for (let i = 0; i < 256; i++) {
       const exposed: [number, number, number] = [
         rand() * 1.7 - 0.2,
@@ -113,17 +152,11 @@ describe('lowpolyColour', () => {
         rand() * 1.7 - 0.2,
       ];
       const out = lowpolyColour(exposed, gamma);
-      const c = exposed.map((e) => Math.min(1, Math.max(0, e)));
-      const bright = Math.max(c[0], c[1], c[2]);
-      const lum = LOWPOLY_LUM[posterLevel(bright ** gamma)];
-      // out / lum must be one of the 8 hues or [1, 1, 1] — the whole vector,
-      // never a per-channel mix.
-      const candidates: readonly (readonly [number, number, number])[] = [...LOWPOLY_HUES, [1, 1, 1] as const];
-      const whole = candidates.some(
+      const whole = palette.some(
         (h) =>
-          Math.abs(out[0] - h[0] * lum) < 1e-10 &&
-          Math.abs(out[1] - h[1] * lum) < 1e-10 &&
-          Math.abs(out[2] - h[2] * lum) < 1e-10,
+          Math.abs(out[0] - h[0]) < 1e-10 &&
+          Math.abs(out[1] - h[1]) < 1e-10 &&
+          Math.abs(out[2] - h[2]) < 1e-10,
       );
       expect(whole, `input ${JSON.stringify(exposed)}`).toBe(true);
     }
@@ -131,17 +164,25 @@ describe('lowpolyColour', () => {
 });
 
 describe('LOWPOLY constants', () => {
-  it('LOWPOLY_LUM is the §4.11 ramp and LOWPOLY_INK is near-black', () => {
-    expect(LOWPOLY_LUM).toEqual([0.22, 0.5, 0.78, 1]);
+  it('LOWPOLY_LUM is the §4.11 v2 ramp and LOWPOLY_INK is near-black', () => {
+    expect(LOWPOLY_LUM).toEqual([0.45, 0.65, 0.85, 1]);
     for (const c of LOWPOLY_INK) {
       expect(c).toBeLessThanOrEqual(0.05);
     }
   });
+
+  it('LOWPOLY_SHINE / LOWPOLY_PASTEL / LOWPOLY_GREY are the §4.11 v2 values', () => {
+    expect(LOWPOLY_SHINE).toBe(0.75);
+    expect(LOWPOLY_PASTEL).toBe(0.12);
+    expect(LOWPOLY_GREY[0]).toBeCloseTo(0.88, 10);
+    expect(LOWPOLY_GREY[1]).toBeCloseTo(0.92, 10);
+    expect(LOWPOLY_GREY[2]).toBeCloseTo(0.97, 10);
+  });
 });
 
 describe('LOWPOLY_SKY', () => {
-  it('has the three §4.11 sky colours in order (#10143C #E0508F #3A8CFF)', () => {
-    const hexes = ['10143C', 'E0508F', '3A8CFF'];
+  it('has the three §4.11 v2 sky colours in order (#1A2060 #FF6FA8 #4FA8FF)', () => {
+    const hexes = ['1A2060', 'FF6FA8', '4FA8FF'];
     expect(LOWPOLY_SKY.length).toBe(3);
     for (let i = 0; i < 3; i++) {
       const n = parseInt(hexes[i], 16);
