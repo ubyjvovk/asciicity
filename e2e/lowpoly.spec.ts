@@ -1,17 +1,17 @@
 /**
- * Lowpoly-style e2e (docs/architecture.md §4.11 "`lowpoly` (wave 15)").
- * Boots `/?synthetic=1&render=lowpoly&cell=6x6&time=12:00` and proves the
- * frame really is flat palette facets with ink outlines, by measuring
- * pixels off the `#view` canvas (offscreen-2d copy, as in
+ * Lowpoly-style e2e (docs/architecture.md §4.11 "`lowpoly` (wave 15)",
+ * v2 T-0129). Boots `/?synthetic=1&render=lowpoly&cell=6x6&time=12:00`
+ * and proves the frame really is flat palette facets with ink outlines, by
+ * measuring pixels off the `#view` canvas (offscreen-2d copy, as in
  * `e2e/amber.spec.ts`, whose boot helpers this spec copies without
  * editing it).
  *
- * The six assertions:
+ * The seven assertions:
  *   1. paints — non-black fraction > 0.02 (it renders at all);
  *   2. palette purity — ≥ 0.90 of all pixels within 12/255 per channel of
- *      some expected colour (every `LOWPOLY_HUES` × `LOWPOLY_LUM` combo,
- *      the grey `[1,1,1]` × lum ramp, `LOWPOLY_INK`, the three
- *      `LOWPOLY_SKY` colours, and black);
+ *      some expected colour (every `lowpolyColour` pastel-hue/chrome × band
+ *      combo, the 9 shine variants, `LOWPOLY_SKY`, `LOWPOLY_INK` and
+ *      black — built from the pure `lowpolyPaletteSet()`, never by hand);
  *   3. outlines present but not dominant — the fraction of pixels within
  *      12/255 of `LOWPOLY_INK` or black is between 0.02 and 0.60;
  *   4. hue diversity — at least 3 of the 8 non-grey hues each appear on
@@ -24,7 +24,11 @@
  *   5. day sky — at `time=12:00`, `LOWPOLY_SKY[2]` (day blue) covers ≥ 0.05
  *      of the pixels and `LOWPOLY_SKY[0]` (night navy) < 0.005;
  *   6. night sky — booting `time=23:00` (same boot helpers),
- *      `LOWPOLY_SKY[0]` covers ≥ 0.05 and `LOWPOLY_SKY[2]` < 0.005.
+ *      `LOWPOLY_SKY[0]` covers ≥ 0.05 and `LOWPOLY_SKY[2]` < 0.005;
+ *   7. no seam lines (v2 depth-seam fix) — in the default un-aimed noon
+ *      frame, every pixel row with `y > 0.55 · height` has < 80 % of its
+ *      pixels within 12/255 of `LOWPOLY_INK`/black; count violating rows
+ *      (expect 0) and quote the worst row's ink fraction.
  */
 import { test, expect, type Page } from '@playwright/test';
 import {
@@ -32,6 +36,7 @@ import {
   LOWPOLY_LUM,
   LOWPOLY_INK,
   LOWPOLY_SKY,
+  lowpolyPaletteSet,
 } from '../src/render/styles/lowpoly';
 
 /** Per-channel tolerance in 8-bit steps (12/255 per the ticket). */
@@ -93,24 +98,16 @@ function to8(c: readonly [number, number, number]): [number, number, number] {
 }
 
 /**
- * The expected palette as a flat `[r, g, b, ...]` array: the 8 hues × 4
- * luminance bands first (index `h * 4 + l`), then the grey ramp, the three
- * `LOWPOLY_SKY` colours, ink and black. Mirrors the shader's discrete
- * colour set term for term.
+ * The expected palette as a flat `[r, g, b, ...]` array — the full §4.11
+ * v2 set from `lowpolyPaletteSet()` (pastel-hue × band, chrome-grey ×
+ * band, the 9 shine variants, the three `LOWPOLY_SKY` colours, ink and
+ * black). Mirrors the shader's discrete colour set term for term.
  */
 const HUE_COUNT = LOWPOLY_HUES.length;
 const LUM_COUNT = LOWPOLY_LUM.length;
 const PALETTE: number[] = (() => {
   const flat: number[] = [];
-  for (const hue of LOWPOLY_HUES) {
-    for (const lum of LOWPOLY_LUM) {
-      flat.push(...to8([hue[0] * lum, hue[1] * lum, hue[2] * lum]));
-    }
-  }
-  for (const lum of LOWPOLY_LUM) flat.push(...to8([lum, lum, lum]));
-  for (const sky of LOWPOLY_SKY) flat.push(...to8(sky));
-  flat.push(...to8(LOWPOLY_INK));
-  flat.push(0, 0, 0);
+  for (const c of lowpolyPaletteSet()) flat.push(...to8(c));
   return flat;
 })();
 
@@ -245,6 +242,59 @@ async function lowpolyPixelStats(page: Page): Promise<{
   );
 }
 
+/**
+ * Assertion-7 helper: per-row ink fractions below `yFrac · height`.
+ * Returns the number of rows whose ink (within `TOL` of `LOWPOLY_INK` or
+ * black) covers ≥ 80 % of the row — the full-width seam rows the v2
+ * texel-centre depth fix removes — and the worst (max) such fraction.
+ */
+async function lowpolyRowInk(page: Page): Promise<{
+  worst: number;
+  violations: number;
+}> {
+  return page.evaluate(
+    (opts: { ink: number[]; tol: number; yFrac: number }) => {
+      const { ink, tol, yFrac } = opts;
+      const el = document.getElementById('view');
+      if (!(el instanceof HTMLCanvasElement)) return { worst: 0, violations: -1 };
+      const w = el.width;
+      const h = el.height;
+      const off = document.createElement('canvas');
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext('2d');
+      if (!ctx) return { worst: 0, violations: -1 };
+      ctx.drawImage(el, 0, 0);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const startY = Math.floor(yFrac * h);
+      let worst = 0;
+      let violations = 0;
+      for (let y = startY; y < h; y++) {
+        let inkCount = 0;
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          if (
+            (Math.abs(r - ink[0]) <= tol &&
+              Math.abs(g - ink[1]) <= tol &&
+              Math.abs(b - ink[2]) <= tol) ||
+            (r <= tol && g <= tol && b <= tol)
+          ) {
+            inkCount++;
+          }
+        }
+        const frac = inkCount / w;
+        if (frac > worst) worst = frac;
+        if (frac >= 0.8) violations++;
+      }
+      return { worst, violations };
+    },
+    { ink: INK_8, tol: TOL, yFrac: 0.55 },
+  );
+}
+
 test('lowpoly: paints, flat palette facets, ink outlines, hue diversity', async ({
   page,
 }) => {
@@ -299,4 +349,27 @@ test('lowpoly: night sky is navy at time=23:00', async ({ page }) => {
   // 6. Night sky (time=23:00): night navy covers ≥ 0.05, day blue < 0.005.
   expect(stats.skyFracs[0]).toBeGreaterThanOrEqual(0.05);
   expect(stats.skyFracs[2]).toBeLessThan(0.005);
+});
+
+test('lowpoly: no full-width ink rows below the horizon (v2 depth-seam fix)', async ({
+  page,
+}) => {
+  // Default un-aimed noon frame — no aim() call, so the view stays at the
+  // synthetic city's default spawn (yaw −π/2, pitch 0, level).
+  await page.goto('/?synthetic=1&render=lowpoly&cell=6x6&time=12:00');
+  await waitReady(page);
+  await doubleRaf(page);
+  await doubleRaf(page);
+
+  const { worst, violations } = await lowpolyRowInk(page);
+  console.log(
+    'lowpoly seam rows: worst row ink fraction ' +
+      worst.toFixed(4) +
+      ', violating rows ' +
+      violations,
+  );
+
+  // 7. No full-width inked row below the horizon (y > 0.55 · height).
+  expect(violations).toBe(0);
+  expect(worst).toBeLessThan(0.8);
 });
