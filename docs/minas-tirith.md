@@ -3,13 +3,15 @@
 The first synthesised city. There is no OSM for Gondor: this script builds a
 monolithic `city.json` from the locked geometry in `docs/architecture.md`
 §4.23 (seven walled tiers, the rock prow, zig-zag gates, ring roads and The
-Climbing Way, Pelennor, Mindolluin, named places, a `terrain` grid at step
-10) and tiles it the same way `scripts/fetch-osm.mjs` calls
-`scripts/tile-city.mjs`. Houses, landmark buildings and the White Tree are
-T-0127 — this ticket's output is walls + gate towers only, `trees: []`.
+Climbing Way, houses, Citadel landmarks, Rath Dínen, the White Tree,
+Pelennor, Mindolluin, named places, a `terrain` grid at step 10) and tiles
+it the same way `scripts/fetch-osm.mjs` calls `scripts/tile-city.mjs`.
+Houses, landmarks and trees live in `scripts/minas-tirith-buildings.mjs`
+and are assembled by `buildCity`.
 
 The generator is deterministic (mulberry32 seed 1). Rerunning it reproduces
-the same city; `tests/minastirith.test.ts` imports the pure functions.
+the same city; `tests/minastirith.test.ts` and
+`tests/minastirith-buildings.test.ts` import the pure functions.
 
 ## CLI
 
@@ -22,9 +24,8 @@ npm run gen-data:minas-tirith
 `tiles/<i>_<j>.json` only (the monolithic object stays in memory). It does
 not write `minas-tirith.city.json`.
 
-`npm run gen-data:minas-tirith` targets `public/data/minas-tirith`. **Do not
-commit that directory from this ticket** — T-0127 adds houses and landmarks,
-then commits the dataset.
+`npm run gen-data:minas-tirith` targets `public/data/minas-tirith` (the
+committed tiled dataset: `index.json` + `tiles/`).
 
 ## What it builds
 
@@ -48,6 +49,18 @@ then commits the dataset.
   on the Pelennor.
 - **Places.** Great Gate, Rath Celerdain, Fen Hollen, Court of the
   Fountain, Houses of Healing, Rath Dínen, The Citadel, Pelennor Fields.
+- **Houses.** Two tangential rows per tier on L1–L6 when the plateau band
+  `R_k − R_{k+1} − 25 ≥ 50` (otherwise the outer row only, at
+  `max(R_k − 27, R_{k+1} + 25.5)` so every centroid sits on `H_k`). Width
+  `9+rand·5`, depth `7+rand·3`, gap 3 m, height `7+rand·8`. Skips the prow
+  sector (`±(w+10)` m of east on L2–L6), ±10° around the tier's gate and
+  the next gate, any footprint within 6 m of a radial lane, and AABB
+  overlaps. Colour `[#D8D4C8, #CFCBC0, #E2DED2, #BFBAB0]` by `id % 4`.
+  Ids `10000 + k·1000 + n`.
+- **Landmarks.** Twelve named buildings (ids `20000 + n`). See the list
+  below. Colour `#F2EFE6` unless noted.
+- **Trees.** The White Tree `[0, 0, 8, 3]` plus six `h 7 r 3` trees in the
+  Houses of Healing garden (azimuth 155°–165°, r 150–175).
 
 ## Tiers
 
@@ -63,12 +76,25 @@ then commits the dataset.
 
 Gate azimuths are degrees clockwise from north (`x = r·sin a`, `z = −r·cos a`).
 
+## Landmarks
+
+| name | size (m) | h (m) | shape | colour | where |
+|------|----------|------:|-------|--------|-------|
+| White Tower of Ecthelion | 22×22 | 90 | tower | `#F2EFE6` | `(−40, 0)` |
+| Tower Hall | 44×18 | 22 | | `#F2EFE6` | `(6, 0)` |
+| Merethrond | 40×16 | 16 | | `#F2EFE6` | `(−10, −40)` |
+| The King's House | 30×16 | 14 | | `#F2EFE6` | `(−10, 40)` |
+| Houses of Healing | 40×16 | 12 | | `#F2EFE6` | r 165, az 150° |
+| House of the Stewards | 12×12 | 8 | dome | `#B8B4AA` | r 110, az 270° |
+| Rath Dínen (×5) | 8×8 | 6 | dome | `#B8B4AA` | r 126…190, az 270°, 16 m spacing |
+| The Old Guesthouse | 24×12 | 10 | | `#CFC3A8` | r 395, az 120° (L1) |
+
 ## Regenerating
 
 ```
 npm run gen-data:minas-tirith
 ```
 
-The committed `public/data/minas-tirith/` dataset is produced by T-0127
-(after houses and landmarks land). This generator is the geometry source;
-T-0127 will rerun it (or extend it) and check the tiles in.
+The committed dataset is `public/data/minas-tirith/` (`index.json` +
+`tiles/`). Regenerating with seed 1 must reproduce it. Registry, spawn
+presets and e2e boot are T-0128.

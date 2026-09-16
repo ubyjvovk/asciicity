@@ -57,7 +57,7 @@ export function buildWalls(): Building[];
 export function buildRoads(): Road[];
 
 /**
- * Assemble the monolithic city for `seed` (default 1). Walls + gate towers
- * only; `trees` is empty (T-0127).
+ * Assemble the monolithic city for `seed` (default 1). Walls, gate towers,
+ * houses, landmarks and trees (architecture.md §4.23).
  */
 export function buildCity(seed?: number): CityData;
