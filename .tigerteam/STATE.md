@@ -154,6 +154,17 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   courses on the White Tower and gate towers, office windows gone. Worker
   flagged that §4.23 wrongly says the tile-group call is in tiles.ts (it is
   main.ts `applyTileEvent`) — doc wording only.
+- T-0131 ACCEPTED 2026-09-17 (grok-1, attempt 1, 18 min, $0.61): Tower Hall
+  at (52, 0), 7 tombs in two rows inside the sixth circle, dataset
+  regenerated (index 429 527 B, reproducible byte for byte in the worker
+  container), `sizeBytes` updated. Known cosmetic limit: the L6 plateau is
+  only 20 m wide (r 125–145), so the r 112/124 tomb columns stand on the
+  L7→L6 ramp. Fix, if ever wanted: widen the tier bands in §4.23 (a
+  regenerate, not a redesign).
+- Supervisor RSS reached 7 GB after ~4.5 h (pi JSON logs). Restart it
+  (`tigerteam down` + tmux respawn-pane) when the board is idle; the
+  harness killed two background PM tasks on a memory heuristic meanwhile,
+  so gates/waiters run in the foreground for now.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
