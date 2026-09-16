@@ -4,7 +4,7 @@
  *
  * Pure functions plus a CLI that tiles into `--out` (index.json + tiles/)
  * the same way `scripts/fetch-osm.mjs` does. Houses, landmarks and trees
- * are T-0127 — this script emits walls + gate towers only, `trees: []`.
+ * come from `scripts/minas-tirith-buildings.mjs`.
  *
  *   node scripts/gen-minas-tirith.mjs --out <dir>
  */
@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { DEFAULT_TILE_SIZE, tileCity } from './tile-city.mjs';
+import { buildHouses, buildLandmarks, buildTrees } from './minas-tirith-buildings.mjs';
 
 const DEG = Math.PI / 180;
 const EXTENT = 1500;
@@ -587,20 +588,22 @@ function assertCity(city) {
 
 /**
  * Assemble the monolithic city (`v: 1`) for `seed` (default 1).
- * Buildings are walls + gate towers only; `trees` is empty (T-0127).
+ * Buildings are walls + gate towers + houses + landmarks; trees include
+ * the White Tree and the Houses of Healing garden.
  * @param {number} [seed=1]
  * @returns {object}
  */
 export function buildCity(seed = 1) {
+  const rand = mulberry32(seed);
   const city = {
     v: 1,
     origin: { lat: ORIGIN.lat, lon: ORIGIN.lon },
     bbox: extentBbox(),
-    buildings: buildWalls(),
+    buildings: [...buildWalls(), ...buildHouses(TIERS, GATE_AZ, rand), ...buildLandmarks()],
     roads: buildRoads(),
     places: PLACES.map((p) => ({ name: p.name, x: p.x, z: p.z })),
     terrain: buildTerrain(seed),
-    trees: [],
+    trees: buildTrees(),
   };
   assertCity(city);
   return city;
@@ -645,7 +648,8 @@ function main() {
     const indexBytes = Buffer.byteLength(JSON.stringify(tiled.index), 'utf8');
     process.stdout.write(
       `${out}: ${city.buildings.length} buildings, ${city.roads.length} roads, ` +
-        `${city.places.length} places, terrain ${city.terrain.cols}x${city.terrain.rows}` +
+        `${city.places.length} places, ${city.trees.length} trees, ` +
+        `terrain ${city.terrain.cols}x${city.terrain.rows}` +
         ` @ ${city.terrain.step} m, ${tiled.tiles.size} tiles, ` +
         `index ${indexBytes} B\n`,
     );

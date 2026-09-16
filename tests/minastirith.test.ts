@@ -162,7 +162,7 @@ describe('minas tirith generator', () => {
     const a = buildCity(1);
     const b = buildCity(1);
     expect(a).toEqual(b);
-    expect(a.trees).toEqual([]);
+    expect(a.trees).toHaveLength(7);
     expect(a.places.map((p) => p.name)).toEqual(PLACES.map((p) => p.name));
     assertCityRules(a);
     expect(a.terrain).toBeDefined();
