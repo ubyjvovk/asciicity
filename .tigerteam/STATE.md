@@ -165,6 +165,15 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (`tigerteam down` + tmux respawn-pane) when the board is idle; the
   harness killed two background PM tasks on a memory heuristic meanwhile,
   so gates/waiters run in the foreground for now.
+- T-0132 ACCEPTED 2026-09-17 on attempt 2 (ds-1, 11 + 14 min, $0.08 total):
+  ground grid per style now swaps both the flat ground and the terrain
+  heightfield; e2e: quest 0.0000 near-white on synthetic and Minas Tirith
+  terrain, ascii grid-green 0.032 (the ascii grid is dark green, so the
+  worker rightly measured grid-green instead of near-white). PM GPU review:
+  no grid under quest/lowpoly at the Great Gate and the Court.
+- **Wave 16 + 16b complete (132/132).** Board empty. Next: restart the
+  supervisor (7 GB RSS), then wait for the user's second look at lowpoly
+  "shiny", quest, and Minas Tirith; Spark spike still drafted.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
