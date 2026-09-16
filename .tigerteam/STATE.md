@@ -114,6 +114,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   2-shade pencil outlines, vignette 0.15, banded sky) — both with a
   mechanical "no full-width inked row below the horizon" e2e criterion.
   Specs in §4.11 "lowpoly v2" / "quest v2" (0242ef2).
+- T-0127 ACCEPTED 2026-09-16 (grok-1, attempt 1, 22 min, $0.72): 452
+  houses (outer rows only — every band is < 50 m wide), 12 landmarks, 7
+  trees, dataset committed (index 429 427 B, 7 tiles). PM verified in the
+  worker container: 11 tests green and the generator reproduces the
+  committed files byte for byte. Top-down review found two PM spec
+  mistakes (White Tree inside the Tower Hall footprint; Rath Dínen tombs
+  crossing the L6 wall) → §4.23 amended, T-0131 boarded behind T-0128.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
