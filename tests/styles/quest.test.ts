@@ -10,6 +10,7 @@ import {
   QUEST_RAMP_ENDS,
   QUEST_RAMPS,
   bayer8,
+  isNearSide,
   questSky,
   questVignette,
   rampFor,
@@ -87,36 +88,48 @@ describe('rampFor', () => {
 });
 
 describe('shadeIndex', () => {
-  it('clamps and floors per §4.11 (one-step dither)', () => {
-    expect(shadeIndex(0, -0.5)).toBe(0);
-    expect(shadeIndex(1, 0.49)).toBe(19);
-    expect(shadeIndex(0.5, 0)).toBe(10);
-    expect(shadeIndex(0.5, -0.5)).toBe(9);
-    expect(shadeIndex(0.5, 0.49)).toBe(10);
+  it('six flat shades, no dither: 0→2, 0.17→5, 0.5→12, 0.99→19, 1→19', () => {
+    expect(shadeIndex(0)).toBe(2);
+    expect(shadeIndex(0.17)).toBe(5);
+    expect(shadeIndex(0.5)).toBe(12);
+    expect(shadeIndex(0.99)).toBe(19);
+    expect(shadeIndex(1)).toBe(19);
+  });
+});
+
+describe('isNearSide', () => {
+  it('one-sided outline gate: inks only the nearer side (or neighbour sky)', () => {
+    expect(isNearSide(10, 12, 1960)).toBe(true); // neighbour farther → centre near
+    expect(isNearSide(12, 10, 1960)).toBe(false); // centre farther → not inked
+    expect(isNearSide(10, 1965, 1960)).toBe(true); // neighbour sky, centre not
+    expect(isNearSide(1965, 10, 1960)).toBe(false); // centre sky → not inked
   });
 });
 
 describe('questSky', () => {
-  it('day: sky ramp 8, pale horizon (17) to deep zenith (8)', () => {
+  it('day: sky ramp 8, banded {17,14,11,8} from horizon to zenith', () => {
+    // smoothstep(0.35,0.95,·): y01=0→s=0→band0→17; y01=0.5→s=0.156→still band0→17;
+    // y01=1→s=1→band3→8. (Computed per the §4.11 formula; the ticket's
+    // "{8,14} or {8,11}" guess does not match the smoothstep result.)
     expect(questSky(1, 0)).toEqual({ ramp: 8, index: 17 });
+    expect(questSky(1, 0.5)).toEqual({ ramp: 8, index: 17 });
     expect(questSky(1, 1)).toEqual({ ramp: 8, index: 8 });
   });
 
-  it('dusk: violet ramp 11', () => {
-    expect(questSky(0.5, 1).ramp).toBe(11);
+  it('dusk: violet ramp 11, banded {15,12,9,6}', () => {
+    expect(questSky(0.5, 0)).toEqual({ ramp: 11, index: 15 });
+    expect(questSky(0.5, 1)).toEqual({ ramp: 11, index: 6 });
   });
 
-  it('night: ramp 9 with index between 2 and 9', () => {
-    const sky = questSky(0, 0.5);
-    expect(sky.ramp).toBe(9);
-    expect(sky.index).toBeGreaterThanOrEqual(2);
-    expect(sky.index).toBeLessThanOrEqual(9);
+  it('night: ramp 9, banded {9,7,5,3}; zenith 3 at y01=1', () => {
+    expect(questSky(0, 0)).toEqual({ ramp: 9, index: 9 });
+    expect(questSky(0, 1)).toEqual({ ramp: 9, index: 3 });
   });
 });
 
 describe('questVignette', () => {
-  it('centre is 1, corner is 0.75', () => {
+  it('centre is 1, corner is 0.85 (vignette 0.15)', () => {
     expect(questVignette([0.5, 0.5])).toBe(1);
-    expect(questVignette([0, 0])).toBeCloseTo(0.75, 3);
+    expect(questVignette([0, 0])).toBeCloseTo(0.85, 3);
   });
 });

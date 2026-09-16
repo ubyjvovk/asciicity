@@ -7,18 +7,22 @@
  * offscreen-canvas sampler, `aim`) are copied from `e2e/lowpoly.spec.ts`
  * without editing it.
  *
- * The six assertions:
+ * The seven assertions:
  *   1. paints — non-black fraction > 0.02 (it renders at all);
  *   2. ramp purity — ≥ 0.95 of pixels within 6/255 per channel of some
  *      `QUEST_RAMPS` colour or black;
- *   3. distinct colours — ≥ 40 distinct expected colours each on ≥ 0.1 % of
+ *   3. distinct colours — ≥ 24 distinct expected colours each on ≥ 0.1 % of
  *      pixels (ramps are in use, not posterised to a few tones);
  *   4. day sky (URL A, aimed north / pitch 0.9) — ≥ 0.05 of pixels lie on
  *      ramp 8 (sky) and at least 4 distinct ramp-8 shades appear; ramp 9
  *      (night) < 0.005;
  *   5. night sky (URL B, same aim) — ≥ 0.05 on ramp 9; ramp 8 < 0.005;
  *   6. outlines — in the default (un-aimed) noon view, the fraction of
- *      pixels with shade index ≤ 4 on any ramp is between 0.03 and 0.5.
+ *      pixels with shade index ≤ 4 on any ramp is between 0.02 and 0.40
+ *      (v2: thin pencil lines);
+ *   7. no full-width inked row below the horizon — in the same default
+ *      noon view, no row with `y > 0.55·height` has ≥ 80 % of its pixels at
+ *      a shade index ≤ 4 (the one-sided outline must not band flat ground).
  */
 import { test, expect, type Page } from '@playwright/test';
 import { QUEST_RAMPS } from '../src/render/styles/quest';
@@ -116,6 +120,8 @@ async function questPixelStats(page: Page): Promise<{
   skyShades: number;
   nightShades: number;
   outline: number;
+  worstRowFrac: number;
+  worstRow: number;
 }> {
   return page.evaluate(
     (opts: {
@@ -144,6 +150,8 @@ async function questPixelStats(page: Page): Promise<{
         skyShades: 0,
         nightShades: 0,
         outline: 0,
+        worstRowFrac: 0,
+        worstRow: -1,
       };
       const el = document.getElementById('view');
       if (!(el instanceof HTMLCanvasElement)) return empty;
@@ -164,8 +172,10 @@ async function questPixelStats(page: Page): Promise<{
       let nonBlack = 0;
       let pure = 0;
       let outline = 0;
+      const rowInk = new Array<number>(h).fill(0);
       const rampColours = rampCount * shadeCount;
       for (let i = 0; i < data.length; i += 4) {
+        const row = Math.floor(i / 4 / w);
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
@@ -190,7 +200,10 @@ async function questPixelStats(page: Page): Promise<{
           const ramp = Math.floor(best / shadeCount);
           const shade = best % shadeCount;
           rampCnt[ramp]++;
-          if (shade <= 4) outline++;
+          if (shade <= 4) {
+            outline++;
+            rowInk[row]++;
+          }
           if (ramp === skyRamp) skyShadeSeen[shade] = true;
           if (ramp === nightRamp) nightShadeSeen[shade] = true;
         }
@@ -202,6 +215,17 @@ async function questPixelStats(page: Page): Promise<{
       let nightShades = 0;
       for (const seen of skyShadeSeen) if (seen) skyShades++;
       for (const seen of nightShadeSeen) if (seen) nightShades++;
+      // Worst below-horizon row (row y > 0.55·height) by inked-pixel fraction.
+      let worstFrac = 0;
+      let worstRow = -1;
+      const horizon = Math.floor(h * 0.55);
+      for (let y = horizon; y < h; y++) {
+        const frac = rowInk[y] / w;
+        if (frac > worstFrac) {
+          worstFrac = frac;
+          worstRow = y;
+        }
+      }
       return {
         nonBlack: nonBlack / n,
         purity: pure / n,
@@ -210,6 +234,8 @@ async function questPixelStats(page: Page): Promise<{
         skyShades,
         nightShades,
         outline: outline / n,
+        worstRowFrac: worstFrac,
+        worstRow,
       };
     },
     {
@@ -240,6 +266,8 @@ test('quest: paints, ramp purity, distinct colours, outlines, day sky', async ({
         purity: +unAimed.purity.toFixed(4),
         distinct: unAimed.distinct,
         outline: +unAimed.outline.toFixed(4),
+        worstRowFrac: +unAimed.worstRowFrac.toFixed(4),
+        worstRow: unAimed.worstRow,
         rampFracs: unAimed.rampFracs.map((f) => +f.toFixed(4)),
       }),
   );
@@ -249,10 +277,13 @@ test('quest: paints, ramp purity, distinct colours, outlines, day sky', async ({
   // 2. Ramp purity: nearly every pixel is a QUEST_RAMPS colour or black.
   expect(unAimed.purity).toBeGreaterThanOrEqual(0.95);
   // 3. Ramps in use — not posterised to a few tones.
-  expect(unAimed.distinct).toBeGreaterThanOrEqual(40);
-  // 6. Outlines present but not dominant (default un-aimed noon view).
-  expect(unAimed.outline).toBeGreaterThanOrEqual(0.03);
-  expect(unAimed.outline).toBeLessThanOrEqual(0.5);
+  expect(unAimed.distinct).toBeGreaterThanOrEqual(24);
+  // 6. Thin pencil outlines present but not dominant (default un-aimed noon view).
+  expect(unAimed.outline).toBeGreaterThanOrEqual(0.02);
+  expect(unAimed.outline).toBeLessThanOrEqual(0.4);
+  // 7. No full-width inked row below the horizon (the one-sided outline must
+  //    not band flat ground); quote the worst row.
+  expect(unAimed.worstRowFrac).toBeLessThan(0.8);
 
   await aim(page, 0, 0.9); // face north, tilted up, for assertion 4
   const aimed = await questPixelStats(page);

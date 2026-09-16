@@ -1,15 +1,17 @@
 /**
- * `quest` render style (docs/architecture.md §4.11, wave 16, T-0124): the
- * 1993–98 SVGA-era fantasy look (Heroes of Might & Magic II, Baldur's Gate,
- * Diablo) — 640-wide, 256-colour, hand-painted. Cell 3×3, sub 1×1,
- * `needsDepth: true`. Every pixel lands on one of **12 painter's ramps of
- * 20 hue-shifted shades** (cool dark end → warm light end), a one-step
- * ordered dither between adjacent shades, soft dark outlines at depth
- * discontinuities, a subtle vignette, and a banded painted sky driven by
+ * `quest` render style (docs/architecture.md §4.11, wave 16 T-0124, v2
+ * T-0130): the 1993–98 SVGA-era fantasy look (Heroes of Might & Magic II,
+ * Baldur's Gate, Diablo) — 640-wide, 256-colour, hand-painted. Cell 3×3,
+ * sub 1×1, `needsDepth: true`. Every pixel lands on one of **12 painter's
+ * ramps of 20 hue-shifted shades** (cool dark end → warm light end) at one
+ * of **six flat shades per ramp** (`QUEST_LEVELS`, NO dither — the v2
+ * "more like a drawing" look), with **one-sided thin pencil outlines** at
+ * depth discontinuities (ink on the near side only, 2 shades down), a
+ * subtle vignette, and a **banded painted sky** (no dither) driven by
  * `StyleContext.daylight`. Pure helpers (`QUEST_RAMP_ENDS`,
  * `buildQuestRamps`, `QUEST_RAMPS`, `bayer8`, `rampFor`, `shadeIndex`,
- * `questSky`, `questVignette`) mirror the shader term for term and are
- * unit-tested in node.
+ * `isNearSide`, `questSky`, `questVignette`) mirror the shader term for
+ * term and are unit-tested in node.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -138,59 +140,84 @@ export function rampFor(tint: readonly [number, number, number]): number {
 }
 
 /**
- * Shade index (0–19) for a shaped brightness `v` and dither offset `d`:
- * `clamp(floor(v · 20 + d), 0, 19)` — the one-step ordered dither of §4.11.
+ * The six flat shades of the v2 look (T-0130): level 0–5 →
+ * `[2, 5, 9, 12, 16, 19]` (§4.11 "quest v2"). Quantising to these six flat
+ * shades (not the 20 full shades) is what hides the ground grid's
+ * "squares" — the grid texture is only a few percent brighter than the
+ * road, so six flat shades fold it away.
  */
-export function shadeIndex(v: number, d: number): number {
-  return Math.min(19, Math.max(0, Math.floor(v * 20 + d)));
+export const QUEST_LEVELS: readonly [number, number, number, number, number, number] = [2, 5, 9, 12, 16, 19];
+
+/**
+ * Shade index (0–19) for a shaped brightness `v`: the six flat shades of
+ * §4.11 "quest v2" — `level = min(5, floor(v · 6))`, `i = QUEST_LEVELS[level]`.
+ * No dither argument (the v1 one-step ordered dither is removed).
+ */
+export function shadeIndex(v: number): number {
+  return QUEST_LEVELS[Math.min(5, Math.floor(v * 6))];
 }
 
 /**
- * Pre-dither sky ramp + shade for a daylight factor and vertical position
- * `y01` in `[0, 1]` (§4.11 "Sky cells"): `s = smoothstep(0.35, 0.95, y01)`;
- * daylight ≥ 0.66 → sky ramp 8, `round(mix(17, 8, s))`; ≥ 0.33 → violet
- * ramp 11, `round(mix(15, 6, s))`; else night ramp 9, `round(mix(9, 2, s))`.
+ * One-sided outline gate (§4.11 "quest v2"): true when a neighbour at depth
+ * `dN` marks the cell at depth `dC` as the NEARER side of a depth jump —
+ * the neighbour is farther (`dN > dC`), or the neighbour is sky
+ * (`dN >= skyThr`) while the centre is not (`dC < skyThr`). A one-sided
+ * line lands on the near object instead of a 2-cell line; receding planes
+ * are gated out by requiring a genuine discontinuity (see the shader).
+ */
+export function isNearSide(dC: number, dN: number, skyThr: number): boolean {
+  return dN > dC || (dN >= skyThr && dC < skyThr);
+}
+
+/**
+ * Banded (no-dither) sky ramp + shade for a daylight factor and vertical
+ * position `y01` in `[0, 1]` (§4.11 "quest v2"): `s = smoothstep(0.35, 0.95,
+ * y01)`, `b = min(3, floor(s · 4))`; daylight ≥ 0.66 → sky ramp 8,
+ * `i = 17 − 3·b` ({17,14,11,8}); ≥ 0.33 → violet ramp 11, `i = 15 − 3·b`
+ * ({15,12,9,6}); else night ramp 9, `i = 9 − 2·b` ({9,7,5,3}).
  */
 export function questSky(
   daylight: number,
   y01: number,
 ): { ramp: number; index: number } {
-  const s = smoothstep(0.35, 0.95, y01);
+  const b = Math.min(3, Math.floor(smoothstep(0.35, 0.95, y01) * 4));
   let ramp: number;
   let index: number;
   if (daylight >= 0.66) {
     ramp = 8;
-    index = Math.round(mix(17, 8, s));
+    index = 17 - 3 * b;
   } else if (daylight >= 0.33) {
     ramp = 11;
-    index = Math.round(mix(15, 6, s));
+    index = 15 - 3 * b;
   } else {
     ramp = 9;
-    index = Math.round(mix(9, 2, s));
+    index = 9 - 2 * b;
   }
   return { ramp, index };
 }
 
 /**
  * Vignette multiplier at cell position `p` (normalised `[x, y]` in
- * `[0, 1]`): `1 − 0.25 · smoothstep(0.5, 1.0, length(p − 0.5) · 1.5)` —
- * 1 dead centre, 0.75 in the corners (§4.11).
+ * `[0, 1]`): `1 − 0.15 · smoothstep(0.5, 1.0, length(p − 0.5) · 1.5)` —
+ * 1 dead centre, 0.85 in the corners (§4.11 "quest v2", 0.15 was 0.25).
  */
 export function questVignette(p: readonly [number, number]): number {
   const len = Math.hypot(p[0] - 0.5, p[1] - 0.5) * 1.5;
-  return 1 - 0.25 * smoothstep(0.5, 1.0, len);
+  return 1 - 0.15 * smoothstep(0.5, 1.0, len);
 }
 
 /**
- * §4.11 "quest" fragment. `qRamps` is the 20×12 ramp `sampler2D` sampled at
+ * §4.11 "quest v2" fragment. `qRamps` is the 20×12 ramp `sampler2D` sampled at
  * `((i + 0.5) / 20, (ramp + 0.5) / 12)`; `rampTint[11]` holds the 11 ramp
  * selection tints ({@link rampTintOf}, mirroring {@link rampFor} term for
- * term); `daylight` is the `StyleContext.daylight` uniform. `bayer8` is
- * computed inline from `M2` exactly as {@link bayer8}. The outline block is
- * the `edges` test term for term with `isEdge`, except the four neighbour
- * samples sit one *sub-sample* apart (`stepUv = 1.0 / sceneSize`, matching
- * `edges.ts`), making the dark outlines one pixel thick. Sky cells paint
- * the banded painted sky from `daylight`, with the same one-step dither.
+ * term); `daylight` is the `StyleContext.daylight` uniform. Surfaces use six
+ * flat shades per ramp (`level = min(5, floor(v · 6))` → `QUEST_LEVELS`, NO
+ * dither). The outline is the ONE-SIDED silhouette/crease rule — ink only on
+ * the nearer side (`isNearSide`), 2 shades down — with the four neighbour
+ * samples one *sub-sample* apart (`stepUv = 1.0 / sceneSize`). Sky cells paint
+ * the banded (no-dither) painted sky from `daylight`. `questLevel` mirrors
+ * {@link shadeIndex} (a GLSL if-chain instead of the `QUEST_LEVELS` array,
+ * which ES 1.00 cannot dynamically index).
  */
 const QUEST_FRAGMENT = `
 uniform vec3 rampTint[11];
@@ -198,28 +225,24 @@ uniform float daylight;
 uniform sampler2D qRamps;
 const float QUEST_EDGE_K = 0.02;
 const float QUEST_SKY_FRAC = 0.98;
-float bayer2(float x, float y) {
-  float a = step(0.5, x);
-  float b = step(0.5, y);
-  return mix(mix(0.0, 3.0, b), mix(2.0, 1.0, b), a);
+float questLevel(int level) {
+  if (level == 0) return 2.0;
+  if (level == 1) return 5.0;
+  if (level == 2) return 9.0;
+  if (level == 3) return 12.0;
+  if (level == 4) return 16.0;
+  return 19.0;
 }
-float bayer8(float x, float y) {
-  float x8 = mod(x, 8.0);
-  float y8 = mod(y, 8.0);
-  float xHi = floor(x8 * 0.5);
-  float yHi = floor(y8 * 0.5);
-  float xLo = mod(x8, 2.0);
-  float yLo = mod(y8, 2.0);
-  float m4 = bayer2(floor(xHi * 0.5), floor(yHi * 0.5)) + 4.0 * bayer2(mod(xHi, 2.0), mod(yHi, 2.0));
-  return (m4 + 16.0 * bayer2(xLo, yLo) + 0.5) / 64.0;
+bool isNearSide(float dC, float dN, float skyThr) {
+  return dN > dC || (dN >= skyThr && dC < skyThr);
 }
 void main() {
   vec2 cell = floor(vUv * grid);
   vec2 p = vUv;
   vec3 c = pow(clamp(sampleSub(cell, 0.0, 0.0), 0.0, 1.0), vec3(gamma));
 
-  // Vignette then shaped brightness: v = bright(c) * vig.
-  float vig = 1.0 - 0.25 * smoothstep(0.5, 1.0, length(p - 0.5) * 1.5);
+  // Vignette then shaped brightness: v = bright(c) * vig (0.15 corner drop).
+  float vig = 1.0 - 0.15 * smoothstep(0.5, 1.0, length(p - 0.5) * 1.5);
   float v = bright(c) * vig;
 
   // Ramp selection: stone below the chroma floor, else nearest ramp 1..11.
@@ -237,11 +260,11 @@ void main() {
     ramp = bestR;
   }
 
-  // One-step ordered dither into a shade.
-  float d = bayer8(cell.x, cell.y) - 0.5;
-  int i = clamp(int(floor(v * 20.0 + d)), 0, 19);
+  // Six flat shades per ramp (NO dither): level = min(5, floor(v * 6)).
+  int level = min(5, int(floor(v * 6.0)));
+  int i = int(questLevel(level));
 
-  // Outline: the edges rule with one-sub-sample-apart samples (1 px ink).
+  // Outline: ONE-SIDED silhouette/crease — ink only on the nearer side.
   vec2 centreUv = (cell + 0.5) / grid;
   vec2 stepUv = 1.0 / sceneSize;
   float dC = linearDepth(centreUv);
@@ -251,40 +274,48 @@ void main() {
   float dD = linearDepth(centreUv + vec2(0.0, -stepUv.y));
   float skyThr = QUEST_SKY_FRAC * cameraFar;
   bool cSky = dC >= skyThr;
-  bool edge = false;
-  if (cSky != (dL >= skyThr)) edge = true;
-  if (cSky != (dR >= skyThr)) edge = true;
-  if (cSky != (dU >= skyThr)) edge = true;
-  if (cSky != (dD >= skyThr)) edge = true;
-  if (!edge && !cSky) {
+
+  // Depth discontinuity "as before": sky disagreement or inverse-depth
+  // second difference (flat planes give ~zero, so ground is not inked).
+  bool jump = (dL >= skyThr) != cSky || (dR >= skyThr) != cSky ||
+              (dU >= skyThr) != cSky || (dD >= skyThr) != cSky;
+  bool crease = false;
+  if (!cSky) {
     float wC = 1.0 / dC;
     float wL = 1.0 / dL;
     float wR = 1.0 / dR;
     float wU = 1.0 / dU;
     float wD = 1.0 / dD;
-    if (abs(wL + wR - 2.0 * wC) > QUEST_EDGE_K * wC) edge = true;
-    if (abs(wU + wD - 2.0 * wC) > QUEST_EDGE_K * wC) edge = true;
+    if (abs(wL + wR - 2.0 * wC) > QUEST_EDGE_K * wC) crease = true;
+    if (abs(wU + wD - 2.0 * wC) > QUEST_EDGE_K * wC) crease = true;
   }
 
-  // Soft dark outline: pull the shade down five steps (never below 0).
-  if (edge) i = max(0, i - 5);
+  // One-sided gate: a neighbour counts only when the centre is the nearer
+  // side (dN > dC, or the neighbour is sky and the centre is not). A depth
+  // jump therefore draws a single 1-cell line on the near object.
+  bool nearSide = isNearSide(dC, dL, skyThr) || isNearSide(dC, dR, skyThr) ||
+                  isNearSide(dC, dU, skyThr) || isNearSide(dC, dD, skyThr);
+  bool edge = (jump || crease) && nearSide;
 
-  // Sky cells (not edges) paint the banded painted sky from daylight.
+  // Thin pencil line: 2 shades down (never below 0), not 5.
+  if (edge) i = max(0, i - 2);
+
+  // Sky cells (not edges) paint the banded (no-dither) painted sky.
   int outRamp = ramp;
   int outI = i;
   if (cSky && !edge) {
     float s = smoothstep(0.35, 0.95, p.y);
+    int b = min(3, int(floor(s * 4.0)));
     if (daylight >= 0.66) {
       outRamp = 8;
-      outI = int(round(mix(17.0, 8.0, s)));
+      outI = 17 - 3 * b;
     } else if (daylight >= 0.33) {
       outRamp = 11;
-      outI = int(round(mix(15.0, 6.0, s)));
+      outI = 15 - 3 * b;
     } else {
       outRamp = 9;
-      outI = int(round(mix(9.0, 2.0, s)));
+      outI = 9 - 2 * b;
     }
-    outI = clamp(outI + int(round(d * 1.0)), 0, 19);
   }
 
   vec2 rampUv = vec2((float(outI) + 0.5) / 20.0, (float(outRamp) + 0.5) / 12.0);
@@ -315,9 +346,9 @@ function makeRampTexture(): THREE.DataTexture {
 }
 
 /**
- * SVGA-era fantasy look — 12 painter's ramps × 20 shades, one-step ordered
- * dither, soft dark outlines, vignette, banded painted sky. Cell 3×3,
- * sub 1×1, depth. `R` cycles, `?render=quest`.
+ * SVGA-era fantasy look — 12 painter's ramps × 20 shades at six flat shades
+ * per ramp (no dither), one-sided thin pencil outlines, vignette, banded
+ * painted sky. Cell 3×3, sub 1×1, depth. `R` cycles, `?render=quest`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
