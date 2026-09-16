@@ -23,9 +23,13 @@ plus a grey ramp, and thick black ink where polygons meet.
    neighbour disagree on `sky` (`d ≥ 0.98 · cameraFar`), or — all
    non-sky — when `|wL + wR − 2·wC| > k·wC` or `|wU + wD − 2·wC| > k·wC`
    with `w = 1/d` and `k = 0.02`. All-sky is never an edge.
-8. Edge → `LOWPOLY_INK = (0.02, 0.02, 0.04)`; else `col`. Sky cells are
-   not special-cased: a daytime sky posterises to a flat blue band, night
-   to black — both period-correct.
+8. Edge → `LOWPOLY_INK = (0.02, 0.02, 0.04)`. Otherwise, sky cells
+   (`cSky`) paint the **flat period sky** (wave 15b, T-0122):
+   `band = daylight < 0.33 ? 0 : (daylight < 0.66 ? 1 : 2)` where
+   `daylight` is the `StyleContext.daylight` uniform (0 night … 1 day),
+   and the cell takes `LOWPOLY_SKY[band]` — night navy, dusk/dawn pink or
+   day blue. Sky cells that ARE edges keep the ink (silhouettes stay
+   outlined). Everything else is `col`.
 
 The fragment shader mirrors these steps term for term.
 
@@ -42,6 +46,12 @@ The fragment shader mirrors these steps term for term.
   the edge test and makes the ink lines one cell (6 px) thick. The pure
   mirror is `isLowpolyEdge`, a delegation to `isEdge` (the sample spacing
   is a shader-side concern; the test is identical).
+- **Period sky** — `uniform vec3 lpSky[3]` is filled from `LOWPOLY_SKY`
+  in `makeUniforms`, like `lpHues`. `uniform float daylight` is seeded
+  from `ctx.daylight` in `makeUniforms` and refreshed every frame by the
+  style's `update` hook (main.ts pushes a fresh `daylightFactor` into the
+  `StyleRenderer` every 10 s). The band select is the §4.11 ternary,
+  term for term with `skyBand`.
 
 ## Pure exports (unit-tested in node)
 
@@ -61,12 +71,19 @@ The fragment shader mirrors these steps term for term.
   (steps 1–6) from an exposed RGB sample.
 - `isLowpolyEdge(dC, neighbours, far): boolean` — the outline rule
   (`isEdge` from `styles/edges.ts`, imported, not edited).
+- `LOWPOLY_SKY: readonly [r, g, b][]` — the three flat period-sky
+  colours in §4.11 "Sky cells" order: `#10143C` (night navy),
+  `#E0508F` (dusk/dawn pink), `#3A8CFF` (day blue).
+- `skyBand(daylight): number` — `0` night / `1` dusk-dawn / `2` day for a
+  daylight factor in `[0, 1]` (thresholds `< 0.33` / `< 0.66`).
 
 ## Uniforms owned by the style
 
-| name     | shape                                   |
-|----------|-----------------------------------------|
-| `lpHues` | `uniform vec3 lpHues[8]` (8 `Vector3`)  |
+| name       | shape                                        |
+|------------|----------------------------------------------|
+| `lpHues`   | `uniform vec3 lpHues[8]` (8 `Vector3`)       |
+| `lpSky`    | `uniform vec3 lpSky[3]` (3 `Vector3`)        |
+| `daylight` | `uniform float daylight` (from `ctx.daylight`) |
 
 Common uniforms (`tScene`, `grid`, `sub`, `sceneSize`, `exposure`,
 `gamma`, `time`, `tDepth`, `cameraNear`, `cameraFar`) come from
@@ -78,9 +95,10 @@ needed.
 1. `cell = floor(vUv · grid)` — every pixel inside a 6×6 canvas tile maps
    to the same cell; `cellMean` takes the 2×2 sub-sample mean.
 2. Apply steps 1–6 of the algorithm → `col`.
-3. Run the cell-spaced outline test (steps 7–8).
-4. Write ink or `col` as `gl_FragColor` (alpha = 1).
+3. Run the cell-spaced outline test (step 7).
+4. Write the ink (edges), `lpSky[skyBand(daylight)]` (non-edge sky cells)
+   or `col` as `gl_FragColor` (alpha = 1).
 
-Because every cell is one of at most 9 × 4 = 36 colours (plus ink), the
-frame reads as crude faceted CGI — the geometry's boxes stay boxes, the
-banding does the '80s work.
+Because every cell is one of at most 9 × 4 = 36 colours (plus ink and the
+three flat sky bands), the frame reads as crude faceted CGI — the
+geometry's boxes stay boxes, the banding does the '80s work.

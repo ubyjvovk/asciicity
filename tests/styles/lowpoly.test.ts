@@ -10,8 +10,10 @@ import {
   LOWPOLY_HUES,
   LOWPOLY_INK,
   LOWPOLY_LUM,
+  LOWPOLY_SKY,
   lowpolyColour,
   posterLevel,
+  skyBand,
   snapHue,
 } from '../../src/render/styles/lowpoly';
 
@@ -134,5 +136,34 @@ describe('LOWPOLY constants', () => {
     for (const c of LOWPOLY_INK) {
       expect(c).toBeLessThanOrEqual(0.05);
     }
+  });
+});
+
+describe('LOWPOLY_SKY', () => {
+  it('has the three §4.11 sky colours in order (#10143C #E0508F #3A8CFF)', () => {
+    const hexes = ['10143C', 'E0508F', '3A8CFF'];
+    expect(LOWPOLY_SKY.length).toBe(3);
+    for (let i = 0; i < 3; i++) {
+      const n = parseInt(hexes[i], 16);
+      const r = ((n >> 16) & 0xff) / 255;
+      const g = ((n >> 8) & 0xff) / 255;
+      const b = (n & 0xff) / 255;
+      const [sr, sg, sb] = LOWPOLY_SKY[i];
+      expect(sr, `entry ${i} r`).toBeCloseTo(r, 6);
+      expect(sg, `entry ${i} g`).toBeCloseTo(g, 6);
+      expect(sb, `entry ${i} b`).toBeCloseTo(b, 6);
+    }
+  });
+});
+
+describe('skyBand', () => {
+  it('0 → 0, 0.32 → 0, 0.33 → 1, 0.5 → 1, 0.65 → 1, 0.66 → 2, 1 → 2', () => {
+    expect(skyBand(0)).toBe(0);
+    expect(skyBand(0.32)).toBe(0);
+    expect(skyBand(0.33)).toBe(1);
+    expect(skyBand(0.5)).toBe(1);
+    expect(skyBand(0.65)).toBe(1);
+    expect(skyBand(0.66)).toBe(2);
+    expect(skyBand(1)).toBe(2);
   });
 });
