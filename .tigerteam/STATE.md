@@ -78,6 +78,16 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - Review plan: verify unit + gate per ticket; GPU review of
   `style-quest.png`; after T-0128, PM walk-through screenshots of the Great
   Gate, the Climbing Way through a prow notch, and the Citadel.
+- T-0124 ACCEPTED 2026-09-16 (ds-2, attempt 2 after an attempt-1
+  "engine exit 0, no handoff"; 8 min, $0.01). PM GPU review: soft ramps,
+  dithered gradients, banded sky, subtle outlines — the SVGA brief is met.
+  Worker flagged that the §4.11 shade-14 selection tint misroutes sky→night
+  and grass→forest; dark-end tint adopted and §4.11 corrected (37f4938).
+- T-0126 lesson: DeepSeek V4 Flash stalls on this ticket — 16 read-only turns
+  then one ~188k-char thinking block and exit with no file (attempt 1, 21
+  min). Attempt 2 (ds-1) started 21:36Z. PM set `assignee: grok` on the
+  board file so any requeue (timeout 2700 s or no-handoff) goes to grok.
+  Killing the container was not permitted for the PM session.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
