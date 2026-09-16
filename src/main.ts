@@ -39,7 +39,7 @@ import {
 import { makeOperaObject } from './world/opera';
 import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
-import { makeGround } from './world/ground';
+import { makeGround, setGroundGrid, groundGridFor } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
 import { makeSky, updateSky, sunPosition, daylightFactor } from './world/sky';
@@ -88,6 +88,8 @@ declare global {
       fly: boolean;
       /** Live render-style id (`?render=`, `R` cycles). */
       render: string;
+      /** Whether the perspective floor grid is drawn under the current style. */
+      groundGrid: boolean;
       /** Style ids in `R`-cycle order. */
       styles: readonly string[];
       /** Live UI settings (HUD / minimap / CRT / render / city). */
@@ -955,6 +957,10 @@ async function main(): Promise<void> {
   const toast = mountToast();
   toast.show(`RENDER: ${post.style.label}`);
 
+  // Ground grid per style (T-0132): painterly styles hide the perspective
+  // floor grid; swap the ground map to match the boot style.
+  setGroundGrid(groundMesh, groundGridFor(post.style));
+
   // Time-of-day for styles (StyleContext.daylight): same sun altitude the sky
   // and ship lights use, refreshed on the same 10 s cadence.
   const applyDaylight = (): void => {
@@ -1037,6 +1043,7 @@ async function main(): Promise<void> {
     fly: state.fly,
     city: cityId,
     render: post.style.id,
+    groundGrid: groundGridFor(post.style),
     styles: STYLES.map((s) => s.id),
     settings,
     get trees(): number {
@@ -1150,6 +1157,8 @@ async function main(): Promise<void> {
   const applyStyleChange = (): void => {
     settings.render = post.style.id;
     api.render = post.style.id;
+    api.groundGrid = groundGridFor(post.style);
+    setGroundGrid(groundMesh, api.groundGrid);
     api.cols = post.cols;
     api.rows = post.rows;
     toast.show(`RENDER: ${post.style.label}`);

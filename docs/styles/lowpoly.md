@@ -6,7 +6,10 @@ v2 of the *Money for Nothing* '80s-CGI look from
 — flat-shaded facets in eight **pastel** hues plus a cool-chrome grey
 ramp, thick black ink where polygons meet, and a specular shine band on
 the brightest cells. v2 also fixes a depth-sampling seam bug (below) that
-inked full-width horizontal rows on the ground.
+inked full-width horizontal rows on the ground. Since **T-0132** the style
+declares `groundGrid: false`, so the world's perspective floor grid is
+swapped out under `lowpoly` and the ground reads as flat pastel facets
+rather than bright white grid squares.
 
 ## Algorithm (per cell)
 
