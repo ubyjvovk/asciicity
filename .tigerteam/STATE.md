@@ -12,6 +12,20 @@ locked in `docs/architecture.md`: Vite + TS + three.js, GPU ASCII post-pass,
 OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 = playable at `npm run dev` and on GitHub Pages with ≥ 55 fps, e2e smoke green.
 
+## Wave 15 (2026-09-16) — lowpoly style, first tickets on the qwen lane
+- User brief: an '80s CGI renderer ("Money for Nothing" video: cartoonish,
+  crude, super low-poly). PM decisions locked in architecture.md §4.11
+  "`lowpoly` (wave 15)": cell 6×6 sub 2×2, 4 shading bands × (8 saturated
+  hues | grey), 1-cell black outlines via the `edges` depth rule sampled
+  one cell apart. Wiring (STYLE_ORDER, stub, docs, 14-style smoke) committed
+  by the PM; gate green.
+- T-0120 (P1/C2, shader + pure mirrors + unit tests + docs/styles/lowpoly.md)
+  and T-0121 (P2/C2, e2e pixel assertions, depends on T-0120) are in todo/.
+  This is also the smoke test of the new local `qwen` lane — judge the lane
+  on it (attempt count, report quality, wall time).
+- Review plan: verify unit + `check.sh`, then PM GPU visual review of
+  `e2e/__shots__/style-lowpoly.png`.
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
