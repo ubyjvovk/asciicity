@@ -97,6 +97,14 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   and unambiguous test points; pinned to grok. Lesson for the fleet notes:
   DeepSeek V4 Flash is fine for bounded shader/spec tickets but stalls on
   "write a 400-line generator from a numeric spec" — route those to grok.
+- T-0126 ACCEPTED 2026-09-16 (grok-1, attempt 3, 25 min, $0.79): 336
+  wall/tower buildings, 59 roads, 8 places, 302×302 terrain, 7 tiles,
+  index 429 KB. PM reran tests + generator in the worker container; PM
+  top-down render of the tiles checked. Extra file `scripts/gen-minas-
+  tirith.d.ts` (out of scope, justified: typecheck needs it like
+  tile-city.d.ts) — accepted. Root `vite.config.ts` carries the user's
+  uncommitted `server.allowedHosts: ['dub']` — set aside with a tagged
+  stash for the accept and restored; never commit or discard it.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
