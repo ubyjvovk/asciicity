@@ -1,6 +1,6 @@
 /**
  * Unit tests for `scripts/minas-tirith-buildings.mjs` (architecture.md §4.23).
- * Covers the cases listed in T-0127's acceptance criteria, by name.
+ * Covers the cases listed in T-0127 / T-0131's acceptance criteria, by name.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -131,6 +131,16 @@ function edgeLengths(poly: Vec2[]): [number, number] {
   return e0 <= e1 ? [e0, e1] : [e1, e0];
 }
 
+/** Minimum distance from the origin to a convex footprint (0 if origin is inside). */
+function minDistToOrigin(poly: Vec2[]): number {
+  if (pointInPoly(0, 0, poly)) return 0;
+  let d = Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    d = Math.min(d, distPointSeg(0, 0, poly[i], poly[(i + 1) % poly.length]));
+  }
+  return d;
+}
+
 function housesOf(seed = 1): Building[] {
   return buildHouses(TIERS, GATE_AZ, mulberry32(seed));
 }
@@ -183,9 +193,9 @@ describe('minas tirith houses, landmarks and trees', () => {
     }
   });
 
-  it('buildLandmarks yields the 12 named buildings of §4.23 with the given sizes/heights/shapes (check White Tower of Ecthelion h 90 shape tower, 6 Rath Dínen domes, House of the Stewards 12 m)', () => {
+  it('buildLandmarks yields the 13 named buildings of §4.23 with the given sizes/heights/shapes (check White Tower of Ecthelion h 90 shape tower, 7 tombs, House of the Stewards 12 m)', () => {
     const marks = buildLandmarks();
-    expect(marks).toHaveLength(12);
+    expect(marks).toHaveLength(13);
     for (const b of marks) {
       expect(b.name).toBeTruthy();
       expect((b.name ?? '').length).toBeGreaterThan(0);
@@ -206,6 +216,9 @@ describe('minas tirith houses, landmarks and trees', () => {
     const hallSides = edgeLengths(hall!.poly);
     expect(hallSides[0]).toBeCloseTo(18, 0);
     expect(hallSides[1]).toBeCloseTo(44, 0);
+    const [hx, hz] = centroid(hall!.poly);
+    expect(hx).toBeCloseTo(52, 5);
+    expect(hz).toBeCloseTo(0, 5);
 
     const merethrond = marks.find((b) => b.name === 'Merethrond');
     expect(merethrond?.h).toBe(16);
@@ -233,9 +246,26 @@ describe('minas tirith houses, landmarks and trees', () => {
     expect(guestSides[1]).toBeCloseTo(24, 0);
 
     const domes = marks.filter((b) => b.shape === 'dome');
-    expect(domes).toHaveLength(6);
+    expect(domes).toHaveLength(7);
     for (const d of domes) {
       expect(d.color).toBe(0xb8b4aa);
+    }
+
+    const rath = marks.filter((b) => b.name === 'Rath Dínen');
+    expect(rath).toHaveLength(6);
+    const rathKeys = rath.map((b) => {
+      const [cx, cz] = centroid(b.poly);
+      return `${Math.round(azimuthOf(cx, cz))}@${Math.round(Math.hypot(cx, cz))}`;
+    });
+    expect(rathKeys.sort()).toEqual(
+      ['262@112', '262@124', '262@136', '278@112', '278@124', '278@136'].sort(),
+    );
+    for (const b of rath) {
+      expect(b.h).toBe(6);
+      expect(b.shape).toBe('dome');
+      const sides = edgeLengths(b.poly);
+      expect(sides[0]).toBeCloseTo(8, 0);
+      expect(sides[1]).toBeCloseTo(8, 0);
     }
 
     const stewards = marks.find((b) => b.name === 'House of the Stewards');
@@ -245,6 +275,9 @@ describe('minas tirith houses, landmarks and trees', () => {
     const stSides = edgeLengths(stewards!.poly);
     expect(stSides[0]).toBeCloseTo(12, 0);
     expect(stSides[1]).toBeCloseTo(12, 0);
+    const [sx, sz] = centroid(stewards!.poly);
+    expect(Math.hypot(sx, sz)).toBeCloseTo(112, 5);
+    expect(azimuthOf(sx, sz)).toBeCloseTo(270, 5);
   });
 
   it('buildTrees → 7 entries, [0, 0, 8, 3] first', () => {
@@ -266,6 +299,40 @@ describe('minas tirith houses, landmarks and trees', () => {
     const houseIds = a.buildings.filter((b) => b.id >= 10000 && b.id < 20000);
     expect(houseIds.length).toBeGreaterThan(0);
     const landmarkIds = a.buildings.filter((b) => b.id >= 20000);
-    expect(landmarkIds).toHaveLength(12);
+    expect(landmarkIds).toHaveLength(13);
+  });
+
+  it('no landmark footprint intersects a wall ring band [R_k − 6, R_k] for any k', () => {
+    const marks = buildLandmarks();
+    expect(marks.length).toBeGreaterThan(0);
+    for (const b of marks) {
+      const minR = minDistToOrigin(b.poly);
+      const maxR = Math.max(...b.poly.map(([x, z]) => Math.hypot(x, z)));
+      const [cx, cz] = centroid(b.poly);
+      const cr = Math.hypot(cx, cz);
+      for (const tier of TIERS) {
+        const inner = tier.r - 6;
+        const outer = tier.r;
+        expect(
+          cr < inner || cr > outer,
+          `${b.name} centroid r=${cr.toFixed(2)} in L${tier.k} band [${inner}, ${outer}]`,
+        ).toBe(true);
+        expect(
+          minR > inner || maxR < outer,
+          `${b.name} spans L${tier.k} wall [${inner}, ${outer}] minR=${minR.toFixed(2)} maxR=${maxR.toFixed(2)}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('the White Tree (0, 0) lies outside every building footprint', () => {
+    const city = buildCity(1);
+    expect(city.buildings.length).toBeGreaterThan(0);
+    for (const b of city.buildings) {
+      expect(pointInPoly(0, 0, b.poly), b.name ?? String(b.id)).toBe(false);
+    }
+    for (const b of buildLandmarks()) {
+      expect(pointInPoly(0, 0, b.poly), b.name).toBe(false);
+    }
   });
 });
