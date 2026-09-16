@@ -88,6 +88,9 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   min). Attempt 2 (ds-1) started 21:36Z. PM set `assignee: grok` on the
   board file so any requeue (timeout 2700 s or no-handoff) goes to grok.
   Killing the container was not permitted for the PM session.
+- T-0125 ACCEPTED 2026-09-16 (grok-1, attempt 1, 11 min, $0.27): purity
+  1.0, 69 distinct ramp colours, outlines 0.21, sky/night split clean;
+  PM reran the spec in the worker container (2 passed). `quest` is done.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
