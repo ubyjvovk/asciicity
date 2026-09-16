@@ -121,6 +121,10 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   committed files byte for byte. Top-down review found two PM spec
   mistakes (White Tree inside the Tower Hall footprint; Rath Dínen tombs
   crossing the L6 wall) → §4.23 amended, T-0131 boarded behind T-0128.
+- T-0129 ACCEPTED 2026-09-17 (ds-1, attempt 1, 23 min, $0.08): depth-seam
+  fix confirmed on the host GPU (no full-width ground rows in synthetic or
+  London views; e2e assertion 7 worst row 0.31), brighter pastel/chrome
+  bands + shine + brighter sky. Awaiting the user's second look on "shiny".
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
