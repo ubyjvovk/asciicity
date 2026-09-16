@@ -1780,13 +1780,16 @@ that crosses a radial lane (±6 m). `color` from `[#D8D4C8, #CFCBC0,
 
 **Citadel and landmarks** (all `color` `#F2EFE6` unless stated):
 `White Tower of Ecthelion` — 22 m square centred `(−40, 0)`, `h 90`,
-`shape 'tower'`; `Tower Hall` — 44×18 centred `(6, 0)`, `h 22`; `Merethrond`
+`shape 'tower'`; `Tower Hall` — 44×18 centred `(6, 0)`, `h 22` (T-0131: moved to `(52, 0)` — the first cut put the White Tree inside the hall); `Merethrond`
 (the Great Hall of Feasts) — 40×16 centred `(−10, −40)`, `h 16`; `The King's
 House` — 30×16 centred `(−10, 40)`, `h 14`; `Houses of Healing` — 40×16
 centred at azimuth 150°, `r = 165` on L6, `h 12`; `Rath Dínen` — six 8 m
 square tombs, `h 6`, `shape 'dome'`, `color #B8B4AA`, spaced 16 m along
 azimuth 270° at radii 110…190 on L6, the largest (12 m, `h 8`) named `House
-of the Stewards`; `The Old Guesthouse` — 24×12 on L1 at azimuth 120°,
+of the Stewards` (T-0131: that span crosses the L6 wall at r 145 — corrected
+to two rows of three on L6, azimuths 262° and 278°, radii 112 / 124 / 136,
+the Stewards' house the r 112 tomb at 270°… i.e. 7 tombs: 2×3 + the
+Stewards' at (r 112, 270°)); `The Old Guesthouse` — 24×12 on L1 at azimuth 120°,
 `r = 395`, `h 10`, `color #CFC3A8`. Trees: the `White Tree` — one entry
 `[0, 0, 8, 3]`; six trees `h 7 r 3` in the Houses of Healing garden
 (azimuth 155°–165°, `r 150–175` on L6). Places: `Great Gate` (at the L1 gate
