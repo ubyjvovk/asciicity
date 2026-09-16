@@ -125,6 +125,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   fix confirmed on the host GPU (no full-width ground rows in synthetic or
   London views; e2e assertion 7 worst row 0.31), brighter pastel/chrome
   bands + shine + brighter sky. Awaiting the user's second look on "shiny".
+- T-0130 ACCEPTED 2026-09-17 (ds-2, attempt 1, 25 min, $0.09): six flat
+  shades, no dither, one-sided 2-shade outlines, banded sky. PM GPU review
+  (synthetic noon/night, London): flat drawing look, ground squares gone,
+  thin lines. Both style revisions from the user's review are in; awaiting
+  the user's second look.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
