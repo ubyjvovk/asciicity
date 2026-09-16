@@ -228,7 +228,7 @@ function inProwSkip(x, z, r7, r2) {
 
 /**
  * Citadel halls, Rath Dínen tombs, Houses of Healing, Old Guesthouse.
- * Twelve named buildings; ids `20000 + n`; colour `#F2EFE6` unless stated.
+ * Thirteen named buildings; ids `20000 + n`; colour `#F2EFE6` unless stated.
  * @returns {Array<{id: number, h: number, color: number, poly: Array<[number, number]>, name: string, shape?: string}>}
  */
 export function buildLandmarks() {
@@ -243,7 +243,7 @@ export function buildLandmarks() {
   };
 
   add('White Tower of Ecthelion', axisRect(-40, 0, 22, 22), 90, COLOR_CITADEL, 'tower');
-  add('Tower Hall', axisRect(6, 0, 44, 18), 22, COLOR_CITADEL);
+  add('Tower Hall', axisRect(52, 0, 44, 18), 22, COLOR_CITADEL);
   add('Merethrond', axisRect(-10, -40, 40, 16), 16, COLOR_CITADEL);
   add("The King's House", axisRect(-10, 40, 30, 16), 14, COLOR_CITADEL);
 
@@ -255,15 +255,15 @@ export function buildLandmarks() {
     add('Houses of Healing', orientedRect(cx, cz, ur, ut, 16 / 2, 40 / 2), 12, COLOR_CITADEL);
   }
 
-  const rathRadii = [110, 126, 142, 158, 174, 190];
-  for (let i = 0; i < rathRadii.length; i++) {
-    const r = rathRadii[i];
-    const [cx, cz] = atAz(r, 270);
-    const isStewards = i === 0;
-    const side = isStewards ? 12 : 8;
-    const h = isStewards ? 8 : 6;
-    const name = isStewards ? 'House of the Stewards' : 'Rath Dínen';
-    add(name, axisRect(cx, cz, side, side), h, COLOR_RATH, 'dome');
+  {
+    const [cx, cz] = atAz(112, 270);
+    add('House of the Stewards', axisRect(cx, cz, 12, 12), 8, COLOR_RATH, 'dome');
+  }
+  for (const az of [262, 278]) {
+    for (const r of [112, 124, 136]) {
+      const [cx, cz] = atAz(r, az);
+      add('Rath Dínen', axisRect(cx, cz, 8, 8), 6, COLOR_RATH, 'dome');
+    }
   }
 
   {

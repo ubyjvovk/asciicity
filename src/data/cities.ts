@@ -109,7 +109,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/minas-tirith/index.json',
     defaultSpawn: 'greatgate',
     blurb: "Gondor's seven-tiered city · synthesised",
-    sizeBytes: 429427,
+    sizeBytes: 429527,
     tiled: true,
     defaultRender: 'quest',
     facade: 'stone',

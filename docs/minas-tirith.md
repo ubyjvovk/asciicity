@@ -57,7 +57,7 @@ committed tiled dataset: `index.json` + `tiles/`).
   the next gate, any footprint within 6 m of a radial lane, and AABB
   overlaps. Colour `[#D8D4C8, #CFCBC0, #E2DED2, #BFBAB0]` by `id % 4`.
   Ids `10000 + k·1000 + n`.
-- **Landmarks.** Twelve named buildings (ids `20000 + n`). See the list
+- **Landmarks.** Thirteen named buildings (ids `20000 + n`). See the list
   below. Colour `#F2EFE6` unless noted.
 - **Trees.** The White Tree `[0, 0, 8, 3]` plus six `h 7 r 3` trees in the
   Houses of Healing garden (azimuth 155°–165°, r 150–175).
@@ -81,12 +81,12 @@ Gate azimuths are degrees clockwise from north (`x = r·sin a`, `z = −r·cos a
 | name | size (m) | h (m) | shape | colour | where |
 |------|----------|------:|-------|--------|-------|
 | White Tower of Ecthelion | 22×22 | 90 | tower | `#F2EFE6` | `(−40, 0)` |
-| Tower Hall | 44×18 | 22 | | `#F2EFE6` | `(6, 0)` |
+| Tower Hall | 44×18 | 22 | | `#F2EFE6` | `(52, 0)` |
 | Merethrond | 40×16 | 16 | | `#F2EFE6` | `(−10, −40)` |
 | The King's House | 30×16 | 14 | | `#F2EFE6` | `(−10, 40)` |
 | Houses of Healing | 40×16 | 12 | | `#F2EFE6` | r 165, az 150° |
-| House of the Stewards | 12×12 | 8 | dome | `#B8B4AA` | r 110, az 270° |
-| Rath Dínen (×5) | 8×8 | 6 | dome | `#B8B4AA` | r 126…190, az 270°, 16 m spacing |
+| House of the Stewards | 12×12 | 8 | dome | `#B8B4AA` | r 112, az 270° |
+| Rath Dínen (×6) | 8×8 | 6 | dome | `#B8B4AA` | two rows at az 262° and 278°, r 112 / 124 / 136 |
 | The Old Guesthouse | 24×12 | 10 | | `#CFC3A8` | r 395, az 120° (L1) |
 
 ## Facade (wave 16b, T-0133)
