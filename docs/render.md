@@ -99,6 +99,7 @@ See the comment on `STYLE_PRELUDE` in `style.ts`.
 | `gameboy` | `styles/dither.ts` | 2×2 | 1×1 | no | Stub until T-0054. |
 | `pico8` | `styles/pico8.ts` | 4×4 | 1×1 | no | Stub until T-0055. |
 | `lowpoly` | `styles/lowpoly.ts` | 6×6 | 2×2 | yes | '80s CGI flat facets + ink outlines (T-0120; e2e T-0121). |
+| `quest` | `styles/quest.ts` | 3×3 | 1×1 | yes | SVGA-era fantasy: 12 painter's ramps × 20 shades, one-step dither, soft outlines, painted sky. Stub until T-0124. |
 | `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
 | `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
 | `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |

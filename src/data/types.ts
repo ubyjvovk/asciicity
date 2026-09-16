@@ -72,6 +72,12 @@ export interface Building {
   /** Landmark silhouette cap set by `applyLandmarks` (architecture §4.13, wave 7). Absent = flat roof. */
   shape?: 'dome' | 'spire' | 'tower';
   /**
+   * Producer-chosen wall colour as a 24-bit RGB integer (wave 16, synthesised
+   * cities such as Minas Tirith). `colorFor` uses it after the curated
+   * landmark-name tables and before the id-hash palettes. Absent = palette.
+   */
+  color?: number;
+  /**
    * Footprint ring in local metres, >= 3 points, first point NOT repeated at
    * the end. Winding is unspecified; consumers normalise it.
    */

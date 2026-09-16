@@ -232,6 +232,17 @@ export function validateCity(raw: unknown): CityData {
     if (building.name !== undefined && typeof building.name !== 'string') {
       throw new Error(`buildings[${i}].name: must be a string`);
     }
+    if (
+      building.color !== undefined &&
+      !(
+        typeof building.color === 'number' &&
+        Number.isInteger(building.color) &&
+        building.color >= 0 &&
+        building.color <= 0xffffff
+      )
+    ) {
+      throw new Error(`buildings[${i}].color: must be an integer in [0, 0xffffff]`);
+    }
     validatePoly(building.poly, `buildings[${i}].poly`);
     if (!isFiniteNum(building.id)) {
       throw new Error(`buildings[${i}].id: must be a finite number`);

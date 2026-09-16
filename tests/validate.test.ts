@@ -116,3 +116,15 @@ describe('validateTileIndex', () => {
     expect(() => validateTileIndex(idx)).toThrow(/tiled/);
   });
 });
+
+describe('buildings[].color (wave 16)', () => {
+  it('accepts an integer in [0, 0xffffff] and rejects anything else', () => {
+    const c = syntheticCity(1, 2);
+    c.buildings[0].color = 0xd8d4c8;
+    expect(() => validateCity(c)).not.toThrow();
+    c.buildings[0].color = 0x1000000;
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.color/);
+    c.buildings[0].color = 1.5;
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.color/);
+  });
+});

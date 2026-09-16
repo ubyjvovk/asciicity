@@ -14,6 +14,7 @@ import { STYLES as edges } from './edges';
 import { STYLES as hatch } from './hatch';
 import { STYLES as matrix } from './matrix';
 import { STYLES as lowpoly } from './lowpoly';
+import { STYLES as quest } from './quest';
 
 const modules: readonly (readonly RenderStyle[])[] = [
   ascii,
@@ -26,6 +27,7 @@ const modules: readonly (readonly RenderStyle[])[] = [
   hatch,
   matrix,
   lowpoly,
+  quest,
 ];
 
 const byId = new Map<string, RenderStyle>();

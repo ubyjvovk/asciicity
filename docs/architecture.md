@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`, `lowpoly` (fourteen with `lowpoly`, wave 15). Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `hatch`, `matrix`, `lowpoly`, `quest` (fifteen with `quest`, wave 16). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
 
 ```ts
@@ -660,14 +660,60 @@ main.ts calls `StyleRenderer.setDaylight()` at boot and every 10 s with the
 same `sunPosition` the sky/ship lights use; `StyleRenderer.ctx()` exposes
 it. Styles that ignore it are unaffected.
 
-Pure mirrors, unit-tested in node (the shader mirrors them term for term):
-`LOWPOLY_HUES`, `LOWPOLY_LUM`, `LOWPOLY_INK`, `posterLevel(v): number`
-(0–3), `snapHue(tint): number` (index into `LOWPOLY_HUES`, or `-1` for the
-grey branch), `lowpolyColour(exposed, gamma): [r, g, b]` (the whole
-non-edge path from an exposed RGB sample). The band thresholds and the
-0.25 chroma cut are a starting point: the e2e ticket's mechanical criteria
-(palette purity, outline fraction) are the contract; tune within them and
-record final constants here via the Worker report.
+`quest` (wave 16, T-0124) — the SVGA-era fantasy look (1993–98: Heroes of
+Might & Magic II, Baldur's Gate, Diablo, Might & Magic VI): 640-wide,
+256-colour, hand-painted. Cell **3×3**, sub **1×1** (640×360 at 1080p —
+literally SVGA width), `needsDepth: true`. Not chunky and not garish: the
+signature is *painter's ramps* — every colour lives on one of 12 ramps of
+20 shades whose dark end is cooler and light end warmer (hue-shifted, as
+pixel artists paint), a one-step ordered dither between adjacent shades so
+gradients band gently instead of posterising, soft dark outlines at depth
+discontinuities, and a subtle vignette.
+
+`QUEST_RAMPS` — 12 ramps × 20 shades = 240 colours (+ the ramp order is the
+selection order; ties → lower index). Shade `i` of ramp `r`:
+`mix(dark_r, light_r, (i / 19)^1.15)` (a slightly heavy mid-tone), endpoints:
+
+     0 stone   #14161E → #F4F2EC     6 grass   #0E2408 → #D8F080
+     1 marble  #2A241E → #FFF8E8     7 sea     #06181E → #A0F0E8
+     2 earth   #1E1408 → #E0B888     8 sky     #0C1E48 → #D8F0FF
+     3 wood    #2A1206 → #FFC078     9 night   #06081C → #8090E0
+     4 straw   #2E2008 → #FFF0A0    10 crimson #2A0608 → #FFA090
+     5 forest  #061A0E → #A8E080    11 violet  #180C2A → #E0B8FF
+
+Per cell, `c = pow(clamp(sampleSub(cell, 0, 0), 0, 1), gamma)`, `p = vUv`:
+
+    v      = bright(c) · (1 − 0.25 · smoothstep(0.5, 1.0, length(p − 0.5) · 1.5))   // vignette
+    t      = tintOf(c);  sat = max(t) − min(t)
+    ramp   = sat < 0.12 ? 0 : nearest r ∈ 1..11 by squared RGB between t and tintOf(shade 14 of ramp r)
+    d      = bayer8(cell.x, cell.y) − 0.5                                         // (−0.5, 0.5)
+    i      = clamp(floor(v · 20 + d), 0, 19)                                      // one-step dither
+    edge   = the lowpoly/edges depth rule (sky / inverse-depth second difference,
+             k = 0.02) with neighbours one sub-sample apart (stepUv = 1 / sceneSize)
+    if edge: i = max(0, i − 5)                                                    // soft dark outline
+    sky cell (not edge): s = smoothstep(0.35, 0.95, p.y)
+        daylight ≥ 0.66: ramp 8,  i = round(mix(17, 8, s))     // pale horizon → deep zenith
+        daylight ≥ 0.33: ramp 11, i = round(mix(15, 6, s))     // violet dusk
+        else:            ramp 9,  i = round(mix(9, 2, s))      // night
+        then the same dither: i = clamp(i + round(d · 1.0), 0, 19)
+    out    = QUEST_RAMPS[ramp][i]
+
+The ramps ship as a 20×12 RGB `THREE.DataTexture` (NearestFilter, no
+canvas needed) sampled at `((i + 0.5) / 20, (ramp + 0.5) / 12)`; the 11
+ramp tints are a `uniform vec3 rampTint[11]`. `bayer8(x, y) =
+(M8[y][x] + 0.5) / 64` from the recursive construction `M2 = [[0,2],[3,1]]`,
+`M4[y][x] = M2[y>>1][x>>1] + 4·M2[y&1][x&1]` (= the pico8 matrix),
+`M8[y][x] = M4[y>>1][x>>1] + 16·M2[y&1][x&1]`… (any construction is fine
+as long as the pure `bayer8` and the shader agree and give 64 distinct
+values in `(0, 1)`). `daylight` is `StyleContext.daylight` (seeded in
+`makeUniforms`, refreshed in `update`, as `lowpoly` does). Pure mirrors,
+unit-tested in node: `QUEST_RAMP_ENDS`, `buildQuestRamps(): [r, g, b][][]`,
+`QUEST_RAMPS`, `bayer8(x, y)`, `rampFor(tint): number`, `shadeIndex(v, d):
+number`, `questSky(daylight, y01): { ramp: number; index: number }`,
+`questVignette(p: [x, y]): number`. Constants are a starting point; the e2e
+ticket's mechanical criteria (ramp purity, gradient banding, sky present,
+outlines present) are the contract — tune within them and record final
+constants here via the Worker report.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
@@ -1596,6 +1642,106 @@ export function makeOperaObject(cityId, city, heightAt): THREE.Object3D; // empt
 - Wired in `main.ts` once at boot beside `makeBridgesObject` (the shells
   are permanent, not tiled). Budget: < 20 k vertices, one draw call, no
   per-frame work.
+
+
+### 4.23 Minas Tirith (wave 16) — the first synthesised city, `scripts/gen-minas-tirith.mjs`
+
+A city with no OSM: the generator writes a monolithic `city.json` (schema
+`docs/data-format.md`, section "Minas Tirith") that `scripts/tile-city.mjs`
+then tiles into `public/data/minas-tirith/` exactly like a fetched city, so
+the runtime (§4.19 streaming, §4.13 landmarks, spawn presets) needs no new
+code path — only a registry entry (`cities.ts`, `defaultRender: 'quest'`;
+Tokyo is no longer the only city with a boot style) and presets. Every
+number below is locked; the generator is deterministic (mulberry32 seed
+1) and pure functions are unit-tested from `tests/minastirith.test.ts`
+(import the `.mjs` like `tests/tile-city.test.ts` does).
+
+**Frame.** `origin = { lat: 43.77, lon: 11.25 }` (Florence's latitude — the
+sun Tolkien's Gondor implies); the city centre (Citadel) is at `(0, 0)`;
+extent ±1500 m; `bbox` = the unprojected extent corners using the
+data-format projection. The city faces **east** (`+x`); Mindolluin rises to
+the **west**.
+
+**Tiers** (the seven circles; radius of the wall, plateau height above the
+Pelennor):
+
+    L1 r 420 h   0   (the Othram, black stone)   L5 r 190 h 128
+    L2 r 355 h  32                               L6 r 145 h 160
+    L3 r 295 h  64                               L7 r 100 h 200  (the Citadel)
+    L4 r 240 h  96
+
+**Terrain** (`step 10`, `datum 0`, grid covering the extent + one margin
+cell, row 0 = north): `h(x, z)` = the plateau height for the tier whose
+band contains `r = hypot(x, z)`: `H_k` for `R_{k+1} + 25 < r ≤ R_k`, a
+linear **ramp** from `H_k` up to `H_{k+1}` over `R_{k+1} < r ≤ R_{k+1} + 25`
+(so every wall stands on its plateau edge with a 25 m slope below it), `H_7`
+inside `R_7`, `0` outside `R_1`. **Prow**: for `R_7 ≤ r ≤ R_2` and azimuth
+within `±w(r)` of east where the half-width `w(r)` runs linearly from
+24 m at `r = R_7` to 8 m at `r = R_2`, `h = H_{k+1}` (the next plateau up —
+the keel of rock stands one tier proud of the circle it splits), except a
+12 m-wide **notch** (h = the circle's own `H_k`) where the main road crosses
+the east axis — the "arched tunnel". **Mindolluin**: for `x < −520`,
+`h += min(700, (−520 − x) · 0.9)`. **Pelennor**: everywhere else `h = 0 +
+n(x, z)`, `n` a seeded ±1.5 m value-noise on a 60 m lattice. Round to 0.1.
+
+**Walls** (buildings): each tier's wall is a 48-segment ring, outer radius
+`R_k`, thickness 6 m, height 14 (L1: 20, L7: 12), each segment its own
+building (id `k·1000 + segment`), `color` `#2A2A30` for L1 and `#D8D4C8`
+for L2–L7; the segment(s) spanning the **gate azimuth** ±6° are omitted and
+replaced by two gate towers: 10×10 m squares, `h` = wall + 10, flanking the
+12 m gap, the L1 pair named `Great Gate` (`shape: 'tower'`, `color`
+`#2A2A30`). Gate azimuths (degrees clockwise from north; `x = r·sin a`,
+`z = −r·cos a`): `L1 90, L2 135, L3 45, L4 135, L5 45, L6 135, L7 45` — the
+gates zig-zag "first half south then half north" as in the book.
+
+**Roads.** `main` (`primary`, name `The Climbing Way`): from `(R_1 + 60, 0)`
+on the plain west through the Great Gate, then for each tier `k = 1..6`:
+along the ring road of tier `k` (radius `R_k − 14`) from gate `k`'s azimuth
+to gate `k+1`'s azimuth by the shorter arc (this crosses the east axis
+through the prow notch on tiers 2–6), then radially through gate `k+1` and
+up the ramp to radius `R_{k+1} − 14`; finally into the Citadel to the Court
+of the Fountain at `(10, 0)`. Arcs are polylines with a vertex every 6°.
+Ring roads: one `secondary` full circle per tier at `R_k − 14`, name
+`Ring <k>` (L7: `Citadel Ring`). Radial lanes (`residential`, `Lane k.n`):
+on tiers 1–6 every 45° starting at 22.5°, from `R_k − 14` inward to
+`R_{k+1} + 30`, skipping any lane within 12° of the east axis on tiers 2–6
+(the prow). Plain: `East Road` (`primary`) from the Great Gate east to
+`x = 1500`; `North Road` / `South Road` (`secondary`) from the ring at
+`r = R_1 + 20` to `z = ∓1500`.
+
+**Houses** (buildings on tiers 1–6): two tangential rows per tier, at
+radii `R_{k+1} + 34 + 5` (inner row, facing out) and `R_k − 22 − 5` (outer
+row, facing the ring road) when the band `R_k − R_{k+1} − 25 ≥ 50`, else the
+outer row only. Along each row place houses of width (tangential)
+`9 + rand·5` m, depth 7 + rand·3, gap 3, height `7 + rand·8`; skip the
+prow sector (`±(w + 10)` m of the east axis on tiers 2–6), ±10° around the
+tier's own gate azimuth and the next tier's gate azimuth, and any footprint
+that crosses a radial lane (±6 m). `color` from `[#D8D4C8, #CFCBC0,
+#E2DED2, #BFBAB0]` by `id % 4`. Ids `10000 + k·1000 + n`.
+
+**Citadel and landmarks** (all `color` `#F2EFE6` unless stated):
+`White Tower of Ecthelion` — 22 m square centred `(−40, 0)`, `h 90`,
+`shape 'tower'`; `Tower Hall` — 44×18 centred `(6, 0)`, `h 22`; `Merethrond`
+(the Great Hall of Feasts) — 40×16 centred `(−10, −40)`, `h 16`; `The King's
+House` — 30×16 centred `(−10, 40)`, `h 14`; `Houses of Healing` — 40×16
+centred at azimuth 150°, `r = 165` on L6, `h 12`; `Rath Dínen` — six 8 m
+square tombs, `h 6`, `shape 'dome'`, `color #B8B4AA`, spaced 16 m along
+azimuth 270° at radii 110…190 on L6, the largest (12 m, `h 8`) named `House
+of the Stewards`; `The Old Guesthouse` — 24×12 on L1 at azimuth 120°,
+`r = 395`, `h 10`, `color #CFC3A8`. Trees: the `White Tree` — one entry
+`[0, 0, 8, 3]`; six trees `h 7 r 3` in the Houses of Healing garden
+(azimuth 155°–165°, `r 150–175` on L6). Places: `Great Gate` (at the L1 gate
+gap), `Rath Celerdain` (L1, azimuth 110°, r 400), `Fen Hollen` (the closed
+door, L6, azimuth 250°, r 150), `Court of the Fountain` `(10, 0)`, `Houses
+of Healing`, `Rath Dínen` (270°, r 150), `The Citadel` `(0, 0)`, `Pelennor
+Fields` `(800, 0)`.
+
+**Registry / presets** (T-0127): `cities.ts` entry `id 'minas-tirith'`,
+label `MINAS TIRITH`, blurb `Gondor's seven-tiered city · synthesised`,
+`defaultSpawn 'greatgate'`, `defaultRender 'quest'`, `tiled: true`.
+Spawn presets: `greatgate` (`(R_1 + 40, 0)` facing west, bearing 270),
+`citadel` (Court of the Fountain facing the tower, bearing 270), `healing`
+(Houses of Healing, facing the tower). `README.md` gains the seventh city.
 
 ## 5. Bootstrap & frame loop (src/main.ts — T-0010)
 

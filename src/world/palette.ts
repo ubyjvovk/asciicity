@@ -63,10 +63,11 @@ export function landmarkColor(name: string | undefined): number | undefined {
   return undefined;
 }
 
-/** Hex colour: `LANDMARK_COLORS` by name, else landmark/street palettes as before. */
+/** Hex colour: `LANDMARK_COLORS` by name, else the producer's `color`, else landmark/street palettes. */
 export function colorFor(b: Building): number {
   const named = landmarkColor(b.name);
   if (named !== undefined) return named;
+  if (b.color !== undefined) return b.color;
   if (b.name !== undefined) return LANDMARK_PALETTE[b.id % LANDMARK_PALETTE.length];
   return PALETTE[b.id % PALETTE.length];
 }

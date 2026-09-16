@@ -270,6 +270,19 @@ building over 600, so London/Kyiv/SF/NYC stay byte-identical.
   Fetched with `--water-full 1 --water-dem 1` (see "Water relations" §4);
   the sydney alias will flip to those flags at accept.
 
+### Minas Tirith (`data/minas-tirith/`, wave 16) — the first synthesised city
+
+There is no OSM for Gondor. `scripts/gen-minas-tirith.mjs` (`npm run
+gen-data:minas-tirith`) writes the monolithic `city.json` from the locked
+geometry in `docs/architecture.md` §4.23 (seven tiers, walls, gates, the
+prow, roads, houses, landmarks, trees, places, a `terrain` grid at step 10)
+and then invokes the same tiling as `scripts/tile-city.mjs` (`--tiles 1`),
+so the shipped layout (`index.json` + `tiles/*.json`) is byte-for-byte the
+format every fetched city uses. Buildings carry `color` (white stone; the
+first wall black). The generator is deterministic (seed 1): rerunning it
+must reproduce the committed dataset; `tests/minastirith.test.ts` imports
+its pure functions.
+
 ## Building parts (`building:part`, wave 10 — Manhattan)
 
 Tall buildings are mapped as an outline (`building=*`) plus `building:part`
@@ -332,7 +345,7 @@ Building is one flat 380 m slab. Rules:
   "v": 1,
   "origin": { "lat": 51.5133, "lon": -0.0887 },
   "bbox": [-0.13, 51.497, -0.07, 51.521],
-  "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],   // + optional "minH" (building parts, wave 10)
+  "buildings": [ { "id": 4521, "h": 24.5, "name": "Royal Exchange", "poly": [[x,z],[x,z],[x,z]] } ],   // + optional "minH" (building parts, wave 10), optional "color" (wave 16)
   "roads":     [ { "id": 77,  "name": "Cheapside", "cls": "primary", "pts": [[x,z],[x,z]], "bridge": true } ],   // bridge optional (T-0030)
   "places":    [ { "name": "Bank", "x": 3.2, "z": -1.0 } ],
   "water":     [ [[x,z],[x,z],[x,z]] ],         // optional, rings (T-0023)
@@ -348,6 +361,9 @@ Rules every producer must follow and `validateCity` must enforce:
 - `buildings[].poly`: ≥ 3 points, first point not repeated last, no NaN.
   Degenerate rings (|area| < 1 m²) are dropped by producers.
 - `buildings[].h`: finite, clamped to `[3, 650]`.
+- `buildings[].color` (optional, wave 16): integer 24-bit RGB (`0 … 0xffffff`);
+  `colorFor` uses it after the curated landmark-name colours and before the
+  id-hash palettes. Fetched cities never set it; synthesised ones do.
 - `roads[].pts`: ≥ 2 points. `cls` ∈ `RoadClass`.
 - `places[]`: finite `x`/`z`, non-empty `name`.
 - `id` unique within each array.
