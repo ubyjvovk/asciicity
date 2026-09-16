@@ -91,6 +91,12 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - T-0125 ACCEPTED 2026-09-16 (grok-1, attempt 1, 11 min, $0.27): purity
   1.0, 69 distinct ramp colours, outlines 0.21, sky/night split clean;
   PM reran the spec in the worker container (2 passed). `quest` is done.
+- T-0126 attempt 2 (ds-1) failed identically (23 min, 67k out, no file, no
+  handoff) → blocked/ "failed attempts". PM answered 2026-09-16 22:0xZ with an
+  incremental work plan (commit constants+terrainHeight first, tests steer)
+  and unambiguous test points; pinned to grok. Lesson for the fleet notes:
+  DeepSeek V4 Flash is fine for bounded shader/spec tickets but stalls on
+  "write a 400-line generator from a numeric spec" — route those to grok.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
