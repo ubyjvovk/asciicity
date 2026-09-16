@@ -38,7 +38,7 @@ secrets_dir = "/home/d/.tigerteam-secrets"
 engine = "grok"
 max_complexity = 3                        # earned C3 on the tigerteam board
 ticket_timeout_s = 5400
-scale = 0
+scale = 2                                 # re-enabled 2026-09-16 (user: "a couple of groks")
 
 [worker.opus]
 engine = "claude"                         # Claude Opus via agents-home login state (user: "quota to burn")
@@ -53,7 +53,7 @@ engine = "pi"                             # DeepSeek V4 Flash via DeepInfra (pi 
 model = "deepseek-ai/DeepSeek-V4-Flash-0731"
 max_complexity = 2
 env_passthrough = ["DEEPINFRA_KEY"]
-scale = 0                                 # paused 2026-09-16: qwen-local is the only lane
+scale = 2                                 # re-enabled 2026-09-16 (user: "a couple of deepseek workers")
 
 [worker.qwen]
 engine = "pi"                             # Qwen3.8-27B Q8 served locally by llama.cpp (see ~/QWEN-LOCAL-API.md)
