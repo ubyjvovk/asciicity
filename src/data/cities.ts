@@ -38,6 +38,12 @@ export interface CityInfo {
    * cities must leave it unset.
    */
   defaultRender?: string;
+  /**
+   * Building wall material (architecture.md §4.23 "Facade"): absent means
+   * `'windows'` (the office-window map), `'stone'` uses `makeStoneTexture()`
+   * (running-bond masonry). Only Minas Tirith sets `'stone'`.
+   */
+  facade?: 'windows' | 'stone';
 }
 
 /** Datasets shipped in `public/data/`. Order = picker order. */
@@ -106,6 +112,7 @@ export const CITIES: readonly CityInfo[] = [
     sizeBytes: 429427,
     tiled: true,
     defaultRender: 'quest',
+    facade: 'stone',
   },
 ];
 

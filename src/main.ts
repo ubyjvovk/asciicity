@@ -41,7 +41,7 @@ import { TreeField } from './world/trees';
 import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
-import { makeWindowTexture } from './world/textures';
+import { makeWindowTexture, makeStoneTexture } from './world/textures';
 import { makeSky, updateSky, sunPosition, daylightFactor } from './world/sky';
 import { ShipFleet } from './world/ships';
 import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/terrain';
@@ -616,12 +616,17 @@ async function main(): Promise<void> {
   scene.add(groundMesh);
   if (terrain) scene.add(makeTerrainObject(terrain.data));
 
+  // Facade (architecture.md §4.23): the wall material is the office-window
+  // map unless the city's `facade` is `'stone'` (Minas Tirith). Chosen once;
+  // every `makeBuildingsObject` call (both boot paths + the tile-group path)
+  // receives the same texture.
   const windowTex = makeWindowTexture();
+  const wallTex = cityInfo?.facade === 'stone' ? makeStoneTexture() : windowTex;
   let treeField: TreeField | undefined;
   let treeCount = 0;
   if (!tileIndex) {
     await buildStep('BUILDINGS');
-    scene.add(makeBuildingsObject(city.buildings, windowTex, groundAt));
+    scene.add(makeBuildingsObject(city.buildings, wallTex, groundAt));
 
     await buildStep('ROADS');
     scene.add(makeRoadsObject(city.roads, groundAt, humps));
@@ -633,7 +638,7 @@ async function main(): Promise<void> {
     treeCount = treeField?.count ?? 0;
   } else if (city.buildings.length > 0) {
     // Landmark extras (id ≤ −1000) are global, not tiled.
-    scene.add(makeBuildingsObject(city.buildings, windowTex, groundAt));
+    scene.add(makeBuildingsObject(city.buildings, wallTex, groundAt));
   }
 
   await buildStep('WATER');
@@ -729,7 +734,7 @@ async function main(): Promise<void> {
       const buildings = applyBuildingFixes(e.tile.buildings, cityId);
       const group = new THREE.Group();
       group.name = e.key;
-      group.add(makeBuildingsObject(buildings, windowTex, groundAt));
+      group.add(makeBuildingsObject(buildings, wallTex, groundAt));
       group.add(makeRoadsObject(e.tile.roads, groundAt, humps));
       if (e.tile.trees?.length) {
         group.add(new TreeField(e.tile.trees, groundAt).object);

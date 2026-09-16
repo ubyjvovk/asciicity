@@ -89,6 +89,23 @@ Gate azimuths are degrees clockwise from north (`x = r·sin a`, `z = −r·cos a
 | Rath Dínen (×5) | 8×8 | 6 | dome | `#B8B4AA` | r 126…190, az 270°, 16 m spacing |
 | The Old Guesthouse | 24×12 | 10 | | `#CFC3A8` | r 395, az 120° (L1) |
 
+## Facade (wave 16b, T-0133)
+
+Every city's building walls wear a texture; the registry key
+`CityInfo.facade` picks which (architecture.md §4.23 "Facade"). Absent means
+`'windows'` (the office-window map, `makeWindowTexture` in `src/world/textures.ts`).
+Minas Tirith is the only city with `facade: 'stone'`: `makeStoneTexture()` —
+a 256×256 running-bond masonry atlas, `#E6E2D8` fill with 1-px `#C9C4B8`
+mortar lines every 32 px horizontally and vertical joints every 64 px
+staggered by 32 px on alternate courses (the pure helpers
+`stoneCourseAt`/`stoneJointOffset` are unit-tested in
+`tests/textures.test.ts`). `main.ts` chooses the wall texture once
+(`wallTex`) and passes it to every `makeBuildingsObject` call — both boot
+paths and the streamed tile-group path — so houses, walls and the White
+Tower all read as masonry. The e2e citadel test faces the White Tower and
+asserts the near-black pixel fraction of the frame stays < 0.15 (the
+office-window map's dark window squares would exceed it).
+
 ## Regenerating
 
 ```

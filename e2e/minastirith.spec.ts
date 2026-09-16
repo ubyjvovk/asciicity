@@ -2,8 +2,10 @@
  * AsciiCity Minas Tirith end-to-end tests (docs/architecture.md §4.23, T-0128).
  * Boots the synthesised tiled dataset at the Great Gate in the `quest` style,
  * checks the HUD names a Minas Tirith place, walks into the first ramp, and
- * proves `?at=citadel` stands on the L7 plateau. Boot helpers copied from
- * `e2e/tokyo.spec.ts`. Never edits smoke/tiles/loading specs.
+ * proves `?at=citadel` stands on the L7 plateau and the White Tower wears
+ * the light running-bond stone facade (§4.23, T-0133). Boot helpers copied
+ * from `e2e/tokyo.spec.ts`; aim/pixel helpers copied from
+ * `e2e/lowpoly.spec.ts`. Never edits smoke/tiles/loading specs.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -19,6 +21,64 @@ async function waitReady(page: Page): Promise<void> {
     undefined,
     { timeout: 90_000 },
   );
+}
+
+/**
+ * Point the camera (`yaw`/`pitch` radians) via the live pose on
+ * `window.__asciicity` (copied from `e2e/lowpoly.spec.ts` — `stepPlayer`
+ * preserves `yaw`/`pitch` with no look input).
+ */
+async function aim(page: Page, yaw: number, pitch: number): Promise<void> {
+  await page.evaluate((o) => {
+    const api = (
+      window as unknown as {
+        __asciicity?: { state?: { yaw: number; pitch: number } };
+      }
+    ).__asciicity;
+    if (api?.state) {
+      api.state.yaw = o.yaw;
+      api.state.pitch = o.pitch;
+    }
+  }, { yaw, pitch });
+  await doubleRaf(page);
+}
+
+/** Two rAF ticks so the style pass has presented a frame. */
+async function doubleRaf(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => r())),
+      ),
+  );
+}
+
+/**
+ * Fraction of `#view` pixels that are near-black (all channels < 40/255),
+ * via an offscreen 2d copy (same copy path as `e2e/lowpoly.spec.ts`).
+ * The office-window map paints dark window squares; running-bond stone
+ * (architecture.md §4.23 "Facade") is light masonry, so the fraction must
+ * stay low when the camera faces the White Tower.
+ */
+async function nearBlackFraction(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const el = document.getElementById('view');
+    if (!(el instanceof HTMLCanvasElement)) return -1;
+    const w = el.width;
+    const h = el.height;
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const ctx = off.getContext('2d');
+    if (!ctx) return -1;
+    ctx.drawImage(el, 0, 0);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    let dark = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] < 40 && data[i + 1] < 40 && data[i + 2] < 40) dark++;
+    }
+    return dark / (w * h);
+  });
 }
 
 test('minas-tirith: boots ?city=minas-tirith at the Great Gate in quest, HUD names the city, walking climbs the ramp', async ({
@@ -100,5 +160,15 @@ test('minas-tirith: ?city=minas-tirith&at=citadel boots on the Citadel plateau (
   });
   expect(out.city).toBe('minas-tirith');
   expect(out.y).toBeGreaterThanOrEqual(200);
-  console.log(`minas-tirith citadel city=${out.city} y=${out.y.toFixed(2)}`);
+
+  // Facade (architecture.md §4.23): face west (yaw −π/2) at the White Tower,
+  // slightly tilted up, and sample the frame. Stone masonry is light; the
+  // office-window map would paint dark window squares and fail this.
+  await aim(page, -Math.PI / 2, 0.3);
+  const nearBlack = await nearBlackFraction(page);
+  expect(nearBlack).toBeGreaterThanOrEqual(0);
+  expect(nearBlack).toBeLessThan(0.15);
+  console.log(
+    `minas-tirith citadel city=${out.city} y=${out.y.toFixed(2)} nearBlack=${nearBlack.toFixed(4)}`,
+  );
 });
