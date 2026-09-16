@@ -616,7 +616,10 @@ async function main(): Promise<void> {
   const groundMesh = makeGround();
   if (terrain) groundMesh.position.y = terrain.min - 0.5;
   scene.add(groundMesh);
-  if (terrain) scene.add(makeTerrainObject(terrain.data));
+  // Heightfield (terrain) mesh, kept in a variable so the ground-grid swap
+  // (T-0132) can be applied to it too, not just the flat `makeGround` plane.
+  const terrainMesh = terrain ? makeTerrainObject(terrain.data) : undefined;
+  if (terrainMesh) scene.add(terrainMesh);
 
   const windowTex = makeWindowTexture();
   let treeField: TreeField | undefined;
@@ -958,8 +961,13 @@ async function main(): Promise<void> {
   toast.show(`RENDER: ${post.style.label}`);
 
   // Ground grid per style (T-0132): painterly styles hide the perspective
-  // floor grid; swap the ground map to match the boot style.
-  setGroundGrid(groundMesh, groundGridFor(post.style));
+  // floor grid; swap the ground AND terrain maps to match the boot style.
+  const applyGroundGrid = (): void => {
+    const on = groundGridFor(post.style);
+    setGroundGrid(groundMesh, on);
+    if (terrainMesh) setGroundGrid(terrainMesh, on);
+  };
+  applyGroundGrid();
 
   // Time-of-day for styles (StyleContext.daylight): same sun altitude the sky
   // and ship lights use, refreshed on the same 10 s cadence.
@@ -1158,7 +1166,7 @@ async function main(): Promise<void> {
     settings.render = post.style.id;
     api.render = post.style.id;
     api.groundGrid = groundGridFor(post.style);
-    setGroundGrid(groundMesh, api.groundGrid);
+    applyGroundGrid();
     api.cols = post.cols;
     api.rows = post.rows;
     toast.show(`RENDER: ${post.style.label}`);

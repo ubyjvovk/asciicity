@@ -65,9 +65,13 @@ export function groundGridFor(style: { groundGrid?: boolean }): boolean {
 }
 
 /**
- * Show or hide the perspective floor grid on a ground mesh built by
- * `makeGround`. Both textures are built once and cached on `mesh.userData`;
- * `material.map` is swapped between them (docs/architecture.md §4.11).
+ * Show or hide the perspective floor grid on any mesh whose material has a
+ * `map` (the flat `makeGround` plane or the terrain heightfield from
+ * `makeTerrainObject`). Both textures are built once and cached on
+ * `mesh.userData`; `material.map` is swapped between them and
+ * `needsUpdate` is set (docs/architecture.md §4.11). The swap leaves other
+ * material properties (e.g. `vertexColors` slope shading on terrain)
+ * untouched.
  */
 export function setGroundGrid(mesh: THREE.Mesh, on: boolean): void {
   let pair = mesh.userData[GROUND_TEXTURES] as
