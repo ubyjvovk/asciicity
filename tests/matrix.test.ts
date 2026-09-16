@@ -181,6 +181,7 @@ describe('buildMatrixAtlas', () => {
     const u = STYLES[0].makeUniforms({
       cols: 1,
       rows: 1,
+      daylight: 1,
       makeCanvas: () => canvas,
     });
     expect(u.glyphCount.value).toBe(66);

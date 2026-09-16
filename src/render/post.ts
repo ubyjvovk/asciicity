@@ -78,6 +78,7 @@ export class StyleRenderer {
   private _index = 0;
   private _cols = 1;
   private _rows = 1;
+  private _daylight = 1;
   private width = 1;
   private height = 1;
   private target!: THREE.WebGLRenderTarget;
@@ -145,6 +146,16 @@ export class StyleRenderer {
   /** Canvas cell rows after the last `setSize`. */
   get rows(): number {
     return this._rows;
+  }
+
+  /** Current time-of-day factor handed to styles via `StyleContext.daylight`. */
+  get daylight(): number {
+    return this._daylight;
+  }
+
+  /** Set the time-of-day factor (clamped to `[0, 1]`) for the next `render`/activation. */
+  setDaylight(value: number): void {
+    this._daylight = Math.min(1, Math.max(0, value));
   }
 
   /**
@@ -289,6 +300,7 @@ export class StyleRenderer {
     return {
       cols: this._cols,
       rows: this._rows,
+      daylight: this._daylight,
       makeCanvas(width: number, height: number): HTMLCanvasElement {
         const canvas = document.createElement('canvas');
         canvas.width = width;

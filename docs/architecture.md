@@ -639,8 +639,26 @@ sub-sample apart (`stepUv = 1 / grid`), so lines are one cell (6 px) thick:
 `sky = d ≥ 0.98·cameraFar`, edge when the centre and a neighbour disagree
 on sky, or (all non-sky) `|wL + wR − 2·wC| > k·wC` or `|wU + wD − 2·wC| > k·wC`,
 `w = 1/d`, `k = 0.02`. Edge → `LOWPOLY_INK = (0.02, 0.02, 0.04)`; else `col`.
-Sky cells are not special-cased: a daytime sky posterises to a flat
-blue band, night to black — both are period-correct.
+Sky cells (`cSky`, wave 15b / T-0122) are painted a flat period sky from
+`StyleContext.daylight` (0 night … 1 day; plumbing below) instead of the
+posterised scene colour, which is black at every hour because the scene
+background and fog are black:
+
+    band   = daylight < 0.33 ? 0 : (daylight < 0.66 ? 1 : 2)
+    LOWPOLY_SKY = [#10143C (night navy), #E0508F (dusk pink), #3A8CFF (day blue)]
+    sky cell → LOWPOLY_SKY[band]  (unless it is an edge → ink, as before)
+
+The sun and moon discs sit at 1200 m (< 0.98·far) so they stay non-sky and
+posterise as before (a yellow/grey disc on the flat sky). Pure:
+`skyBand(daylight): number`, `LOWPOLY_SKY`. The style declares
+`uniform float daylight`, fills it from `ctx.daylight` in `makeUniforms`
+and refreshes it in `update(uniforms, timeS, ctx)`.
+
+**`StyleContext.daylight`** (PM plumbing, 2026-09-16): `daylightFactor(alt)`
+in `world/sky.ts` maps the sun altitude to 0 (≤ −6°) … 1 (≥ +6°);
+main.ts calls `StyleRenderer.setDaylight()` at boot and every 10 s with the
+same `sunPosition` the sky/ship lights use; `StyleRenderer.ctx()` exposes
+it. Styles that ignore it are unaffected.
 
 Pure mirrors, unit-tested in node (the shader mirrors them term for term):
 `LOWPOLY_HUES`, `LOWPOLY_LUM`, `LOWPOLY_INK`, `posterLevel(v): number`

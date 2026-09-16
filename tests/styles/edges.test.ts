@@ -133,6 +133,7 @@ describe('STYLES', () => {
     const u = STYLES[0].makeUniforms({
       cols: 1,
       rows: 1,
+      daylight: 1,
       makeCanvas: () => ({}) as HTMLCanvasElement,
     });
     expect(Object.keys(u)).toHaveLength(0);

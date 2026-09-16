@@ -42,7 +42,7 @@ import { makeRoadsObject, ROAD_WIDTH } from './world/roads';
 import { makeGround } from './world/ground';
 import { makeWaterObject } from './world/water';
 import { makeWindowTexture } from './world/textures';
-import { makeSky, updateSky, sunPosition } from './world/sky';
+import { makeSky, updateSky, sunPosition, daylightFactor } from './world/sky';
 import { ShipFleet } from './world/ships';
 import { BridgeDecks, Terrain, makeGroundAt, makeTerrainObject } from './world/terrain';
 import { BoatFleet, BusFleet, CarFleet } from './world/traffic';
@@ -954,6 +954,18 @@ async function main(): Promise<void> {
   });
   const toast = mountToast();
   toast.show(`RENDER: ${post.style.label}`);
+
+  // Time-of-day for styles (StyleContext.daylight): same sun altitude the sky
+  // and ship lights use, refreshed on the same 10 s cadence.
+  const applyDaylight = (): void => {
+    post.setDaylight(
+      daylightFactor(
+        sunPosition(opts.time ?? new Date(), city.origin.lat, city.origin.lon).altitudeDeg,
+      ),
+    );
+  };
+  applyDaylight();
+  setInterval(applyDaylight, 10000);
 
   // Postcard PNG export (T-0072): filename uses the registry id (no spaces);
   // the caption bar paints the upper-cased label.

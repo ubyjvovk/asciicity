@@ -13,6 +13,13 @@ export interface StyleContext {
   cols: number;
   /** Cells down at the current canvas size. */
   rows: number;
+  /**
+   * Time-of-day factor from the sun's altitude (`daylightFactor` in
+   * `world/sky.ts`): 0 at or below −6° (stars on), 1 at or above +6°,
+   * linear between. Refreshed every 10 s by main.ts; read it in
+   * `makeUniforms` and again in `update` for styles that react to it.
+   */
+  daylight: number;
   /** Fresh canvas for rasterising an atlas (browser only). */
   makeCanvas(width: number, height: number): HTMLCanvasElement;
 }

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { sunPosition, moonPosition, makeSky, updateSky } from '../src/world/sky';
+import { sunPosition, moonPosition, makeSky, updateSky, daylightFactor } from '../src/world/sky';
 
 /** London (City) coordinates used throughout these tests. */
 const LAT = 51.5074;
@@ -135,5 +135,16 @@ describe('makeSky/updateSky', () => {
       seen++;
     }
     expect(seen).toBeGreaterThan(0);
+  });
+});
+
+describe('daylightFactor', () => {
+  it('is 0 at or below −6°, 1 at or above +6°, linear between', () => {
+    expect(daylightFactor(-20)).toBe(0);
+    expect(daylightFactor(-6)).toBe(0);
+    expect(daylightFactor(0)).toBeCloseTo(0.5, 6);
+    expect(daylightFactor(3)).toBeCloseTo(0.75, 6);
+    expect(daylightFactor(6)).toBe(1);
+    expect(daylightFactor(45)).toBe(1);
   });
 });

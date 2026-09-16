@@ -189,6 +189,15 @@ export function makeSky(
 }
 
 /**
+ * Time-of-day factor for render styles (`StyleContext.daylight`): 0 when the
+ * sun is at or below −6° (the stars' threshold), 1 at or above +6°, linear
+ * between — so dawn/dusk ramp over the same 12° the sky uses.
+ */
+export function daylightFactor(sunAltitudeDeg: number): number {
+  return Math.min(1, Math.max(0, (sunAltitudeDeg + 6) / 12));
+}
+
+/**
  * Move/toggle the sky's existing sun/moon/stars for a new date — no allocation.
  * Sun (and moon) visible when above the horizon (alt > −2°); stars only when
  * the sun is well below it (alt < −6°). Discs face the group centre (the
