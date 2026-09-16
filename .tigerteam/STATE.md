@@ -138,6 +138,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - Wave 16b polish boarded from that walk: T-0131 (Citadel layout, queued
   earlier), T-0132 (per-style ground grid — `RenderStyle.groundGrid`, PM
   contract added), T-0133 (stone facade — `CityInfo.facade`, spec §4.23).
+- Process note 2026-09-17: a root `check.sh` started after T-0130's accept
+  failed its e2e because T-0128's accept merged cities.ts mid-run (the
+  detailed log had rotated before the PM could read it); the clean rerun on
+  the same main was green. Rule: never `accept` while a root gate is
+  running — wait for it, or gate in `_staging`-style worktree instead.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
