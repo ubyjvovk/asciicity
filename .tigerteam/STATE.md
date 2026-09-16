@@ -29,6 +29,14 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (host chromium, `--use-angle=gl-egl`, day + night synthetic): flat
   saturated facets, chunky pixels, black outlines — the brief is met.
   Qwen lane verdict so far: report quality on par with grok; free.
+- T-0121 ACCEPTED 2026-09-16 on attempt 1: 9 min wall, 430k in (413k
+  cached) / 9k out, $0. Spec rerun by the PM inside the worker container:
+  1 passed (purity 1.0, ink 0.14, 5 hues ≥ 0.5 %). Final `check.sh` on
+  merged main (host): typecheck/unit/build/e2e all ok — 15 e2e specs incl.
+  the new lowpoly spec.
+- **Wave 15 complete (121/121).** Qwen lane verdict: 2/2 tickets accepted
+  first try, ~10 min each, $0, reports on par with grok. Keep it as the
+  default C2 lane; PM takes C3.
 - Polish candidate (not boarded): the sky posterises to a dark grey band at
   noon (scene sky is low-chroma in the target), so day and night look the
   same. A period-correct flat blue/pink sky would need a sky special-case in
