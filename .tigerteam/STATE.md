@@ -23,8 +23,16 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   and T-0121 (P2/C2, e2e pixel assertions, depends on T-0120) are in todo/.
   This is also the smoke test of the new local `qwen` lane — judge the lane
   on it (attempt count, report quality, wall time).
-- Review plan: verify unit + `check.sh`, then PM GPU visual review of
-  `e2e/__shots__/style-lowpoly.png`.
+- T-0120 ACCEPTED 2026-09-16 on attempt 1: 11 min wall, 529k in (510k
+  cached) / 17k out, $0. Code mirrors §4.11 term for term, 10 unit cases,
+  docs written, gate rerun green in the worker container. PM GPU review
+  (host chromium, `--use-angle=gl-egl`, day + night synthetic): flat
+  saturated facets, chunky pixels, black outlines — the brief is met.
+  Qwen lane verdict so far: report quality on par with grok; free.
+- Polish candidate (not boarded): the sky posterises to a dark grey band at
+  noon (scene sky is low-chroma in the target), so day and night look the
+  same. A period-correct flat blue/pink sky would need a sky special-case in
+  §4.11 — ask the user before adding.
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
