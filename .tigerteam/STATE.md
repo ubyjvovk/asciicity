@@ -37,7 +37,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - **Wave 15 complete (121/121).** Qwen lane verdict: 2/2 tickets accepted
   first try, ~10 min each, $0, reports on par with grok. Keep it as the
   default C2 lane; PM takes C3.
-- Polish candidate (not boarded): the sky posterises to a dark grey band at
+- Wave 15b (user: yes to the sky ticket): PM plumbed `StyleContext.daylight`
+  (`daylightFactor` in sky.ts, `StyleRenderer.setDaylight`, 10 s refresh from
+  main.ts; gate green) and boarded T-0122 (P2/C2, qwen): flat night/dusk/day
+  sky bands in lowpoly + e2e assertions 5–6 at 12:00 and 23:00.
+- Spark (3D Gaussian splats, github.com/asundqui/spark) assessed 2026-09-16
+  for the user — see the decision log entry "Spark" below when boarded.
+- (superseded by 15b) Polish candidate: the sky posterises to a dark grey band at
   noon (scene sky is low-chroma in the target), so day and night look the
   same. A period-correct flat blue/pink sky would need a sky special-case in
   §4.11 — ask the user before adding.
