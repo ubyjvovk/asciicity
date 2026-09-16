@@ -143,6 +143,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   detailed log had rotated before the PM could read it); the clean rerun on
   the same main was green. Rule: never `accept` while a root gate is
   running — wait for it, or gate in `_staging`-style worktree instead.
+- T-0132 REWORK 1 (2026-09-17): ds-2's attempt met the ticket (flat
+  `makeGround` mesh swapped, synthetic e2e 0.0000 near-white) but real
+  cities draw the heightfield from `makeTerrainObject`, which keeps its own
+  grid map — PM spec gap. Rework note adds terrain.ts to scope and a Minas
+  Tirith citadel e2e case.
 - Spark spike stays in drafts/ until the user says go.
 
 ## Configuration notes
