@@ -19,12 +19,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (`~/QWEN-LOCAL-API.md`, host 127.0.0.1:8080, one request at a time, $0).
   `grok`, `opus`, `ds` are `scale = 0` (user: only the PM does C3 now). `glm`
   parked as before. The qwen lane runs in container mode; the API binds
-  loopback only, so the container catalog (`~/.tigerteam-secrets/.pi/agent/
-  models.json`) points at `http://172.17.0.1:8080/v1` and a host bridge
-  172.17.0.1:8080 → 127.0.0.1:8080 must be running before `qwen` can claim
-  (creating that listener was blocked by the PM harness classifier on
-  2026-09-16 — the user has to start it or allow it). Without the bridge the
-  lane fast-fails and auto-STOPs.
+  loopback by default, so the server is started with `./qwen/start.sh --host
+  0.0.0.0` (done 2026-09-16) and the container catalog (`~/.tigerteam-secrets/
+  .pi/agent/models.json`) points at `http://172.17.0.1:8080/v1`. Verified: a
+  worker container completes a pi turn against it. If the server is restarted
+  without `--host 0.0.0.0` the lane fast-fails twice and auto-STOPs.
 - Secrets in `<root>/.env` (DEEPINFRA_KEY, GITHUB_TOKEN). The supervisor must be
   restarted after `.env` changes (it was restarted 2026-08-23 23:40 for this).
 - `test_cmd = bash scripts/test.sh` (vitest; self-installs node_modules);

@@ -58,8 +58,8 @@ scale = 0                                 # paused 2026-09-16: qwen-local is the
 [worker.qwen]
 engine = "pi"                             # Qwen3.8-27B Q8 served locally by llama.cpp (see ~/QWEN-LOCAL-API.md)
 model = "qwen-local/qwen3.8-27b-q8:medium" # pi "provider/id:thinking" form; container catalog entry in ~/.tigerteam-secrets/.pi/agent/models.json
-                                          # points at http://172.17.0.1:8080/v1 — the API binds 127.0.0.1 only, so a docker0 bridge
-                                          # (172.17.0.1:8080 -> 127.0.0.1:8080) must be running on the host for this lane to work
+                                          # points at http://172.17.0.1:8080/v1 — the server must be started with
+                                          # `./qwen/start.sh --host 0.0.0.0` (its default binds loopback only)
 max_complexity = 2
 ticket_timeout_s = 7200                   # ~65 tok/s single-slot server; one request generates at a time
 scale = 1
