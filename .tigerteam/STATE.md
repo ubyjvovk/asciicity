@@ -161,10 +161,11 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   only 20 m wide (r 125–145), so the r 112/124 tomb columns stand on the
   L7→L6 ramp. Fix, if ever wanted: widen the tier bands in §4.23 (a
   regenerate, not a redesign).
-- Supervisor RSS reached 7 GB after ~4.5 h (pi JSON logs). Restart it
-  (`tigerteam down` + tmux respawn-pane) when the board is idle; the
-  harness killed two background PM tasks on a memory heuristic meanwhile,
-  so gates/waiters run in the foreground for now.
+- Supervisor restarted 2026-09-17 ~23:50Z after reaching 7 GB RSS in
+  ~4.5 h (`tigerteam down` + tmux respawn-pane %4; now 27 MB, check 20 ok).
+  Root cause candidate: pi `--mode json` engine logs (~150 MB/ticket) held
+  in memory — worth a tigerteam issue. PM gates/waiters run in the
+  foreground since the harness kills background tasks on a memory heuristic.
 - T-0132 ACCEPTED 2026-09-17 on attempt 2 (ds-1, 11 + 14 min, $0.08 total):
   ground grid per style now swaps both the flat ground and the terrain
   heightfield; e2e: quest 0.0000 near-white on synthetic and Minas Tirith
