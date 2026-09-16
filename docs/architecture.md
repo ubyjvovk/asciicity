@@ -774,6 +774,15 @@ is fine. e2e thresholds move with it: distinct colours ≥ 24 (was 40),
 outlines 0.02–0.40; add: no full-width inked row below the horizon (same
 rule as lowpoly v2).
 
+**Ground grid per style (wave 16b, T-0132).** `RenderStyle.groundGrid?:
+boolean` (absent = true). `world/ground.ts` gains `makePlainTexture()` (a
+1×1 canvas texture of the grid's background colour) and `setGroundGrid(mesh,
+on)` which swaps `material.map` between the grid and plain textures (both
+built once, cached on `mesh.userData`); main.ts calls it at boot and in
+`applyStyleChange`, and exposes `window.__asciicity.groundGrid`. `quest` and
+`lowpoly` declare `groundGrid: false`. Pure: `groundGridFor(style): boolean`
+(`style.groundGrid ?? true`).
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
@@ -1797,6 +1806,17 @@ gap), `Rath Celerdain` (L1, azimuth 110°, r 400), `Fen Hollen` (the closed
 door, L6, azimuth 250°, r 150), `Court of the Fountain` `(10, 0)`, `Houses
 of Healing`, `Rath Dínen` (270°, r 150), `The Citadel` `(0, 0)`, `Pelennor
 Fields` `(800, 0)`.
+
+**Facade (wave 16b, T-0133).** `CityInfo.facade?: 'windows' | 'stone'`
+(absent = `'windows'`, the office-window map from `world/textures.ts`).
+Minas Tirith sets `'stone'`: `makeStoneTexture()` in `textures.ts` — a
+256×256 canvas, light warm-grey `#E6E2D8` fill with 1-px mortar lines every
+32 px horizontally and staggered every 64 px vertically (running bond),
+mortar `#C9C4B8`, one tile ≈ 8 m (same `repeat` maths as the window map) —
+and main.ts passes that texture to every `makeBuildingsObject` call (both
+boot paths and the tile-group path in `tiles.ts`) when the city's facade is
+`'stone'`. Landmark caps (`shape`) use the same wall material, so the White
+Tower reads as masonry too.
 
 **Registry / presets** (T-0127): `cities.ts` entry `id 'minas-tirith'`,
 label `MINAS TIRITH`, blurb `Gondor's seven-tiered city · synthesised`,

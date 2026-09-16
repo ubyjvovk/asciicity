@@ -41,6 +41,13 @@ export interface RenderStyle {
   /** Attach a `THREE.DepthTexture`; the prelude then provides `linearDepth()`. */
   needsDepth: boolean;
   /**
+   * Whether the world's perspective floor grid (`world/ground.ts`) should be
+   * drawn under this style (wave 16b, T-0132). Absent = `true`. Painterly
+   * styles (`quest`, `lowpoly`) set `false`; main.ts swaps the ground map on
+   * every style change.
+   */
+  groundGrid?: boolean;
+  /**
    * GLSL ES 1.0 fragment shader body appended to `STYLE_PRELUDE` (which
    * declares the common uniforms, `vUv` and the helpers below). Must define
    * `void main()` writing `gl_FragColor`.
