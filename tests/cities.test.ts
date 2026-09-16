@@ -26,7 +26,7 @@ function loadBbox(file: string): DatasetHeader['bbox'] {
 }
 
 describe('CITIES registry', () => {
-  it('lists london first (default), then kyiv, sf, nyc, tokyo, sydney', () => {
+  it('lists london first (default), then kyiv, sf, nyc, tokyo, sydney, minas-tirith', () => {
     expect(CITIES.map((c) => c.id)).toEqual([
       'london',
       'kyiv',
@@ -34,7 +34,13 @@ describe('CITIES registry', () => {
       'nyc',
       'tokyo',
       'sydney',
+      'minas-tirith',
     ]);
+  });
+
+  it('has 7 cities with unique ids', () => {
+    expect(CITIES).toHaveLength(7);
+    expect(new Set(CITIES.map((c) => c.id)).size).toBe(7);
   });
 
   it('carries the expected labels, files and blurbs', () => {
@@ -82,6 +88,14 @@ describe('CITIES registry', () => {
     expect(sydney.blurb).toMatch(/bridge/i);
     expect(sydney.tiled).toBe(true);
     expect(sydney.defaultRender).toBeUndefined();
+
+    const minas = CITIES[6];
+    expect(minas.label).toBe('MINAS TIRITH');
+    expect(minas.file).toBe('data/minas-tirith/index.json');
+    expect(minas.defaultSpawn).toBe('greatgate');
+    expect(minas.blurb).toBe("Gondor's seven-tiered city · synthesised");
+    expect(minas.tiled).toBe(true);
+    expect(minas.defaultRender).toBe('quest');
   });
 
   it('every registry entry is tiled with a data/<id>/index.json path', () => {
@@ -91,14 +105,20 @@ describe('CITIES registry', () => {
     }
   });
 
-  it('only tokyo carries defaultRender, and its value is matrix', () => {
+  it("tokyo and minas-tirith carry defaultRender (matrix / quest)", () => {
     for (const city of CITIES) {
       if (city.id === 'tokyo') {
         expect(city.defaultRender).toBe('matrix');
+      } else if (city.id === 'minas-tirith') {
+        expect(city.defaultRender).toBe('quest');
       } else {
         expect(city.defaultRender).toBeUndefined();
       }
     }
+  });
+
+  it("minas-tirith has defaultRender 'quest'", () => {
+    expect(cityById('minas-tirith')?.defaultRender).toBe('quest');
   });
 });
 
@@ -147,6 +167,12 @@ describe('cityById', () => {
     expect(cityById('sydney')?.id).toBe('sydney');
     expect(cityById(' SYDNEY ')?.id).toBe('sydney');
     expect(cityById('Sydney')?.label).toBe('SYDNEY');
+  });
+
+  it("cityById('minas-tirith') → the Minas Tirith entry (resolvable, wave 16)", () => {
+    expect(cityById('minas-tirith')?.id).toBe('minas-tirith');
+    expect(cityById(' MINAS-TIRITH ')?.id).toBe('minas-tirith');
+    expect(cityById('Minas-Tirith')?.label).toBe('MINAS TIRITH');
   });
 });
 

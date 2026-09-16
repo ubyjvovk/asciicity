@@ -22,8 +22,8 @@ export interface SpawnPoint {
  * used when the building is absent from the current dataset.
  */
 export type SpawnPreset =
-  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney'; lon?: number; lat?: number; bearingDeg?: number }
-  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney' };
+  | { building: string; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney' | 'minas-tirith'; lon?: number; lat?: number; bearingDeg?: number }
+  | { lon: number; lat: number; bearingDeg: number; label: string; city: 'london' | 'kyiv' | 'sf' | 'nyc' | 'tokyo' | 'sydney' | 'minas-tirith' };
 
 /** Named spawn presets keyed by lower-case name (used by `?at=<name>`). */
 export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
@@ -763,6 +763,37 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     bearingDeg: 167,
     label: 'North Sydney, Miller Street facing the CBD',
     city: 'sydney',
+  },
+  // Minas Tirith presets (wave 16, architecture.md §4.23 Registry / presets).
+  // Origin is Florence's latitude { lat: 43.77, lon: 11.25 }; local metres
+  // unprojected to WGS84 via `unproject` (src/geo.ts). Default spawn: `greatgate`.
+  greatgate: {
+    // (R_1 + 40, 0) = 460 m east of the origin, 40 m outside the Great Gate
+    // on the Pelennor / East Road, facing west (bearing 270) into the city.
+    lon: 11.255722,
+    lat: 43.77,
+    bearingDeg: 270,
+    label: 'Great Gate, facing west into the city',
+    city: 'minas-tirith',
+  },
+  citadel: {
+    // Court of the Fountain at (10, 0), facing the White Tower of Ecthelion
+    // at (−40, 0) — due west, bearing 270.
+    lon: 11.250124,
+    lat: 43.77,
+    bearingDeg: 270,
+    label: 'Court of the Fountain, facing the White Tower',
+    city: 'minas-tirith',
+  },
+  healing: {
+    // Houses of Healing centre on L6: azimuth 150°, r 165
+    // → (165·sin 150°, −165·cos 150°) ≈ (82.5, 142.9). Bearing 319° faces
+    // the White Tower at (−40, 0).
+    lon: 11.251026,
+    lat: 43.768708,
+    bearingDeg: 319,
+    label: 'Houses of Healing, facing the White Tower',
+    city: 'minas-tirith',
   },
 };
 

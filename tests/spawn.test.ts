@@ -307,7 +307,7 @@ describe('resolveSpawn', () => {
   it('exposes presets with lower-case keys and labels', () => {
     // London + Westminster + Kyiv (wave 7, T-0059) + San Francisco (wave 8)
     // + Manhattan (wave 10, T-0087) + Tokyo (wave 11, T-0098) + Sydney
-    // (wave 14, T-0111).
+    // (wave 14, T-0111) + Minas Tirith (wave 16, T-0128).
     expect(Object.keys(SPAWN_PRESETS).sort()).toEqual([
       'akihabara',
       'alcatraz',
@@ -326,6 +326,7 @@ describe('resolveSpawn', () => {
       'centralstation',
       'chrysler',
       'circularquay',
+      'citadel',
       'coittower',
       'darlingharbour',
       'dumbo',
@@ -340,7 +341,9 @@ describe('resolveSpawn', () => {
       'glassbridge',
       'goldengate',
       'grandcentral',
+      'greatgate',
       'harbourbridge',
+      'healing',
       'hydropark',
       'imperialpalace',
       'kingscross',
@@ -422,7 +425,7 @@ describe('presetsFor', () => {
   });
 
   it('every preset carries a city and every city id occurs in its presets', () => {
-    const ALL_CITIES = ['london', 'kyiv', 'sf', 'nyc', 'tokyo', 'sydney'];
+    const ALL_CITIES = ['london', 'kyiv', 'sf', 'nyc', 'tokyo', 'sydney', 'minas-tirith'];
     for (const [, p] of Object.entries(SPAWN_PRESETS)) {
       expect(ALL_CITIES).toContain(p.city);
     }
@@ -437,9 +440,9 @@ describe('presetsFor', () => {
   it("presetsFor('kyiv') labels are unique and non-empty (T-0061 LANDMARKS menu)", () => {
     // The fast-travel submenu (architecture.md §4.13) shows one row per
     // preset labelled from `preset.label`; empty/duplicate labels would make
-    // rows ambiguous. Same for London, San Francisco, Manhattan, Tokyo and
-    // Sydney.
-    for (const cityId of ['kyiv', 'london', 'sf', 'nyc', 'tokyo', 'sydney']) {
+    // rows ambiguous. Same for London, San Francisco, Manhattan, Tokyo,
+    // Sydney and Minas Tirith.
+    for (const cityId of ['kyiv', 'london', 'sf', 'nyc', 'tokyo', 'sydney', 'minas-tirith']) {
       const labels = presetsFor(cityId).map(([, p]) => p.label);
       expect(labels.length).toBeGreaterThan(0);
       for (const label of labels) {
@@ -2133,5 +2136,115 @@ describe('Sydney presets (wave 14)', () => {
     const expectedYaw = Math.atan2(OPERA_ANCHOR[0] - spawn.x, -(OPERA_ANCHOR[1] - spawn.z));
     const delta = Math.abs(normalizeAngle(spawn.yaw - expectedYaw));
     expect(delta, 'bearing at Opera House').toBeLessThan((10 * Math.PI) / 180);
+  });
+});
+
+// Wave 16 Minas Tirith presets (T-0128): three fixed-coordinate presets
+// derived from architecture.md §4.23 (R_1 + 40, Court of the Fountain,
+// Houses of Healing at az 150° / r 165) and unprojected from the Florence
+// origin. Each projects back to the expected local metres within ±1 m.
+describe('Minas Tirith presets (wave 16)', () => {
+  const MT_ORIGIN = { lat: 43.77, lon: 11.25 };
+  const MT_KEYS = ['greatgate', 'citadel', 'healing'] as const;
+  const TOWER: [number, number] = [-40, 0];
+
+  it('every Minas Tirith preset key parses to its preset', () => {
+    for (const key of MT_KEYS) {
+      expect(parseAt(key), key).toEqual({ preset: key });
+      expect(parseAt(key.toUpperCase()), key).toEqual({ preset: key });
+      expect(SPAWN_PRESETS[key], key).toBeDefined();
+      expect(SPAWN_PRESETS[key].city, key).toBe('minas-tirith');
+      expect(SPAWN_PRESETS[key].label.trim().length, key).toBeGreaterThan(0);
+      expect('building' in SPAWN_PRESETS[key], `${key} should be fixed-coordinate`).toBe(false);
+    }
+  });
+
+  it("presetsFor('minas-tirith') returns every MT preset in insertion order and no foreign keys", () => {
+    const keys = presetsFor('minas-tirith').map(([k]) => k);
+    expect(keys).toEqual([...MT_KEYS]);
+    expect(keys).not.toContain('bank');
+    expect(keys).not.toContain('circularquay');
+  });
+
+  it('greatgate is the default spawn (city registry) and a fixed-coordinate preset', () => {
+    const mt = cityById('minas-tirith');
+    expect(mt).toBeDefined();
+    expect(mt!.defaultSpawn).toBe('greatgate');
+    expect(mt!.defaultRender).toBe('quest');
+    const gg = SPAWN_PRESETS.greatgate as {
+      lon: number;
+      lat: number;
+      bearingDeg: number;
+      city: string;
+    };
+    expect(gg.city).toBe('minas-tirith');
+    expect(gg.bearingDeg).toBe(270);
+  });
+
+  it('the three presets resolve to the expected metres (±1 m) via project', () => {
+    const expected: Record<(typeof MT_KEYS)[number], { x: number; z: number }> = {
+      greatgate: { x: 460, z: 0 },
+      citadel: { x: 10, z: 0 },
+      healing: {
+        x: 165 * Math.sin((150 * Math.PI) / 180),
+        z: -165 * Math.cos((150 * Math.PI) / 180),
+      },
+    };
+    for (const key of MT_KEYS) {
+      const p = SPAWN_PRESETS[key] as { lon: number; lat: number };
+      const [x, z] = project(p.lon, p.lat, MT_ORIGIN);
+      const e = expected[key];
+      expect(Math.hypot(x - e.x, z - e.z), `${key} via project`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('resolveSpawn lands on the projected metres (±1 m) with the preset yaw', () => {
+    const expected: Record<(typeof MT_KEYS)[number], { x: number; z: number; bearingDeg: number }> = {
+      greatgate: { x: 460, z: 0, bearingDeg: 270 },
+      citadel: { x: 10, z: 0, bearingDeg: 270 },
+      healing: {
+        x: 165 * Math.sin((150 * Math.PI) / 180),
+        z: -165 * Math.cos((150 * Math.PI) / 180),
+        bearingDeg: 319,
+      },
+    };
+    for (const key of MT_KEYS) {
+      const e = expected[key];
+      const spawn = resolveSpawn(key, MT_ORIGIN, () => false);
+      expect(Math.hypot(spawn.x - e.x, spawn.z - e.z), `${key} resolveSpawn`).toBeLessThanOrEqual(1);
+      expect(spawn.yaw, `${key} yaw`).toBeCloseTo(
+        normalizeAngle((e.bearingDeg * Math.PI) / 180),
+        1,
+      );
+    }
+  });
+
+  it('healing bearing faces the White Tower at (−40, 0)', () => {
+    const p = SPAWN_PRESETS.healing as { lon: number; lat: number; bearingDeg: number };
+    const [hx, hz] = project(p.lon, p.lat, MT_ORIGIN);
+    const yawToTower = Math.atan2(TOWER[0] - hx, -(TOWER[1] - hz));
+    expect(p.bearingDeg).toBe(319);
+    expect(normalizeAngle((p.bearingDeg * Math.PI) / 180)).toBeCloseTo(
+      normalizeAngle(yawToTower),
+      1,
+    );
+  });
+
+  it('every Minas Tirith preset coordinate falls inside the minas-tirith bbox', () => {
+    const INDEX = JSON.parse(
+      readFileSync(
+        resolve(__dirname, '..', 'public', 'data', 'minas-tirith', 'index.json'),
+        'utf8',
+      ),
+    ) as { bbox: [number, number, number, number] };
+    for (const [key, preset] of presetsFor('minas-tirith')) {
+      const p = preset as { lon?: number; lat?: number };
+      expect(p.lon, `${key} lon`).toBeDefined();
+      expect(p.lat, `${key} lat`).toBeDefined();
+      expect(p.lon!, key).toBeGreaterThanOrEqual(INDEX.bbox[0]);
+      expect(p.lon!, key).toBeLessThanOrEqual(INDEX.bbox[2]);
+      expect(p.lat!, key).toBeGreaterThanOrEqual(INDEX.bbox[1]);
+      expect(p.lat!, key).toBeLessThanOrEqual(INDEX.bbox[3]);
+    }
   });
 });
