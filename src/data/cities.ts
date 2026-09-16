@@ -34,7 +34,8 @@ export interface CityInfo {
    * URL carries no explicit `?render=`, this city boots that style instead of
    * the persisted choice. Applied at boot only — `R` cycling and persistence
    * are unaffected. An unknown id falls through to the persisted setting.
-   * Only Tokyo sets one (`matrix`); other cities must leave it unset.
+   * Tokyo sets one (`matrix`) and Minas Tirith sets one (`quest`); other
+   * cities must leave it unset.
    */
   defaultRender?: string;
 }
@@ -95,6 +96,16 @@ export const CITIES: readonly CityInfo[] = [
     blurb: 'Harbour, Opera House & the Bridge · southern hemisphere',
     sizeBytes: 1203530,
     tiled: true,
+  },
+  {
+    id: 'minas-tirith',
+    label: 'MINAS TIRITH',
+    file: 'data/minas-tirith/index.json',
+    defaultSpawn: 'greatgate',
+    blurb: "Gondor's seven-tiered city · synthesised",
+    sizeBytes: 429427,
+    tiled: true,
+    defaultRender: 'quest',
   },
 ];
 

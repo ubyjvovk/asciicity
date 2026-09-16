@@ -2,13 +2,13 @@
 
 ![Facing the Tokyo Skytree across the Kita-Jūkken canal](docs/skytree.png)
 
-A static browser minigame: walk around real cities — London, Kyiv,
-San Francisco, Manhattan, central Tokyo and Sydney — in first person,
-rendered as coloured ASCII glyphs with a green NAVIGATION HUD. Streets
-stream in 1 km tiles around you; Tokyo boots in the matrix style at the
-Shibuya Scramble Crossing, and Sydney spawns on Circular Quay with the
-Opera House sails across the cove, ferries on the harbour and the
-Harbour Bridge arch to walk:
+A static browser minigame: walk around seven cities — London, Kyiv,
+San Francisco, Manhattan, central Tokyo, Sydney, and synthesised Minas
+Tirith — in first person, rendered as coloured ASCII glyphs with a green
+NAVIGATION HUD. Streets stream in 1 km tiles around you; Tokyo boots in
+the matrix style at the Shibuya Scramble Crossing, Sydney spawns on
+Circular Quay with the Opera House sails across the cove, and Minas
+Tirith boots in the `quest` style at the Great Gate:
 
 ![Walking the Shibuya Scramble in the matrix render style](docs/tokyo-matrix.gif)
 
@@ -106,4 +106,5 @@ npm run check                          # full gate: typecheck + unit + build + e
 ## Data
 
 `public/data/city.json` is generated from OpenStreetMap by `npm run fetch-data`
-— do not hand-edit it.
+— do not hand-edit it. Minas Tirith is synthesised (no OSM):
+`npm run gen-data:minas-tirith` writes `public/data/minas-tirith/`.
