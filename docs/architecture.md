@@ -654,6 +654,36 @@ posterise as before (a yellow/grey disc on the flat sky). Pure:
 `uniform float daylight`, fills it from `ctx.daylight` in `makeUniforms`
 and refreshes it in `update(uniforms, timeS, ctx)`.
 
+
+**`lowpoly` v2 (T-0129, user review 2026-09-16: "make it upbeat and shiny
+like early 3D renders; there are 3–4 weird horizontal lines in the
+middle").** Two changes, everything else above stands:
+
+1. *Bug — depth seam.* With sub 2×2 the cell centre `(cell + 0.5) / grid`
+   lies exactly on the boundary between two depth texels, so
+   NearestFilter picks either side per row and the second-difference test
+   fires in full-width horizontal bands on flat ground. Sample depth at
+   **texel centres**: `texel = 1 / sceneSize`, `centreUv = (cell · sub +
+   0.5) · texel` (the cell's bottom-left sub-sample), neighbours at
+   `centreUv ± sub · texel` (still one cell apart). No other change to the
+   edge rule. Mechanical proof (e2e): in the default noon view, no ink row
+   below the horizon (screen y > 55 %) is inked across ≥ 80 % of its width.
+2. *Shine.* Early-CGI gloss: brighter bands, pastel hues, chrome greys and
+   a specular highlight band.
+
+       LOWPOLY_LUM   = [0.45, 0.65, 0.85, 1.0]                       // was [0.22, 0.50, 0.78, 1.0]
+       hue           = mix(LOWPOLY_HUES[idx], (1, 1, 1), 0.12)         // pastel; grey branch → (0.88, 0.92, 0.97) (cool chrome)
+       col           = hue · lum
+       shine         = v ≥ 0.92 ? LOWPOLY_SHINE (0.75) : 0             // specular pop on the brightest cells
+       col           = mix(col, (1, 1, 1), shine)
+       LOWPOLY_SKY   = [#1A2060, #FF6FA8, #4FA8FF]                     // brighter night / dusk / day
+
+   Pure: `LOWPOLY_SHINE`, `LOWPOLY_GREY = [0.88, 0.92, 0.97]`,
+   `LOWPOLY_PASTEL = 0.12`; `lowpolyColour` returns the whole path
+   (including shine). The e2e expected set becomes `lowpolyColour` over
+   (9 hues|grey) × 4 bands ∪ the 9 shine colours ∪ `LOWPOLY_SKY` ∪ ink ∪
+   black — build it from the pure exports, never by hand.
+
 **`StyleContext.daylight`** (PM plumbing, 2026-09-16): `daylightFactor(alt)`
 in `world/sky.ts` maps the sun altitude to 0 (≤ −6°) … 1 (≥ +6°);
 main.ts calls `StyleRenderer.setDaylight()` at boot and every 10 s with the
@@ -714,6 +744,35 @@ number`, `questSky(daylight, y01): { ramp: number; index: number }`,
 ticket's mechanical criteria (ramp purity, gradient banding, sky present,
 outlines present) are the contract — tune within them and record final
 constants here via the Worker report.
+
+
+**`quest` v2 (T-0130, user review 2026-09-16: "wrong vibe — more like a
+drawing: flatter, thinner lines, without squares on the ground
+everywhere").** The ramps and palette stand; the shading gets flat and
+the lines get thin:
+
+    surfaces: NO dither; six flat shades per ramp:
+        level = min(5, floor(v · 6));  i = QUEST_LEVELS[level] = [2, 5, 9, 12, 16, 19]
+    outline: ONE-SIDED silhouette/crease — a cell is inked only if it is the
+        NEARER side: the edge test as before, but a neighbour counts only when
+        dN > dC (or the neighbour is sky and the centre is not). So a depth jump
+        draws a single 1-cell line on the near object instead of a 2-cell line.
+        Ink = 2 shades down (i = max(0, i − 2)), not 5 — a pencil line, not a marker.
+    vignette: 0.15 (was 0.25)
+    sky: banded, no dither: s = smoothstep(0.35, 0.95, p.y);
+        day   ramp 8,  i = 17 − 3·min(3, floor(s · 4))   → {17, 14, 11, 8}
+        dusk  ramp 11, i = 15 − 3·min(3, floor(s · 4))   → {15, 12, 9, 6}
+        night ramp 9,  i =  9 − 2·min(3, floor(s · 4))   → {9, 7, 5, 3}
+
+The ground grid texture (`world/ground.ts`) is only a few percent brighter
+than the road; six flat shades quantise it away — that is what removes the
+"squares". Pure: `QUEST_LEVELS`, `shadeIndex(v)` (no dither argument),
+`questSky(daylight, y01)` returns the banded index, `isNearSide(dC, dN,
+skyThr)`. `bayer8` stays exported (unused by the shader) so the pico8-style
+mirror test keeps passing, or is deleted together with its test — either
+is fine. e2e thresholds move with it: distinct colours ≥ 24 (was 40),
+outlines 0.02–0.40; add: no full-width inked row below the horizon (same
+rule as lowpoly v2).
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
