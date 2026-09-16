@@ -359,6 +359,7 @@ export const STYLES: readonly RenderStyle[] = [
     subX: 1,
     subY: 1,
     needsDepth: true,
+    groundGrid: false,
     fragment: QUEST_FRAGMENT,
     makeUniforms(ctx: StyleContext): Record<string, THREE.IUniform> {
       const rampTints: THREE.Vector3[] = [];

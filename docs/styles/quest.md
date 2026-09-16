@@ -11,6 +11,10 @@ Since **T-0130** ("more like a drawing: flatter, thinner lines, without
 squares on the ground everywhere") the shading is **flat — no dither** — and
 the outlines are **one-sided** (ink lands on the near object only, 2 shades
 down), which is what removes the "squares" and the fat marker lines of v1.
+Since **T-0132** the style also declares `groundGrid: false`, so the
+world's perspective floor grid (`world/ground.ts`) is swapped out under
+`quest` and the ground reads as a flat painted floor instead of bright
+white squares.
 
 ## Algorithm (per cell)
 

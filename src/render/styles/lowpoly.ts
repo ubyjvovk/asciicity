@@ -306,6 +306,7 @@ export const STYLES: readonly RenderStyle[] = [
     subX: 2,
     subY: 2,
     needsDepth: true,
+    groundGrid: false,
     fragment: LOWPOLY_FRAGMENT,
     makeUniforms(ctx: StyleContext): Record<string, THREE.IUniform> {
       const lpHues = LOWPOLY_HUES.map(([r, g, b]) => new THREE.Vector3(r, g, b));

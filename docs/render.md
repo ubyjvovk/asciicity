@@ -57,6 +57,7 @@ Read `src/render/style.ts` before writing a style. A `RenderStyle` is:
 | `cellW` / `cellH` | Screen pixels per cell (default; `?cell=WxH` overrides). |
 | `subX` / `subY` | Scene samples per cell; target is `cols·subX × rows·subY`. |
 | `needsDepth` | Attach a `THREE.DepthTexture`; prelude then provides `linearDepth()`. |
+| `groundGrid?` | Whether the world's perspective floor grid is drawn under this style. Absent = `true`; painterly styles (`quest`, `lowpoly`) set `false`. `main.ts` swaps the map on both the flat ground plane and the terrain heightfield mesh on every style change, and exposes `window.__asciicity.groundGrid` (wave 16b, T-0132). |
 | `fragment` | GLSL ES 1.0 body appended to `STYLE_PRELUDE`. Must define `void main()`. |
 | `makeUniforms(ctx)` | Style-specific uniforms (atlases, palettes). `{}` is fine. |
 | `update?` | Optional per-frame hook (`timeS` seconds since start). |
