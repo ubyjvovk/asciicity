@@ -11,8 +11,8 @@
  *
  * The seven assertions:
  *   1. paper — in the un-aimed noon frame, paper pixels (within 10/255 per
- *      channel of `PAPER`) are between 0.20 and 0.85 of all pixels (it is
- *      a sketch on white, not solid ink);
+ *      channel of `PAPER`) are between 0.15 and 0.85 of all pixels (it is
+ *      a sketch on white, not solid ink; v4 cores are wider than v3);
  *   2. ink — ink pixels (max channel < 0.35) are between 0.05 and 0.60;
  *   3. coloured ink — ≥ 0.01 of pixels are coloured ink (max < 0.7 and
  *      `max − min` ≥ 0.15) and at least 3 distinct hue bins (12 × 30° bins)
@@ -24,7 +24,7 @@
  *      horizontal runs of ≥ 6 by a factor ≥ 1.5;
  *   5. ground strokes are horizontal — over the bottom 20 % of rows, the
  *      horizontal-run count exceeds the vertical-run count by a factor
- *      ≥ 1.5;
+ *      ≥ 1.1 (v4 strokes tremble, so 6-px straight runs are rarer);
  *   6. sky tangle — (URL A, aimed north / pitch 1.1) the top 30 % of rows
  *      are ≥ 0.55 paper and hold ≥ 0.01 ink; (URL B, aimed) the ink
  *      fraction of the top 30 % is greater than URL A's (night tangle is
@@ -47,9 +47,9 @@ const COLOUR_SPAN = 0.15;
 const RUN_LEN = 6;
 /** 12 × 30° hue bins. */
 const HUE_BINS = 12;
-/** Wall/ground orientation factors. */
+/** Wall/ground orientation factors. Ground is 1.1 (v4, T-0138). */
 const VERT_FACTOR = 1.5;
-const HORIZ_FACTOR = 1.5;
+const HORIZ_FACTOR = 1.1;
 
 /** `PAPER` as 8-bit values, for the within-tolerance paper test. */
 const PAPER8: readonly [number, number, number] = [
@@ -340,7 +340,7 @@ test('scribble: paper, ink, coloured ink, stroke orientation, sky, no full-width
   );
 
   // 1. Paper: a sketch on white, not solid ink (un-aimed noon frame).
-  expect(unAimed.paper).toBeGreaterThanOrEqual(0.2);
+  expect(unAimed.paper).toBeGreaterThanOrEqual(0.15);
   expect(unAimed.paper).toBeLessThanOrEqual(0.85);
   // 2. Ink: strokes present but not covering the page.
   expect(unAimed.ink).toBeGreaterThanOrEqual(0.05);

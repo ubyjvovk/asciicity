@@ -3,8 +3,9 @@
  * (docs/architecture.md §4.11, wave 17 T-0134 / v2 T-0136 / v3 T-0137 /
  * v4 T-0138): the view-space-normal surface class, far-depth fade,
  * world-anchored nested-LOD strokes (screen-gradient scale, world-metre
- * wobble/lifts), stereographic sky-dome coordinates, hair coverage, the
- * neutral vs coloured ink/wash colours, and the v3 precision-safe hash.
+ * value-noise wobble/lifts), stereographic sky-dome coordinates, hair
+ * coverage, the neutral vs coloured ink/wash colours, and the v3
+ * precision-safe hash.
  * Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
@@ -27,6 +28,7 @@ import {
   surfaceClass,
   viewNormal,
   viewPos,
+  vnoise1,
   washColour,
   wobble,
 } from '../../src/render/styles/scribble';
@@ -279,6 +281,17 @@ describe('skyCoords', () => {
   });
 });
 
+describe('vnoise1', () => {
+  it('vnoise1 continuity', () => {
+    const rng = mulberry32(1384);
+    for (let n = 0; n < 100; n++) {
+      const x = rng() * 200 - 50;
+      const k = rng() * 200 - 50;
+      expect(Math.abs(vnoise1(x + 1e-4, k) - vnoise1(x, k))).toBeLessThan(1e-2);
+    }
+  });
+});
+
 describe('wobble', () => {
   it('wobble stability', () => {
     const rng = mulberry32(138);
@@ -286,7 +299,8 @@ describe('wobble', () => {
       const along = rng() * 200 - 50;
       const ph = rng() * 6.2832;
       const mu = 0.01 + rng() * 0.4;
-      expect(wobble(along, ph, mu, 0.05)).toBeCloseTo(wobble(along, ph, mu, 0.1), 9);
+      const key = rng() * 200 - 50;
+      expect(wobble(along, ph, mu, 0.05, key)).toBeCloseTo(wobble(along, ph, mu, 0.1, key), 9);
     }
   });
 
@@ -296,9 +310,10 @@ describe('wobble', () => {
       const along = rng() * 200 - 50;
       const ph = rng() * 6.2832;
       const mu = 0.01 + rng() * 0.4;
-      expect(wobble(along, ph, mu, 5)).toBe(0);
-      expect(wobble(along, ph, mu, 1.2)).toBeCloseTo(
-        mu * 0.3 * Math.sin((2 * Math.PI * along) / 14 + 3 * ph),
+      const key = rng() * 200 - 50;
+      expect(wobble(along, ph, mu, 5, key)).toBe(0);
+      expect(wobble(along, ph, mu, 1.2, key)).toBeCloseTo(
+        mu * 0.3 * (2 * vnoise1(along / 14 + 3 * ph, key + 22) - 1),
         6,
       );
     }

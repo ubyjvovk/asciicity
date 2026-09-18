@@ -70,16 +70,21 @@ of sitting as a screen-space grid.
    `mu` is metres of `u` per screen cell across the strokes; `ma` is metres
    of `along` per screen cell along them.
    **Wobble and lifts** live in WORLD metres; `ma` never enters a phase or
-   a segment index (`wobble(along, ph, mu, ma)`, `lifted(key, along, ma)`):
+   a segment index (`wobble(along, ph, mu, ma, key)`,
+   `lifted(key, along, ma)`). Hand tremor is per-line **value noise**, not
+   a sine (sines at a fixed world period corrugate every stroke the same
+   way and adjacent ground lines wave in step):
    `vis(P) = smoothstep(3, 8, P / ma)` (an octave shows once its period
    spans ≥ 3 cells),
-   `wob = mu · Σ_{k=0..2} A_k · sin(2π · along / P_k + (k+1)·ph) · vis(P_k)`
-   with `P = [0.9, 3.5, 14]` m, `A = [0.5, 0.3, 0.3]`,
+   `vnoise1(x, key) = mix(hash2(floor(x), key), hash2(floor(x)+1, key),
+   smoothstep(0, 1, fract(x)))`,
+   `wob = mu · Σ_{k=0..2} A_k · (2 · vnoise1(along / P_k + 3·ph, key + 11·k) − 1) · vis(P_k)`
+   with `P = [0.9, 3.5, 14]` m, `A = [0.35, 0.30, 0.30]`,
    `lifted` if any `k = 0..2` has `vis(G_k) > 0.5` and
    `hash2(key, floor(along / G_k) + 40 + k) < 0.06` with `G = [1.5, 6, 24]` m.
-   For fixed `(along, ph, mu)`, `wobble` is identical for every `ma ≤ 0.9/8`
-   (all octaves fully visible) — walking closer never changes a stroke's
-   shape.
+   For fixed `(along, ph, mu, key)`, `wobble` is identical for every
+   `ma ≤ 0.9/8` (all octaves fully visible) — walking closer never changes
+   a stroke's shape.
    **Nested strokes** (`nestedStrokeInk(u, along, tone, mu, ma)`):
    `lod = log2(8·mu)`, `L = floor(lod)`, `f = fract(lod)` (level `L` is 8
    cells apart on screen). Layer `k = 0..2` draws level `j = L − k` with
@@ -94,10 +99,10 @@ of sitting as a screen-space grid.
    `key = i·S` (the line's world coordinate — the same number at every
    level that contains it),
    `ph = hash2(key, 0)·6.2832`,
-   `wob = wobble(along, ph, mu, ma)`,
+   `wob = wobble(along, ph, mu, ma, key)`,
    skip the line when `lifted(key, along, ma)`,
-   `hw = mu·(0.45 + 0.25·tone)` (v4 wider stroke core),
-   `cov = 1 − smoothstep(hw − 0.25·mu, hw + 0.25·mu, |u − key − wob|)`,
+   `hw = mu·(0.38 + 0.15·tone)` (v4 wider stroke core, tight edge),
+   `cov = 1 − smoothstep(hw − 0.22·mu, hw + 0.22·mu, |u − key − wob|)`,
    `weight = (mod(i, 2) == 1) ? (1 − f) : 1` (odd lines fade out as the LOD
    climbs; at `f → 1` they are gone and the even lines become the next
    level — no pop),
@@ -120,12 +125,12 @@ of sitting as a screen-space grid.
    `radial = |centre| < 1 ? (0, 1) : normalize(−centre)` (toward the zenith
    = "up" everywhere);
    `dir = radial` rotated by `(r_4 − 0.5)·0.6` rad (±17° off vertical);
-   `len = H · (0.6 + 1.4 · r_5)` (5–16 cells);
+   `len = H · (0.9 + 2.0 · r_5)` (7–23 cells);
    `q = ps − centre`; `t = dot(q, dir)`; `s⊥ = dot(q, perp(dir))` with
    `perp(dir) = (−dir.y, dir.x)`;
    `bend = (r_6 − 0.5)·0.25·H·sin(π·(clamp(t/len, −0.5, 0.5) + 0.5))`;
    `endF = 1 − smoothstep(len/2 − 2, len/2, |t|)`;
-   `cov = (1 − smoothstep(0.2, 0.55, |s⊥ − bend|)) · endF`;
+   `cov = (1 − smoothstep(0.15, 0.40, |s⊥ − bend|)) · endF`;
    `ink = max` over the 27 strokes.
    Sky ink = `SKY_INK` at `coverage · 0.85`; sky wash = paper. Expect ≈
    10–15 % stroke coverage in open sky. The hair sticks to the sky dome
@@ -155,9 +160,10 @@ stroke density.
   (`strokeScale` → `mu`/`ma` from the four neighbour taps), not a
   facing-camera metres-per-cell, so the ground and oblique facades keep
   the same on-screen spacing as a frontal wall. A nested LOD (`lodOf(mu)`,
-  `nestedStrokeInk`) keeps spacing ~8/4/2 cells on screen. Wobble and
-  lifts are world-metre octaves faded by `vis(P) = smoothstep(3, 8, P/ma)`
-  so walking closer never changes a stroke's shape.
+  `nestedStrokeInk`) keeps spacing ~8/4/2 cells on screen. Wobble is
+  per-line value noise (`vnoise1`) over world-metre octaves faded by
+  `vis(P) = smoothstep(3, 8, P/ma)` so walking closer never changes a
+  stroke's shape and adjacent lines do not corrugate in step.
 - **Depth taps** are ONE CELL apart at texel centres (`stepUv = sub·texel`),
   exactly as `lowpoly` v2 — the ticket explicitly says NOT one sub-sample
   apart like `edges.ts`.
@@ -204,14 +210,17 @@ stroke density.
 - `strokeScale(uN, alongN, up): { mu, ma }` — metres of `u` / `along` per
   screen cell from the four neighbour taps (v3.1).
 - `lodOf(mu): { L, f }` — `L = floor(log2(8·mu))`, `f = fract(lod)` (v3).
-- `wobble(along, ph, mu, ma): number` — world-metre three-octave wobble
-  with screen-size fades (v4).
+- `vnoise1(x, key): number` — 1-D value noise in `[0, 1]` (v4 hand tremor).
+- `wobble(along, ph, mu, ma, key): number` — world-metre three-octave
+  value-noise wobble with screen-size fades (v4). `key` is the line's
+  world coordinate so adjacent strokes do not wave in step.
 - `lifted(key, along, ma): boolean` — world-metre pen-lift gate (v4).
 - `nestedStrokeInk(u, along, tone, mu, ma): number` — nested-LOD
   surface-stroke coverage in `[0, 1]` (v3/v4). Replaces deleted `strokeInk`.
 - `skyCoords(dirW, K): [x, y]` — stereographic-from-nadir dome coordinates
   in cells (v3.1).
-- `hairInk(ps, density): number` — sky-hair coverage in `[0, 1]` (v4).
+- `hairInk(ps, density): number` — sky-hair coverage in `[0, 1]` (v4;
+  length `H·(0.9+2.0·r_5)`, thinner `smoothstep(0.15, 0.40, …)`).
   Replaces deleted `tangleInk`.
 - `hairDir(c, s): [x, y]` — unit direction of hair stroke `s` in cell `c`
   (v4 test helper).
@@ -248,8 +257,8 @@ textures are created, so there is no `dispose`.
    (steps 6–7, 9).
 5. Write `mix(washCol, inkCol, ink)` as `gl_FragColor` (alpha = 1).
 
-Because strokes are anchored in world metres with a nested LOD, wobble
-that does not writhe while walking, and the paper reads through as a
-coloured wash, the result is a hand-drawn ink sketch whose tone comes from
-stroke density rather than shading, and whose pen lines walk with the city
-instead of sitting as a screen overlay.
+Because strokes are anchored in world metres with a nested LOD, per-line
+value-noise wobble that does not writhe while walking, and the paper
+reads through as a coloured wash, the result is a hand-drawn ink sketch
+whose tone comes from stroke density rather than shading, and whose pen
+lines walk with the city instead of sitting as a screen overlay.
