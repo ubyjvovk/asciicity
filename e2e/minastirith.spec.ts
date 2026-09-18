@@ -1,6 +1,6 @@
 /**
  * AsciiCity Minas Tirith end-to-end tests (docs/architecture.md §4.23, T-0128).
- * Boots the synthesised tiled dataset at the Great Gate in the `quest` style,
+ * Boots the synthesised tiled dataset at the Great Gate in the `crayon` style,
  * checks the HUD names a Minas Tirith place, walks into the first ramp, and
  * proves `?at=citadel` stands on the L7 plateau and the White Tower wears
  * the light running-bond stone facade (§4.23, T-0133). Boot helpers copied
@@ -81,7 +81,7 @@ async function nearBlackFraction(page: Page): Promise<number> {
   });
 }
 
-test('minas-tirith: boots ?city=minas-tirith at the Great Gate in quest, HUD names the city, walking climbs the ramp', async ({
+test('minas-tirith: boots ?city=minas-tirith at the Great Gate in crayon, HUD names the city, walking climbs the ramp', async ({
   page,
 }) => {
   await page.goto('/?city=minas-tirith');
@@ -100,7 +100,7 @@ test('minas-tirith: boots ?city=minas-tirith at the Great Gate in quest, HUD nam
     };
   });
   expect(boot.city).toBe('minas-tirith');
-  expect(boot.render).toBe('quest');
+  expect(boot.render).toBe('crayon');
 
   // HUD updates every 4th frame; `ready` flips on frame 1 so ZONE/LANDMARK
   // arrive a few frames later. Accept GREAT GATE (place/landmark) or any

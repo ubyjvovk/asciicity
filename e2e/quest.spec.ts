@@ -1,4 +1,7 @@
 /**
+ * SKIPPED 2026-09-18: `quest` is out of STYLE_ORDER (user: coloured pencil
+ * replaces it). Re-add the id and drop the `.skip` to re-enable.
+ *
  * Quest-style e2e (docs/architecture.md §4.11 "`quest` (wave 16)").
  * Boots `/?synthetic=1&render=quest&cell=3x3&time=12:00` (and `time=23:00`)
  * and proves the frame really paints with the 240 ramp colours, bands its
@@ -250,7 +253,7 @@ async function questPixelStats(page: Page): Promise<{
   );
 }
 
-test('quest: paints, ramp purity, distinct colours, outlines, day sky', async ({
+test.skip('quest: paints, ramp purity, distinct colours, outlines, day sky', async ({
   page,
 }) => {
   await page.goto('/?synthetic=1&render=quest&cell=3x3&time=12:00');
@@ -303,7 +306,7 @@ test('quest: paints, ramp purity, distinct colours, outlines, day sky', async ({
   expect(aimed.rampFracs[NIGHT_RAMP]).toBeLessThan(0.005);
 });
 
-test('quest: night sky is ramp 9 at time=23:00', async ({ page }) => {
+test.skip('quest: night sky is ramp 9 at time=23:00', async ({ page }) => {
   await page.goto('/?synthetic=1&render=quest&cell=3x3&time=23:00');
   await waitReady(page);
   await doubleRaf(page);

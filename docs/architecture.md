@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`, `lowpoly`, `quest`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (twenty with the wave-18 sketch family). Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `hatch`, `matrix`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (nineteen: `quest` left the cycle 2026-09-18 when `crayon` replaced it as the Minas Tirith default; the module stays). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p), or ≤ the
 style's `targetCap` (ceiling 960×540; wave 18b — the sketch family and `scribble`
 use it with 2×2 cells; they must still hold ≥ 30 fps on an integrated GPU).
@@ -1229,6 +1229,23 @@ review (`window.__asciicity.fps`), else the cap comes back down to
 Pure (pastel.ts): `bilinearWeights(p): [w00, w10, w01, w11]` (sum 1), `softEdge(e)`.
 e2e: the smoke loop; the PM checks the pastel frames for feathered
 silhouettes and no staircase.
+
+**Pencil / crayon ground tune (wave 18b, T-0146; user 2026-09-18: "the
+heavy fixed cross hatch needs tuning").** In v1 the road carries the same
+primary + 45° cross family as the walls, so the foreground reads as dark
+tyre streaks / a barcode. Locked changes, `pencil` and `crayon` alike
+(colour formulas unchanged):
+
+    ground (s.cls == 1):  tone2 ·= 0.55                      // a road is lightly shaded, not hatched solid
+                          secondary = 0                      // NO cross-hatch on the ground
+                          ink ·= 0.85
+    walls (s.cls == 2):   cross-hatch gate 0.45 → 0.55 (fade smoothstep(0.55, 0.70, tone2))
+                          secondary ·= 0.75                  // the cross family lighter than the primary
+    both:                 the primary's LOD base spacing stays 8 cells (unchanged)
+    outline: unchanged
+Pure: `groundTone(tone2)` = tone2 · 0.55, `crossGate(tone2)` = smoothstep(0.55, 0.70, tone2)
+(in pencil.ts; crayon imports them). Unit: `groundTone(1)` → 0.55;
+`crossGate(0.5)` → 0, `crossGate(0.7)` → 1, monotone.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 

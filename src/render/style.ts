@@ -160,7 +160,8 @@ export const STYLE_ORDER = [
   'hatch',
   'matrix',
   'lowpoly',
-  'quest',
+  // 'quest' — disabled 2026-09-18 (user: coloured pencil replaces it); the
+  // module stays (scribble imports `isNearSide`), re-add the id to re-enable.
   'scribble',
   'pencil',
   'crayon',

@@ -8,7 +8,7 @@ Tirith — in first person, rendered as coloured ASCII glyphs with a green
 NAVIGATION HUD. Streets stream in 1 km tiles around you; Tokyo boots in
 the matrix style at the Shibuya Scramble Crossing, Sydney spawns on
 Circular Quay with the Opera House sails across the cove, and Minas
-Tirith boots in the `quest` style at the Great Gate:
+Tirith boots in the `crayon` style at the Great Gate:
 
 ![Walking the Shibuya Scramble in the matrix render style](docs/tokyo-matrix.gif)
 

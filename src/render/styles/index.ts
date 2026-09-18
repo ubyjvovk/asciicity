@@ -14,7 +14,6 @@ import { STYLES as edges } from './edges';
 import { STYLES as hatch } from './hatch';
 import { STYLES as matrix } from './matrix';
 import { STYLES as lowpoly } from './lowpoly';
-import { STYLES as quest } from './quest';
 import { STYLES as scribble } from './scribble';
 import { STYLES as pencil } from './pencil';
 import { STYLES as crayon } from './crayon';
@@ -32,7 +31,6 @@ const modules: readonly (readonly RenderStyle[])[] = [
   hatch,
   matrix,
   lowpoly,
-  quest,
   scribble,
   pencil,
   crayon,

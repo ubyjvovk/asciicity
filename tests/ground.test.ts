@@ -22,11 +22,10 @@ describe('groundGridFor', () => {
 });
 
 describe('registry ground-grid flags (T-0132)', () => {
-  it('quest, lowpoly and scribble carry groundGrid === false', () => {
-    const quest = STYLES.find((s) => s.id === 'quest');
+  it('lowpoly and scribble carry groundGrid === false (quest is out of the cycle)', () => {
     const lowpoly = STYLES.find((s) => s.id === 'lowpoly');
     const scribble = STYLES.find((s) => s.id === 'scribble');
-    expect(quest?.groundGrid).toBe(false);
+    expect(STYLES.find((s) => s.id === 'quest')).toBeUndefined();
     expect(lowpoly?.groundGrid).toBe(false);
     expect(scribble?.groundGrid).toBe(false);
   });

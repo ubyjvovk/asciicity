@@ -34,7 +34,7 @@ export interface CityInfo {
    * URL carries no explicit `?render=`, this city boots that style instead of
    * the persisted choice. Applied at boot only — `R` cycling and persistence
    * are unaffected. An unknown id falls through to the persisted setting.
-   * Tokyo sets one (`matrix`) and Minas Tirith sets one (`quest`); other
+   * Tokyo sets one (`matrix`) and Minas Tirith sets one (`crayon`); other
    * cities must leave it unset.
    */
   defaultRender?: string;
@@ -111,7 +111,7 @@ export const CITIES: readonly CityInfo[] = [
     blurb: "Gondor's seven-tiered city · synthesised",
     sizeBytes: 429527,
     tiled: true,
-    defaultRender: 'quest',
+    defaultRender: 'crayon',
     facade: 'stone',
   },
 ];

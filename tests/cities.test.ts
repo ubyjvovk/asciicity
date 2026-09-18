@@ -95,7 +95,7 @@ describe('CITIES registry', () => {
     expect(minas.defaultSpawn).toBe('greatgate');
     expect(minas.blurb).toBe("Gondor's seven-tiered city · synthesised");
     expect(minas.tiled).toBe(true);
-    expect(minas.defaultRender).toBe('quest');
+    expect(minas.defaultRender).toBe('crayon');
   });
 
   it('every registry entry is tiled with a data/<id>/index.json path', () => {
@@ -105,20 +105,20 @@ describe('CITIES registry', () => {
     }
   });
 
-  it("tokyo and minas-tirith carry defaultRender (matrix / quest)", () => {
+  it("tokyo and minas-tirith carry defaultRender (matrix / crayon)", () => {
     for (const city of CITIES) {
       if (city.id === 'tokyo') {
         expect(city.defaultRender).toBe('matrix');
       } else if (city.id === 'minas-tirith') {
-        expect(city.defaultRender).toBe('quest');
+        expect(city.defaultRender).toBe('crayon');
       } else {
         expect(city.defaultRender).toBeUndefined();
       }
     }
   });
 
-  it("minas-tirith has defaultRender 'quest'", () => {
-    expect(cityById('minas-tirith')?.defaultRender).toBe('quest');
+  it("minas-tirith has defaultRender 'crayon'", () => {
+    expect(cityById('minas-tirith')?.defaultRender).toBe('crayon');
   });
 });
 

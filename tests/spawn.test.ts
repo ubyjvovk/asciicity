@@ -2170,7 +2170,7 @@ describe('Minas Tirith presets (wave 16)', () => {
     const mt = cityById('minas-tirith');
     expect(mt).toBeDefined();
     expect(mt!.defaultSpawn).toBe('greatgate');
-    expect(mt!.defaultRender).toBe('quest');
+    expect(mt!.defaultRender).toBe('crayon');
     const gg = SPAWN_PRESETS.greatgate as {
       lon: number;
       lat: number;

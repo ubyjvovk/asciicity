@@ -1,7 +1,9 @@
 /**
  * Per-style ground grid e2e (docs/architecture.md §4.11 "Ground grid per
- * style", T-0132). Boots `/?synthetic=1&render=quest` and proves the
- * perspective floor grid is hidden under `quest` (`groundGrid === false`)
+ * style", T-0132). Boots `/?synthetic=1&render=lowpoly` and proves the
+ * perspective floor grid is hidden under `lowpoly` (`groundGrid === false`;
+ * `quest` left the cycle 2026-09-18 — the flat-floor cases use `lowpoly`,
+ * the Minas Tirith case its new `crayon` default with the grid-green metric)
  * and restored under `ascii` (`groundGrid === true`), and that hiding it
  * actually removes the near-white grid lines from the frame (pixel check
  * aimed straight down at `time=12:00`). Boot helpers (`waitReady`,
@@ -117,10 +119,10 @@ async function gridGreenFraction(page: Page): Promise<number> {
   });
 }
 
-test('ground grid: quest hides it, ascii restores it, R cycles groundGrid', async ({
+test('ground grid: lowpoly hides it, ascii restores it, R cycles groundGrid', async ({
   page,
 }) => {
-  await page.goto('/?synthetic=1&render=quest');
+  await page.goto('/?synthetic=1&render=lowpoly');
   await waitReady(page);
 
   const read = (): Promise<{ render: string; groundGrid: boolean }> =>
@@ -133,8 +135,8 @@ test('ground grid: quest hides it, ascii restores it, R cycles groundGrid', asyn
       return { render: api?.render ?? '', groundGrid: api?.groundGrid ?? false };
     });
 
-  // quest declares groundGrid: false → no grid.
-  expect(await read()).toEqual({ render: 'quest', groundGrid: false });
+  // lowpoly declares groundGrid: false → no grid.
+  expect(await read()).toEqual({ render: 'lowpoly', groundGrid: false });
 
   // Press R (forward cycle) until we land on ascii, asserting the grid
   // comes back with it.
@@ -166,25 +168,26 @@ test('ground grid: quest hides it, ascii restores it, R cycles groundGrid', asyn
   expect(cur.groundGrid).toBe(true);
 });
 
-test('ground grid: no near-white grid lines with quest aimed straight down', async ({
+test('ground grid: no grid-green lines with lowpoly aimed straight down', async ({
   page,
 }) => {
-  await page.goto('/?synthetic=1&render=quest&time=12:00');
+  await page.goto('/?synthetic=1&render=lowpoly&time=12:00');
   await waitReady(page);
   await doubleRaf(page);
   await aim(page, 0, -1.4); // straight down — the floor fills the frame
 
-  const frac = await nearWhiteFraction(page, 200);
-  console.log('quest ground-grid near-white fraction: ' + frac.toFixed(4));
+  const frac = await gridGreenFraction(page);
+  console.log('lowpoly ground-grid grid-green fraction: ' + frac.toFixed(4));
 
-  // No grid lines: near-white (all channels ≥ 200/255) < 0.02 of pixels.
+  // No grid lines: grid-green < 0.02 of pixels (lowpoly's pastel floor is
+  // bright, so near-white is not the right metric for it).
   expect(frac).toBeLessThan(0.02);
 });
 
-test('ground grid: quest hides the terrain grid, ascii restores it (Minas Tirith)', async ({
+test('ground grid: crayon hides the terrain grid, ascii restores it (Minas Tirith)', async ({
   page,
 }) => {
-  // Minas Tirith has a `terrain` heightfield and defaults to `quest` — the
+  // Minas Tirith has a `terrain` heightfield and defaults to `crayon` — the
   // case where the floor is the terrain mesh (slope-shaded heightfield),
   // not the flat `makeGround` plane, so the grid swap must reach that mesh.
   await page.goto('/?city=minas-tirith&at=citadel&time=12:00');
@@ -200,18 +203,14 @@ test('ground grid: quest hides the terrain grid, ascii restores it (Minas Tirith
       return api?.render ?? '';
     });
 
-  // Boots to quest (city default) — grid hidden on the terrain floor.
-  expect(await readRender()).toBe('quest');
-  const questFrac = await nearWhiteFraction(page, 200);
+  // Boots to crayon (city default) — grid hidden on the terrain floor.
+  // Crayon's ground is paper-light, so only the grid-green metric applies.
+  expect(await readRender()).toBe('crayon');
+  const crayonGreen = await gridGreenFraction(page);
   console.log(
-    'minas-tirith quest terrain near-white fraction: ' + questFrac.toFixed(4),
+    'minas-tirith crayon terrain grid-green fraction: ' + crayonGreen.toFixed(4),
   );
-  expect(questFrac).toBeLessThan(0.02);
-  const questGreen = await gridGreenFraction(page);
-  console.log(
-    'minas-tirith quest terrain grid-green fraction: ' + questGreen.toFixed(4),
-  );
-  expect(questGreen).toBeLessThan(0.02);
+  expect(crayonGreen).toBeLessThan(0.02);
 
   // Press R (forward cycle) until we land on ascii — the grid comes back
   // on the terrain floor, so green grid lines climb above 0.02.
