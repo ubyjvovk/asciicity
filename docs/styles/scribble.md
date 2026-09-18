@@ -10,15 +10,33 @@ walls, constant-depth on the ground, short hair strokes on the sky dome),
 ink coloured by the object under it, one-sided pencil outlines, far
 buildings sketched lighter.
 
+**Since T-0139 the stroke machinery is shared** — the GLSL helpers
+(`hash2`, `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`,
+`wobble`, `lifted`, `strokeLayer`, `nestedStrokeInk`, `hairInk`,
+`skyCoords`, `depthFade`), the `Surf` struct and `surfaceAt(vec2 uv)`, and
+their TS mirrors live in `src/render/styles/strokes.ts` (`STROKE_GLSL`);
+see **`docs/styles/strokes.md`**. This file documents only what is
+scribble-specific: the colours, `skyDensity`, the surface class / outline
+mirrors, the ink/wash colours and the fragment `main()` (which starts
+with `Surf s = surfaceAt(vUv);`).
+
 ## Algorithm (per pixel)
 
-The scene sample, the depth taps, the class and the outline are **per
-cell** (`cell = floor(vUv · grid)`). Strokes are **per canvas pixel**: the
-world position is `P = viewPos(vUv, dPix, …)` with the continuous `vUv` and
-the reconstructed per-pixel depth `dPix`, then `W = (viewToWorld ·
-vec4(P, 1)).xyz`. A nested power-of-two LOD keeps the on-screen spacing
-constant as depth changes, so the pen pattern walks with the world instead
-of sitting as a screen-space grid.
+The scene sample and the colours are **per cell**
+(`cell = floor(vUv · grid)`). Everything about the surface — the depth
+taps, the class, `dPix`, the world position `W`, the stroke coordinates
+and scale, the one-sided outline — is computed once per pixel by the
+shared chunk's `Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`).
+Strokes are **per canvas pixel**: the world position is
+`P = viewPos(vUv, dPix, …)` with the continuous `vUv` and the
+reconstructed per-pixel depth `dPix`, then `W = (viewToWorld · vec4(P,
+1)).xyz`. A nested power-of-two LOD keeps the on-screen spacing constant
+as depth changes, so the pen pattern walks with the world instead of
+sitting as a screen-space grid.
+
+Steps 4–9 below document the machinery that `surfaceAt` (and the chunk's
+`nestedStrokeInk` / `hairInk`) implements; the full term-for-term
+specification now lives in `docs/styles/strokes.md`.
 
 1. `p = vUv · grid`; `cell = floor(p)`.
 2. `c = sampleSub(cell, 0, 0)`; `v = shaped(bright(c))`;
@@ -85,7 +103,8 @@ of sitting as a screen-space grid.
    For fixed `(along, ph, mu, key)`, `wobble` is identical for every
    `ma ≤ 0.9/8` (all octaves fully visible) — walking closer never changes
    a stroke's shape.
-   **Nested strokes** (`nestedStrokeInk(u, along, tone, mu, ma)`):
+   **Nested strokes** (`nestedStrokeInk(u, along, tone, mu, ma, wBase,
+   wTone, aa)` — scribble passes its v4 values `0.30, 0.20, 0.15`):
    `lod = log2(8·mu)`, `L = floor(lod)`, `f = fract(lod)` (level `L` is 8
    cells apart on screen). Layer `k = 0..2` draws level `j = L − k` with
    **soft** weight `smoothstep(t_k − 0.08, t_k + 0.08, tone)`,
@@ -101,8 +120,10 @@ of sitting as a screen-space grid.
    `ph = hash2(key, 0)·6.2832`,
    `wob = wobble(along, ph, mu, ma, key)`,
    skip the line when `lifted(key, along, ma)`,
-   `hw = mu·(0.30 + 0.20·tone)` (the v3 core — wider cores went grey),
-   `cov = 1 − smoothstep(hw − 0.15·mu, hw + 0.15·mu, |u − key − wob|)`,
+   `hw = mu·(wBase + wTone·tone)` — for scribble `mu·(0.30 + 0.20·tone)`
+   (the v3 core — wider cores went grey),
+   `cov = 1 − smoothstep(hw − aa·mu, hw + aa·mu, |u − key − wob|)`
+   (scribble `aa = 0.15`),
    `weight = (mod(i, 2) == 1) ? (1 − f) : 1` (odd lines fade out as the LOD
    climbs; at `f → 1` they are gone and the even lines become the next
    level — no pop),
@@ -180,13 +201,37 @@ stroke density.
   (sky disagreement / inverse-depth second difference, `k = 0.02`) and
   `isNearSide` term for term; the pure mirror composes the imported
   `isEdge` + `isNearSide` in `surfaceOutline`.
+- **Chunk + fragment** — `fragment: STROKE_GLSL + SCRIBBLE_FRAGMENT`:
+  the shared machinery (chunk, `docs/styles/strokes.md`) plus scribble's
+  constants (`PAPER`, `INK`, `SKY_INK`), the `daylight` uniform and
+  `main()` (which starts `Surf s = surfaceAt(vUv);`).
 - **One uniform** — `uniform float daylight` is the only style uniform,
   seeded from `ctx.daylight` in `makeUniforms` and refreshed every frame by
   the `update` hook. `makeUniforms` creates no textures; no `dispose`.
   Prelude uniforms (`viewUp`, `tanHalfFov`, `viewToWorld`) are never
-  redeclared.
+  redeclared — neither in the fragment nor in `STROKE_GLSL`.
 
 ## Pure exports (unit-tested in node)
+
+The stroke machinery moved to `src/render/styles/strokes.ts` in T-0139
+(`UP_K`, `SCRIBBLE_LAYERS`, `hash2`, `viewPos`, `viewNormal`,
+`depthFade`, `strokeCoords`, `strokeScale`, `lodOf`, `vnoise1`, `wobble`,
+`lifted`, `nestedStrokeInk`, `skyCoords`, `hairInk`, `hairDir`) — see
+`docs/styles/strokes.md` and `tests/styles/strokes.test.ts`. Scribble
+keeps:
+
+- `PAPER` — `[0.98, 0.97, 0.94]`, the white paper.
+- `INK` — `[0.12, 0.10, 0.12]`, the neutral pen ink.
+- `SKY_INK` — `[0.15, 0.14, 0.18]`, the dim violet-grey sky hair ink.
+- `surfaceClass(dC, far, up): 0 | 1 | 2` — sky / ground / wall (v2).
+- `skyDensity(daylight): number` — `mix(0.75, 0.45, daylight)` (v4).
+- `surfaceOutline(dC, neighbours, far): boolean` — the one-sided outline
+  gate (`isEdge` AND `isNearSide` over the four neighbours).
+- `inkColour(tint): [r, g, b]` — `mix(INK, tint·0.50, 0.85·satF)` (v2).
+- `washColour(tint, tone): [r, g, b]` — `mix(PAPER, tint,
+  0.14·satF·min(1, tone·1.5))` (v2).
+
+The moved exports, for reference (definitions in `strokes.ts`):
 
 - `SCRIBBLE_LAYERS` — the three `{ spacing, threshold }` stroke layers
   `[{8, 0.10}, {4, 0.40}, {2, 0.70}]`. v3 uses only the thresholds; world
@@ -194,16 +239,11 @@ stroke density.
   `smoothstep(t−0.08, t+0.08, tone)`.
 - `UP_K` — `0.6`, the ground/wall cut on `up = |dot(n, viewUp)|` (v2;
   replaces `SLOPE_K`).
-- `PAPER` — `[0.98, 0.97, 0.94]`, the white paper.
-- `INK` — `[0.12, 0.10, 0.12]`, the neutral pen ink.
-- `SKY_INK` — `[0.15, 0.14, 0.18]`, the dim violet-grey sky hair ink.
 - `hash2(a, b): number` — v3 precision-safe hash, in `[0, 1)`.
 - `viewPos(uv, d, tanHalfFov, aspect): [x, y, z]` — view-space position
   of a texel at linear depth `d` (v2).
 - `viewNormal(uvs, depths, tanHalfFov, aspect): [x, y, z]` — unit
   view-space surface normal from the four L/R/U/D taps (v2).
-- `surfaceClass(dC, far, up): 0 | 1 | 2` — sky / ground / wall (v2).
-- `skyDensity(daylight): number` — `mix(0.75, 0.45, daylight)` (v4).
 - `depthFade(d): number` — `1 − 0.45·smoothstep(120, 900, d)`.
 - `strokeCoords(W, nW, d, up): { u, along }` — world stroke coordinates
   in metres (v3).
@@ -215,8 +255,10 @@ stroke density.
   value-noise wobble with screen-size fades (v4). `key` is the line's
   world coordinate so adjacent strokes do not wave in step.
 - `lifted(key, along, ma): boolean` — world-metre pen-lift gate (v4).
-- `nestedStrokeInk(u, along, tone, mu, ma): number` — nested-LOD
-  surface-stroke coverage in `[0, 1]` (v3/v4). Replaces deleted `strokeInk`.
+- `nestedStrokeInk(u, along, tone, mu, ma, wBase, wTone, aa): number` —
+  nested-LOD surface-stroke coverage in `[0, 1]` (v3/v4, parameterised
+  widths since T-0139; scribble passes `0.30, 0.20, 0.15`). Replaces
+  deleted `strokeInk`.
 - `skyCoords(dirW, K): [x, y]` — stereographic-from-nadir dome coordinates
   in cells (v3.1).
 - `hairInk(ps, density): number` — sky-hair coverage in `[0, 1]` (v4;
@@ -224,12 +266,6 @@ stroke density.
   Replaces deleted `tangleInk`.
 - `hairDir(c, s): [x, y]` — unit direction of hair stroke `s` in cell `c`
   (v4 test helper).
-- `surfaceOutline(dC, neighbours, far): boolean` — the one-sided outline
-  gate (`isEdge` AND `isNearSide` over the four neighbours).
-- `inkColour(tint): [r, g, b]` — `mix(INK, tint·0.50, 0.85·satF)` (v2).
-- `washColour(tint, tone): [r, g, b]` — `mix(PAPER, tint,
-  0.14·satF·min(1, tone·1.5))` (v2).
-
 ## Uniforms owned by the style
 
 | name       | shape                                    |
@@ -249,8 +285,8 @@ textures are created, so there is no `dispose`.
 ## What the shader does per pixel
 
 1. `p = vUv · grid`, `cell = floor(p)`; sample, tone, tint (steps 1–3).
-2. Clamped depth taps one cell apart; classify sky / ground / wall by the
-   view-space normal (steps 4–5).
+2. `Surf s = surfaceAt(vUv)` — clamped depth taps one cell apart; classify
+   sky / ground / wall by the view-space normal (steps 4–5).
 3. Sky cells paint the stereographic dome hair on paper (step 8); return.
 4. Non-sky: fade, reconstruct `dPix`, world `W` / screen-gradient scale /
    nested-LOD strokes with world-metre wobble and lifts, one-sided outline
