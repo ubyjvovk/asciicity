@@ -232,7 +232,7 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   denser. e2e unchanged and green (ground vertical runs rose 84 → 537
   because the shakier wobble makes horizontal lines swing ≥ 6 px — not a
   misclassification). Wave 17 spend: 3 tickets, 6 attempts, ≈ $0.16.
-- **Wave 17 complete (135 done; T-0123 Spark spike still in drafts).** Board empty. Awaiting the user's look at
+- (superseded) Wave 17 first close at 135 done. Awaiting the user's look at
   `?render=scribble` (best frames: Tokyo 22:00, London noon on the bridge).
   Open polish ideas, only if the user asks: wet-floor reflection (mirror
   the scene about the horizon for ground cells), loopier sky curls
@@ -248,6 +248,25 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   on the dome (atan/asin of the world ray). T-0137 boarded, pinned to grok
   (LOD blending is subtle). PM review must include a "strokes move with the
   world" check: two host frames 1 m apart.
+- T-0137 attempt 1 (grok-1, 39 min, $1.38) → REWORK: anchoring worked
+  (frames 1 m apart show the strokes moving with the world; walls converge
+  when pitched up) but the PM spec scaled every stroke by a single "metres
+  per cell" — wrong on foreshortened surfaces: the road and oblique facades
+  rendered as static, and the atan/asin sky put a starburst at the zenith.
+  §4.11 amended: stroke scale = screen gradient of u (`strokeScale` → mu,
+  ma, the texture-mip rule), ±2 neighbour lines, stereographic sky from the
+  nadir. Grok's own additions (neighbour lines, per-pixel ground depth
+  `dPix`) adopted.
+- T-0137 ACCEPTED 2026-09-18 (grok-1, attempt 2, 15 min, $0.49). PM host-GPU
+  review (`e2e/__shots__/pm-scribble-v3-*.png`, 60 fps): road and facades
+  are strokes again, strokes move with the world, no sky pole, e2e
+  unchanged and green. Known polish: at > ~120 m the ground's per-pixel
+  depth gradient is zeroed by the 35 % jump rule, so far ground lines break
+  into cell-row dashes (London bridge frame). Fix if wanted: a larger jump
+  threshold for the ground, or an analytic ground depth. Wave 17 total
+  ≈ $2.05 over 4 tickets / 9 attempts.
+- **Wave 17 complete (136 done).** Board empty. Awaiting the user's second
+  walk in `?render=scribble`.
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
