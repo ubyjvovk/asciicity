@@ -238,6 +238,17 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   the scene about the horizon for ground cells), loopier sky curls
   (parametric curves rather than wavy level sets), coloured sky ink at dusk.
 
+- User review 2026-09-18 of v2: "a fixed grid overlay of irregular lines
+  that looks out of place" = the shower-door effect (strokes in screen
+  space). PM plumbed `viewToWorld` (mat4, camera.matrixWorld) into the
+  prelude; §4.11 "scribble v3 (T-0137)" locks world-anchored strokes (walls:
+  vertical world lines along the facade tangent; ground: constant-depth
+  lines), a nested power-of-two LOD (level L = 8 cells apart, odd lines
+  fade with fract(lod) — no pop), a precision-safe hash, and the sky tangle
+  on the dome (atan/asin of the world ray). T-0137 boarded, pinned to grok
+  (LOD blending is subtle). PM review must include a "strokes move with the
+  world" check: two host frames 1 m apart.
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
