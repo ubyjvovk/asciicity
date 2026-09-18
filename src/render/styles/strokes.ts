@@ -13,8 +13,9 @@
  * `scribble`'s old `main()` computed before colouring: the five clamped
  * one-cell depth taps, the sky test, the class, the reconstructed per-
  * pixel depth `dPix`, world `W` / `nW`, `strokeCoords` + `strokeScale`,
- * and the one-sided outline test; for sky cells it fills `dirW` / `ps`
- * and zeroes the rest.
+ * and the one-sided outline via `outlineFromDepths` / `outlineAt`
+ * (T-0145); for sky
+ * cells it fills `dirW` / `ps` and zeroes the rest.
  *
  * The TS pure mirrors of the chunk (`UP_K`, `SCRIBBLE_LAYERS`, `hash2`,
  * `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `lodOf`,
@@ -494,7 +495,9 @@ export function bloomA(u: number, along: number, mu: number, ma: number): number
  * `wobble`, `lifted`, `strokeLayer`, `nestedStrokeInk` (parameterised
  * stroke widths `wBase`/`wTone`/`aa`), `hairInk`, `skyCoords`,
  * `anchoredNoise`, `vnoiseA`, the `Surf` struct,
- * `Surf surfaceAt(vec2 uv)`, `toothOf(s)`, `blotchA(s)`, `bloomA(s)`.
+ * `float outlineFromDepths(...)`, `float outlineAt(vec2 cellUv)`,
+ * `Surf surfaceAt(vec2 uv)`,
+ * `toothOf(s)`, `blotchA(s)`, `bloomA(s)`.
  * A style prepends it to its own fragment, which is appended to
  * `STYLE_PRELUDE` — nothing here redeclares a prelude uniform. GLSL
  * ES 1.0: the three nested layers are an `if` ladder; the hair loop is
@@ -694,10 +697,57 @@ struct Surf {
   bool outline; // one-sided outline: the cell inks fully
 };
 
+// One-sided outline test on five already-fetched linear depths (T-0145).
+// Sky (dC >= 0.98 * cameraFar) is 0; else 1 iff the cell is a depth
+// discontinuity (sky disagreement or inverse-depth second difference)
+// whose nearer side it is. surfaceAt applies this to its own taps;
+// outlineAt(cellUv) fetches the taps then calls this.
+float outlineFromDepths(float dC, float dL, float dR, float dU, float dD) {
+  float skyThr = 0.98 * cameraFar;
+  if (dC >= skyThr) {
+    return 0.0;
+  }
+  float wC = 1.0 / dC;
+  float wL = 1.0 / dL;
+  float wR = 1.0 / dR;
+  float wU = 1.0 / dU;
+  float wD = 1.0 / dD;
+  bool skyL = dL >= skyThr;
+  bool skyR = dR >= skyThr;
+  bool skyU = dU >= skyThr;
+  bool skyD = dD >= skyThr;
+  bool jump = skyL || skyR || skyU || skyD;
+  bool crease = (abs(wL + wR - 2.0 * wC) > 0.02 * wC) ||
+                (abs(wU + wD - 2.0 * wC) > 0.02 * wC);
+  bool nearSide = (dL > dC || (skyL && dC < skyThr)) ||
+                  (dR > dC || (skyR && dC < skyThr)) ||
+                  (dU > dC || (skyU && dC < skyThr)) ||
+                  (dD > dC || (skyD && dC < skyThr));
+  return ((jump || crease) && nearSide) ? 1.0 : 0.0;
+}
+
+// One-sided outline flag of the cell that contains cellUv (T-0145).
+float outlineAt(vec2 cellUv) {
+  vec2 cell = floor(cellUv * grid);
+  vec2 texel = 1.0 / sceneSize;
+  vec2 centreUv = (cell * sub + 0.5) * texel;
+  vec2 stepUv = sub * texel;
+  vec2 lo = 0.5 * texel;
+  vec2 hi = 1.0 - 0.5 * texel;
+  return outlineFromDepths(
+    linearDepth(centreUv),
+    linearDepth(clamp(centreUv - vec2(stepUv.x, 0.0), lo, hi)),
+    linearDepth(clamp(centreUv + vec2(stepUv.x, 0.0), lo, hi)),
+    linearDepth(clamp(centreUv + vec2(0.0, stepUv.y), lo, hi)),
+    linearDepth(clamp(centreUv - vec2(0.0, stepUv.y), lo, hi))
+  );
+}
+
 // Everything a sketch style computes before colouring: the five clamped
 // one-cell depth taps, the sky test, the class, dPix, W, nW,
-// strokeCoords + strokeScale and the one-sided outline test. For sky
-// cells (cls == 0) dirW / ps are filled and the rest is zero.
+// strokeCoords + strokeScale and the one-sided outline (via
+// outlineFromDepths). For sky cells (cls == 0) dirW / ps are filled
+// and the rest is zero.
 Surf surfaceAt(vec2 uv) {
   vec2 p = uv * grid;
   vec2 cell = floor(p);
@@ -772,25 +822,10 @@ Surf surfaceAt(vec2 uv) {
   s.mu = scale.x;
   s.ma = scale.y;
 
-  // One-sided outline: a depth discontinuity (sky disagreement or an
-  // inverse-depth second difference) whose nearer side this cell is.
-  float wC = 1.0 / dC;
-  float wL = 1.0 / dL;
-  float wR = 1.0 / dR;
-  float wU = 1.0 / dU;
-  float wD = 1.0 / dD;
-  bool skyL = dL >= skyThr;
-  bool skyR = dR >= skyThr;
-  bool skyU = dU >= skyThr;
-  bool skyD = dD >= skyThr;
-  bool jump = skyL || skyR || skyU || skyD;
-  bool crease = (abs(wL + wR - 2.0 * wC) > 0.02 * wC) ||
-                (abs(wU + wD - 2.0 * wC) > 0.02 * wC);
-  bool nearSide = (dL > dC || (skyL && dC < skyThr)) ||
-                  (dR > dC || (skyR && dC < skyThr)) ||
-                  (dU > dC || (skyU && dC < skyThr)) ||
-                  (dD > dC || (skyD && dC < skyThr));
-  s.outline = (jump || crease) && nearSide;
+  // One-sided outline: the extracted test on the taps already fetched
+  // above (byte-identical to the pre-T-0145 inline; outlineAt(cellUv)
+  // is the same test after its own taps, used by pastel).
+  s.outline = outlineFromDepths(dC, dL, dR, dU, dD) > 0.5;
   return s;
 }
 

@@ -5,8 +5,8 @@
  * *density*, long wobbly pen strokes that follow the surface (vertical
  * world-lines on walls, constant-depth on the ground, short hair strokes
  * on the sky dome), ink coloured by the object under it, one-sided pencil
- * outlines, far buildings sketched lighter. Cell 3×3, sub 1×1,
- * `needsDepth: true`, `groundGrid: false`.
+ * outlines, far buildings sketched lighter. Cell 2×2, sub 1×1,
+ * `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
  *
  * Since T-0139 the world-anchored stroke machinery lives in the shared
  * chunk `./strokes.ts`: the fragment is `STROKE_GLSL + SCRIBBLE_FRAGMENT`,
@@ -177,16 +177,17 @@ void main() {
  * of `u`, following the surface (classed by view-space normal, v2),
  * per-pixel wall depth and world-metre value-noise wobble/lifts (v4),
  * stereographic sky-dome hair, one-sided pencil outlines, far buildings
- * sketched lighter. Cell 3×3, sub 1×1, depth. `R` cycles, `?render=scribble`.
+ * sketched lighter. Cell 2×2, sub 1×1, `targetCap` 960×540, depth. `R` cycles, `?render=scribble`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
     id: 'scribble',
     label: 'SCRIBBLE',
-    cellW: 3,
-    cellH: 3,
+    cellW: 2,
+    cellH: 2,
     subX: 1,
     subY: 1,
+    targetCap: { w: 960, h: 540 },
     needsDepth: true,
     groundGrid: false,
     fragment: STROKE_GLSL + SCRIBBLE_FRAGMENT,

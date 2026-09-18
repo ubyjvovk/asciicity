@@ -1,13 +1,21 @@
 /**
  * Unit tests for the pure parts of the `pastel` render style
  * (docs/architecture.md §4.11, wave 18 "sketch family"): the pastel
- * chalk (`chalkOf`) and the full surface colour (`pastelColour`) — the
- * 3×3 smoothing lives only in the fragment. The shared stroke machinery
+ * chalk (`chalkOf`), the full surface colour (`pastelColour`), and the
+ * T-0145 bilinear weights / soft-edge ramp. The 3×3 smoothing and the
+ * 36-tap blend live only in the fragment. The shared stroke machinery
  * and the anchored tooth (`toothOf` / `blotchA`) are unit-tested in
  * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
-import { DARK_CHALK, PAPER_S, chalkOf, pastelColour } from '../../src/render/styles/pastel';
+import {
+  DARK_CHALK,
+  PAPER_S,
+  bilinearWeights,
+  chalkOf,
+  pastelColour,
+  softEdge,
+} from '../../src/render/styles/pastel';
 
 describe('chalkOf', () => {
   it('mix(white, t, 0.65·satF) at three points — white at satF 0, red-lead where colour applies', () => {
@@ -71,6 +79,57 @@ describe('pastelColour', () => {
       const c = pastelColour(v, [1, 0.2, 0.2], 1.0);
       expect(c[0]).toBeGreaterThan(c[1]);
       expect(c[0]).toBeGreaterThan(c[2]);
+    }
+  });
+});
+
+describe('bilinearWeights', () => {
+  it('sums to 1 and is [1,0,0,0] at a cell centre (p − 0.5 integer), [0.25 ×4] at a cell corner', () => {
+    const sum = (w: readonly number[]): number => w[0] + w[1] + w[2] + w[3];
+    // Cell centres: p − 0.5 is integer → all weight on c00.
+    for (const p of [
+      [0.5, 0.5],
+      [1.5, 2.5],
+      [-1.5, 4.5],
+    ] as const) {
+      const w = bilinearWeights(p);
+      expect(w[0]).toBeCloseTo(1, 10);
+      expect(w[1]).toBeCloseTo(0, 10);
+      expect(w[2]).toBeCloseTo(0, 10);
+      expect(w[3]).toBeCloseTo(0, 10);
+      expect(sum(w)).toBeCloseTo(1, 10);
+    }
+    // Cell corners: p integer → equal 0.25 on all four cells.
+    for (const p of [
+      [0, 0],
+      [1, 1],
+      [3, -2],
+    ] as const) {
+      const w = bilinearWeights(p);
+      expect(w[0]).toBeCloseTo(0.25, 10);
+      expect(w[1]).toBeCloseTo(0.25, 10);
+      expect(w[2]).toBeCloseTo(0.25, 10);
+      expect(w[3]).toBeCloseTo(0.25, 10);
+      expect(sum(w)).toBeCloseTo(1, 10);
+    }
+    // Off-lattice points still sum to 1.
+    for (const p of [
+      [0.75, 0.5],
+      [2.1, 3.9],
+      [-0.25, 1.25],
+    ] as const) {
+      expect(sum(bilinearWeights(p))).toBeCloseTo(1, 10);
+    }
+  });
+});
+
+describe('softEdge', () => {
+  it('softEdge(0) → 0, softEdge(1) → 0.35, monotone', () => {
+    expect(softEdge(0)).toBeCloseTo(0, 10);
+    expect(softEdge(1)).toBeCloseTo(0.35, 10);
+    const samples = [0, 0.1, 0.15, 0.4, 0.5, 0.85, 0.9, 1];
+    for (let i = 1; i < samples.length; i++) {
+      expect(softEdge(samples[i])).toBeGreaterThanOrEqual(softEdge(samples[i - 1]));
     }
   });
 });

@@ -7,7 +7,7 @@
  * cross-hatch family that fades in for `tone2 > 0.45`, soft one-sided
  * graphite outlines (never solid black) and a pencilled sky — darker
  * toward the zenith by day, an even grey by night, with sparse hair
- * strokes. Cell 3×3, sub 1×1, `needsDepth: true`, `groundGrid: false`.
+ * strokes. Cell 2×2, sub 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
  *
  * Built on the shared chunk (`./strokes.ts`, T-0139): the fragment is
  * `STROKE_GLSL + PENCIL_FRAGMENT` and `main()` starts with
@@ -147,17 +147,18 @@ void main() {
  * the world/dome-anchored paper tooth, world-anchored nested-LOD strokes with
  * wider softer pencil widths, a 45° cross-hatch family in the shade,
  * soft graphite outlines and a zenith-darkened (day) / even grey (night)
- * pencilled sky with sparse hair. Cell 3×3, sub 1×1, depth.
+ * pencilled sky with sparse hair. Cell 2×2, sub 1×1, `targetCap` 960×540, depth.
  * `R` cycles, `?render=pencil`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
     id: 'pencil',
     label: 'PENCIL',
-    cellW: 3,
-    cellH: 3,
+    cellW: 2,
+    cellH: 2,
     subX: 1,
     subY: 1,
+    targetCap: { w: 960, h: 540 },
     needsDepth: true,
     groundGrid: false,
     fragment: STROKE_GLSL + PENCIL_FRAGMENT,

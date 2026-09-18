@@ -102,11 +102,11 @@ See the comment on `STYLE_PRELUDE` in `style.ts`.
 | `pico8` | `styles/pico8.ts` | 4×4 | 1×1 | no | Stub until T-0055. |
 | `lowpoly` | `styles/lowpoly.ts` | 6×6 | 2×2 | yes | '80s CGI flat facets + ink outlines (T-0120; e2e T-0121). |
 | `quest` | `styles/quest.ts` | 3×3 | 1×1 | yes | SVGA-era fantasy painter's ramps (T-0124/T-0130). **Out of `STYLE_ORDER` since 2026-09-18** (user: coloured pencil replaces it); module kept for `isNearSide`. |
-| `scribble` | `styles/scribble.ts` | 3×3 | 1×1 | yes | Coloured-ink scribble sketch on white paper: surface-following wobbly strokes, sky tangle, one-sided outlines (§4.11 wave 17). Stub until T-0134. |
-| `pencil` | `styles/pencil.ts` | 3×3 | 1×1 | yes | Graphite pencil sketch: smudged tone wash + soft world-anchored hatching (§4.11 wave 18). Stub until T-0140. |
-| `crayon` | `styles/crayon.ts` | 3×3 | 1×1 | yes | Coloured pencil: the pencil look in each object's hue (§4.11 wave 18). Stub until T-0141. |
-| `pastel` | `styles/pastel.ts` | 3×3 | 1×1 | yes | Soft chalk pastel: grainy colour blocks, no strokes (§4.11 wave 18). Stub until T-0142. |
-| `watercolor` | `styles/watercolor.ts` | 3×3 | 1×1 | yes | Watercolour washes with granulation and pooled edges (§4.11 wave 18). Stub until T-0143. |
+| `scribble` | `styles/scribble.ts` | 2×2 | 1×1 | yes | Coloured-ink scribble sketch on white paper: surface-following wobbly strokes, sky tangle, one-sided outlines (§4.11 wave 17). `targetCap` 960×540 (wave 18b, T-0145). |
+| `pencil` | `styles/pencil.ts` | 2×2 | 1×1 | yes | Graphite pencil sketch: smudged tone wash + soft world-anchored hatching (§4.11 wave 18). `targetCap` 960×540 (wave 18b, T-0145). |
+| `crayon` | `styles/crayon.ts` | 2×2 | 1×1 | yes | Coloured pencil: the pencil look in each object's hue (§4.11 wave 18). `targetCap` 960×540 (wave 18b, T-0145). |
+| `pastel` | `styles/pastel.ts` | 2×2 | 1×1 | yes | Soft chalk pastel: grainy colour blocks, no strokes, bilinear-smoothed sample + chalk smudge + soft outline (§4.11 wave 18b). `targetCap` 960×540 (T-0145). |
+| `watercolor` | `styles/watercolor.ts` | 2×2 | 1×1 | yes | Watercolour washes with granulation and pooled edges (§4.11 wave 18). `targetCap` 960×540 (wave 18b, T-0145). |
 | `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
 | `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
 | `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |

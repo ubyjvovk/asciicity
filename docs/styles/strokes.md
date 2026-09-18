@@ -44,7 +44,10 @@ What the chunk provides:
   (surfaces) / dome- (sky) anchored grain, blended across two
   power-of-two LODs. See **Anchored tooth** below.
 - The `Surf` struct and `Surf surfaceAt(vec2 uv)` — everything a sketch
-  `main()` computed before colouring.
+  `main()` computed before colouring. The one-sided outline is
+  `outlineAt(uv)` (T-0145).
+- `float outlineAt(vec2 cellUv)` — the one-sided outline test extracted
+  from `surfaceAt` (wave 18b, T-0145). See **`outlineAt`** below.
 - `toothOf(s)` / `blotchA(s)` / `bloomA(s)` — paper tooth, granulation
   blotches and backruns/cloud gaps; GLSL takes a `Surf` (sky branch
   uses `s.ps` with `mx = my = 1`).
@@ -64,10 +67,32 @@ What the chunk provides:
 | `u`, `along` | stroke coordinates in metres (`strokeCoords`) |
 | `dirW`    | sky cells only: unit world view direction |
 | `ps`      | sky cells only: `skyCoords(dirW, K)` dome position in cells |
-| `outline` | one-sided outline: a depth discontinuity (sky disagreement or inverse-depth second difference) whose nearer side this cell is |
+| `outline` | one-sided outline: `outlineAt(uv) > 0.5` (sky cells stay false because `surfaceAt` returns before the call) |
 
 For sky cells (`cls == 0`) `dirW` / `ps` are filled and the rest is zero;
 the outline is false.
+
+## `outlineAt` (wave 18b, T-0145)
+
+`float outlineAt(vec2 cellUv)` is the one-sided outline test extracted
+from `surfaceAt` so a style can sample it at a cell other than the
+pixel's own. Behaviour for the pixel's cell is byte-identical to the
+pre-T-0145 inline test (the scribble e2e is the lock).
+
+Given a UV that identifies a cell (`floor(cellUv · grid)`):
+
+1. The same five clamped one-cell depth taps as `surfaceAt` (`centreUv`
+   and L/R/U/D, clamped to `[0.5·texel, 1 − 0.5·texel]`).
+2. `outlineFromDepths(dC, dL, dR, dU, dD)`: sky (`dC ≥ 0.98 ·
+   cameraFar`) → `0`; else `1` when the cell is a depth discontinuity
+   (a neighbour is sky, or an inverse-depth second difference
+   `|wL + wR − 2·wC| > 0.02·wC` / same on U/D) **and** this cell is
+   the nearer side of it; else `0`.
+
+`surfaceAt` applies `outlineFromDepths` to the taps it already fetched
+(so scribble / pencil / crayon / watercolor do not re-sample `tDepth`).
+`pastel` bilinear-blends the four neighbour `outlineAt` flags (0/1) for
+its soft 2-cell edge ramp (`docs/styles/pastel.md`).
 
 ## Using the chunk (example)
 

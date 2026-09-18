@@ -7,8 +7,8 @@
  * the object under it: strokes mix from graphite toward `tint·0.60` by
  * `0.85·satF`, the paper wash is a per-tone coloured wash
  * (`crayonWash`), and the sky is a faint blue wash at day and a faint
- * violet at night. Cell 3×3, sub 1×1, `needsDepth: true`,
- * `groundGrid: false`.
+ * violet at night. Cell 2×2, sub 1×1, `targetCap` 960×540,
+ * `needsDepth: true`, `groundGrid: false`.
  *
  * The world-anchored stroke machinery is the shared chunk `./strokes.ts`:
  * `fragment: STROKE_GLSL + CRAYON_FRAGMENT`, and `main()` starts with
@@ -159,17 +159,18 @@ void main() {
  * Coloured pencil — the pencil's graphite strokes and cross-hatch in
  * each object's own hue, paper that takes a per-tone coloured wash under
  * the world/dome-anchored tooth, soft blue day sky / violet night sky with
- * pencil hair, one-sided graphite outlines. Cell 3×3, sub 1×1, depth. `R`
- * cycles, `?render=crayon`.
+ * pencil hair, one-sided graphite outlines. Cell 2×2, sub 1×1, `targetCap`
+ * 960×540, depth. `R` cycles, `?render=crayon`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
     id: 'crayon',
     label: 'CRAYON',
-    cellW: 3,
-    cellH: 3,
+    cellW: 2,
+    cellH: 2,
     subX: 1,
     subY: 1,
+    targetCap: { w: 960, h: 540 },
     needsDepth: true,
     groundGrid: false,
     fragment: STROKE_GLSL + CRAYON_FRAGMENT,
