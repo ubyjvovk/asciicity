@@ -10,8 +10,8 @@
  * 0.8·satF)`); grey things get a neutral slate wash. Backruns (blotchy
  * paper gaps — `bloomA(s)`) keep the wash looking wet, and the day sky
  * carries cloud gaps. The sky is a granulated blue by day and deep
- * indigo at night. Cell 3×3, sub 1×1, `needsDepth: true`,
- * `groundGrid: false`.
+ * indigo at night. Cell 2×2, sub 1×1, `targetCap` 960×540,
+ * `needsDepth: true`, `groundGrid: false`.
  *
  * The world-anchored surface machinery is the shared chunk `./strokes.ts`:
  * `fragment: STROKE_GLSL + WATERCOLOR_FRAGMENT`, and `main()` starts with
@@ -190,17 +190,18 @@ void main() {
  * Watercolour — wet transparent washes: tone by pigment density, granulation
  * blotches world/dome-anchored, grey things washed neutral slate, the edge of a
  * wash darkened where pigment pools, lights left white, a plain granulated
- * blue day / indigo night sky. Cell 3×3, sub 1×1, depth. `R` cycles,
+ * blue day / indigo night sky. Cell 2×2, sub 1×1, `targetCap` 960×540, depth. `R` cycles,
  * `?render=watercolor`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
     id: 'watercolor',
     label: 'WATERCOLOR',
-    cellW: 3,
-    cellH: 3,
+    cellW: 2,
+    cellH: 2,
     subX: 1,
     subY: 1,
+    targetCap: { w: 960, h: 540 },
     needsDepth: true,
     groundGrid: false,
     fragment: STROKE_GLSL + WATERCOLOR_FRAGMENT,
