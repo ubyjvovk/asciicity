@@ -830,7 +830,7 @@ at fixed angles, the near-vertical one dominant, each line present with
 probability `density` (`skyDensity = mix(0.55, 0.22, daylight)` — night is a
 denser tangle, noon a sparse one):
 
-    families j = 0..2:  θ = [1.45, 0.35, 2.40] rad,  S = [3, 9, 7] cells
+    families j = 0..2:  θ = [0.12, 1.25, 2.30] rad,  S = [3, 9, 7] cells   // θ = 0 would be exactly vertical lines
         u = p.x·cos θ + p.y·sin θ;   along = −p.x·sin θ + p.y·cos θ
         idx = floor(u / S);   if hash(idx, 20 + j) > density → line absent
         ph  = hash(idx, 30 + j) · 6.2832
