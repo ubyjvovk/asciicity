@@ -1,9 +1,9 @@
 /**
  * Unit tests for the pure parts of the `scribble` render style
- * (docs/architecture.md §4.11, wave 17, T-0134): the surface-class split,
- * far-depth fade, stroke-density and tangle coverage growth, the neutral vs
- * coloured ink/wash colours, and the deterministic hash. Runs in node; no
- * WebGL is touched.
+ * (docs/architecture.md §4.11, wave 17 T-0134 / v2 T-0136): the
+ * view-space-normal surface class, far-depth fade, stroke-density and
+ * tangle coverage growth, the neutral vs coloured ink/wash colours, and the
+ * deterministic hash. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,13 +11,16 @@ import {
   PAPER,
   SCRIBBLE_LAYERS,
   SKY_INK,
-  SLOPE_K,
+  UP_K,
   depthFade,
   hash2,
   inkColour,
+  skyDensity,
   strokeInk,
   surfaceClass,
   tangleInk,
+  viewNormal,
+  viewPos,
   washColour,
 } from '../../src/render/styles/scribble';
 
@@ -57,16 +60,71 @@ describe('hash2', () => {
   });
 });
 
+describe('viewPos', () => {
+  it('screen centre maps to (0, 0, −d)', () => {
+    const p = viewPos([0.5, 0.5], 10, 0.7002, 16 / 9);
+    expect(p[0]).toBeCloseTo(0, 6);
+    expect(p[1]).toBeCloseTo(0, 6);
+    expect(p[2]).toBeCloseTo(-10, 6);
+  });
+
+  it('right edge x ≈ tanHalfFov·aspect·d, z = −d', () => {
+    const p = viewPos([1, 0.5], 10, 0.7002, 16 / 9);
+    expect(p[0]).toBeCloseTo(12.448, 3);
+    expect(p[1]).toBeCloseTo(0, 6);
+    expect(p[2]).toBeCloseTo(-10, 6);
+  });
+});
+
+describe('viewNormal', () => {
+  // Taps one texel-ish apart around a centre uv, all on the same plane.
+  const DELTA = 0.002;
+  const uv = (cx: number, cy: number): [number, number] => [cx, cy];
+  const tapUvs = {
+    L: uv(0.5 - DELTA, 0.3),
+    R: uv(0.5 + DELTA, 0.3),
+    U: uv(0.5, 0.3 + DELTA),
+    D: uv(0.5, 0.3 - DELTA),
+  };
+  const TAN = 0.7002;
+  const ASPECT = 16 / 9;
+
+  it('a floor has up normal (|n.y| > 0.95)', () => {
+    // Camera 1.7 m above a level ground plane: view-space floor height is
+    // −1.7, so the analytic depth of a texel is d(uv) = 1.7 / ((0.5 − uv.y)·
+    // 2·tanHalfFov). All four taps lie on that plane.
+    const d = (u: [number, number]): number =>
+      1.7 / ((0.5 - u[1]) * 2 * TAN);
+    const n = viewNormal(tapUvs, { L: d(tapUvs.L), R: d(tapUvs.R), U: d(tapUvs.U), D: d(tapUvs.D) }, TAN, ASPECT);
+    expect(Math.abs(n[1])).toBeGreaterThan(0.95);
+    // ...and it points up (matching a level camera's viewUp = +y).
+    expect(n[1]).toBeGreaterThan(0);
+  });
+
+  it('a frontal wall has normal toward the camera (|n.z| > 0.99)', () => {
+    // Every tap at the same depth 30 → a plane facing the viewer.
+    const n = viewNormal(tapUvs, { L: 30, R: 30, U: 30, D: 30 }, TAN, ASPECT);
+    expect(Math.abs(n[2])).toBeGreaterThan(0.99);
+  });
+});
+
 describe('surfaceClass', () => {
-  it('sky, ground and wall per §4.11', () => {
+  it('sky, ground and wall per §4.11 v2', () => {
     // dC ≥ 0.98·far → sky (0).
-    expect(surfaceClass(1960, 1970, 1950, 2000)).toBe(0);
-    // slope 0.015 > SLOPE_K → ground (1).
-    expect(surfaceClass(20, 20.3, 19.7, 2000)).toBe(1);
-    // slope 0.0005 ≤ SLOPE_K → wall (2).
-    expect(surfaceClass(20, 20.01, 19.99, 2000)).toBe(2);
-    // flat → wall (2).
-    expect(surfaceClass(50, 50, 50, 2000)).toBe(2);
+    expect(surfaceClass(1970, 2000, 1)).toBe(0);
+    // up ≈ 1 (a floor) → ground (1).
+    expect(surfaceClass(30, 2000, 0.98)).toBe(1);
+    // up ≈ 0 (a wall) → wall (2).
+    expect(surfaceClass(30, 2000, 0.05)).toBe(2);
+    // up exactly UP_K is NOT ground (strictly greater) → wall (2).
+    expect(surfaceClass(30, 2000, UP_K)).toBe(2);
+  });
+});
+
+describe('skyDensity', () => {
+  it('mix(0.60, 0.30, daylight) — night denser, noon sparse', () => {
+    expect(skyDensity(0)).toBeCloseTo(0.6, 6);
+    expect(skyDensity(1)).toBeCloseTo(0.3, 6);
   });
 });
 
@@ -141,11 +199,11 @@ describe('inkColour', () => {
     expect(c[2]).toBeCloseTo(INK[2], 6);
   });
 
-  it('red tint yields reddish ink with r ≈ 0.55', () => {
+  it('red tint yields reddish ink with r ≈ 0.50·0.85 + 0.12·0.15 = 0.443', () => {
     const c = inkColour([1, 0.2, 0.2]);
     expect(c[0]).toBeGreaterThan(c[1]);
     expect(c[0]).toBeGreaterThan(c[2]);
-    expect(c[0]).toBeCloseTo(0.55, 6);
+    expect(c[0]).toBeCloseTo(0.443, 3);
   });
 });
 
