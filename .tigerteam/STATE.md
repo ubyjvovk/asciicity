@@ -316,6 +316,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   correctly used (0.30, 0.20, 0.15); §4.11 corrected. PM pixel diff vs the
   v4 frames: London + sky byte-identical, synthetic frames ≤ 27 px, Tokyo
   night 1 % = moving traffic. Qwen verdict on a real refactor: excellent.
+- T-0140 pencil ACCEPTED 2026-09-18 (qwen, attempt 1, 24 min, $0):
+  spec-faithful; qwen self-fixed a GLSL ES 1.0 `void(x)` compile error
+  found by the smoke loop. PM host review (`pm-pencil-v1-*.png`): reads as
+  graphite — grain, smudge, cross-hatch on walls, great look-up frame.
+  Tune candidates after the user's look: the ground is heavy (the 45°
+  cross family on the road reads as dark tyre streaks; Tokyo floor is a
+  dense barcode) — e.g. ground tone × 0.6, cross-hatch × 0.7.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
