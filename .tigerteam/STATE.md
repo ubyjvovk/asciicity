@@ -379,6 +379,18 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   granulation intact. Grok's warning: the 20-style smoke loop is close to
   its 120 s cap under SwiftShader (first full gate timed out once, retry
   green) — raise the smoke timeout or split the loop if it flakes again.
+- Smoke loop timeout raised 120 → 240 s (6fee239).
+- User decisions 2026-09-18 ~21:40Z: crayon is the Minas Tirith default;
+  `quest` disabled "for now"; the heavy cross-hatch gets a tune. PM did
+  the first two directly (cross-cutting, b7f133e): `quest` removed from
+  STYLE_ORDER + index (19 styles; module kept — scribble imports
+  `isNearSide`; `e2e/quest.spec.ts` skipped with a note; re-add the id to
+  re-enable), Minas Tirith `defaultRender: 'crayon'`, spawn/cities/ground
+  tests updated, ground-grid e2e now uses lowpoly (flat floor) and crayon
+  (terrain) with the grid-green metric (crayon's ground is paper-light, so
+  near-white was the wrong metric). Gate green. T-0146 (ground tune:
+  ground tone × 0.55, no cross-hatch on the ground, wall cross gate 0.55,
+  secondary × 0.75) boarded, grok, after T-0145.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
