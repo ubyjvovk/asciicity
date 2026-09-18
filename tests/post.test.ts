@@ -6,7 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import { STYLE_ORDER, STYLE_PRELUDE } from '../src/render/style';
 import { STYLES } from '../src/render/styles/index';
-import { styleGrid } from '../src/render/post';
+import { styleGrid, worldUpInView } from '../src/render/post';
+import * as THREE from 'three';
 
 /** Collect `uniform <type> <name>` identifiers from GLSL source. */
 function uniformNames(src: string): string[] {
@@ -53,5 +54,35 @@ describe('fragments', () => {
       }
       expect(dupes, style.id).toEqual([]);
     }
+  });
+});
+
+describe('worldUpInView (wave 17 v2 `viewUp` uniform)', () => {
+  it('level camera: world up is view +y', () => {
+    const cam = new THREE.PerspectiveCamera(70, 1, 0.3, 2000);
+    cam.updateMatrixWorld();
+    const v = worldUpInView(cam.matrixWorld, new THREE.Vector3());
+    expect(v.x).toBeCloseTo(0, 6);
+    expect(v.y).toBeCloseTo(1, 6);
+    expect(v.z).toBeCloseTo(0, 6);
+  });
+
+  it('camera pitched straight up: world up is view −z (forward)', () => {
+    const cam = new THREE.PerspectiveCamera(70, 1, 0.3, 2000);
+    cam.rotation.x = Math.PI / 2;
+    cam.updateMatrixWorld();
+    const v = worldUpInView(cam.matrixWorld, new THREE.Vector3());
+    expect(v.x).toBeCloseTo(0, 6);
+    expect(v.y).toBeCloseTo(0, 6);
+    expect(v.z).toBeCloseTo(-1, 6);
+  });
+
+  it('is independent of camera position and yaw', () => {
+    const cam = new THREE.PerspectiveCamera(70, 1, 0.3, 2000);
+    cam.position.set(120, 1.7, -40);
+    cam.rotation.y = 1.1;
+    cam.updateMatrixWorld();
+    const v = worldUpInView(cam.matrixWorld, new THREE.Vector3());
+    expect(v.y).toBeCloseTo(1, 6);
   });
 });

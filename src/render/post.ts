@@ -42,6 +42,20 @@ export function styleGrid(
   };
 }
 
+const tmpM3 = new THREE.Matrix3();
+
+/**
+ * World +Y expressed in the view space of a camera with world matrix
+ * `matrixWorld` (rigid: rotation + translation, no scale), written to `out`
+ * and returned. It is the transpose of the rotation block applied to
+ * (0, 1, 0). Feeds the `viewUp` common uniform (architecture §4.11, wave 17
+ * v2) so depth styles can tell floors from walls at any camera pitch.
+ */
+export function worldUpInView(matrixWorld: THREE.Matrix4, out: THREE.Vector3): THREE.Vector3 {
+  tmpM3.setFromMatrix4(matrixWorld).transpose();
+  return out.set(0, 1, 0).applyMatrix3(tmpM3).normalize();
+}
+
 /** Constructor options for {@link StyleRenderer}. */
 export interface StyleRendererOptions {
   /** Style id to activate (`?render=`); unknown falls back to `ascii`. */
@@ -115,6 +129,8 @@ export class StyleRenderer {
       tDepth: { value: this.dummyDepth },
       cameraNear: { value: 0.3 },
       cameraFar: { value: 2000 },
+      viewUp: { value: new THREE.Vector3(0, 1, 0) },
+      tanHalfFov: { value: Math.tan((70 / 2) * (Math.PI / 180)) },
     };
 
     const wanted = opts?.initial ?? 'ascii';
@@ -216,6 +232,9 @@ export class StyleRenderer {
     if (camera instanceof THREE.PerspectiveCamera) {
       this.common.cameraNear.value = camera.near;
       this.common.cameraFar.value = camera.far;
+      camera.updateMatrixWorld();
+      worldUpInView(camera.matrixWorld, this.common.viewUp.value as THREE.Vector3);
+      this.common.tanHalfFov.value = Math.tan((camera.fov / 2) * (Math.PI / 180));
     }
     this.style.update?.(this.material.uniforms, timeS, this.ctx());
     this.renderer.setRenderTarget(this.target);

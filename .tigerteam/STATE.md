@@ -200,6 +200,25 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - Review plan: rerun unit + gate in the worker container; PM GPU review of
   `style-scribble.png` plus London / Tokyo night walks; expect a v2 tune
   ticket from that (line weight, density thresholds, maybe reflections).
+- T-0134 ACCEPTED 2026-09-18 (ds-1, attempt 3; attempts 1–2 did the work
+  and passed the gate but died opening `style-scribble.png` — DeepSeek V4
+  Flash returns 405 on image input and the pi engine exits with no
+  handoff, ~$0.06 total). Lesson (now in the ticket template wording):
+  tickets must say "never read/open any .png; `ls -la` only". PM host-GPU
+  review (`e2e/__shots__/pm-scribble-v1-*.png`, 60 fps): white paper,
+  coloured vertical strokes on walls, dense horizontal hatch on the road,
+  tangle sky, one-sided outlines, distance fade — the brief is met; Tokyo
+  night is the best frame. Defects → v2: walls flip to horizontal strokes
+  when pitched up ≳ 45° (vertical-slope classifier), vertical ticks on the
+  bottom pixel row (−y tap off-texture), wash too heavy vs the reference,
+  tangle could be denser/more vertical. Gate on merged main green.
+- PM plumbing for v2: common uniforms `viewUp` (world +Y in view space,
+  `worldUpInView` in post.ts, unit-tested) and `tanHalfFov`; §4.11
+  "scribble v2 (T-0136)" locks normal-based classification with clamped
+  taps (`UP_K` 0.6), wash 0.14, ink `mix(INK, tint·0.5, 0.85·satF)`, tangle
+  density 0.60/0.30, family-0 spacing 2.5, wobble 0.50. T-0136 boarded
+  behind T-0135 (disjoint scopes, but the e2e should be written against a
+  stable v1 and re-proved by v2's check.sh).
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).

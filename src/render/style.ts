@@ -71,6 +71,11 @@ export interface RenderStyle {
  *   sceneSize  — (cols·subX, rows·subY) px
  *   exposure   — 1.7, gamma — 0.45 (architecture §4.8), time — seconds
  *   tDepth, cameraNear, cameraFar — only meaningful when `needsDepth`
+ *   viewUp     — world +Y expressed in view space (unit vec3; wave 17 v2), so a
+ *                depth style can tell floors from walls at any camera pitch
+ *   tanHalfFov — tan(vertical fov / 2) of the scene camera (0.7002 at 70°);
+ *                view-space position of a texel = (ndc.x·tanHalfFov·aspect·d,
+ *                ndc.y·tanHalfFov·d, −d) with d = linearDepth, aspect = sceneSize.x/sceneSize.y
  * Helpers:
  *   sampleSub(cell, sx, sy) — exposed scene colour of sub-sample (sx, sy) of
  *     `cell` (0-based, cell (0,0) bottom-left; (sx, sy) = (0, 0) is the
@@ -93,6 +98,8 @@ uniform float time;
 uniform sampler2D tDepth;
 uniform float cameraNear;
 uniform float cameraFar;
+uniform vec3 viewUp;
+uniform float tanHalfFov;
 varying vec2 vUv;
 vec3 sampleSub(vec2 cell, float sx, float sy) {
   vec2 px = cell * sub + vec2(sx, sy) + 0.5;

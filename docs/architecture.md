@@ -857,11 +857,43 @@ Colour (`inkColour(tint)`, `washColour(tint, tone)`):
 Lit windows and neon read as bare paper with a coloured wash (tone ≈ 0),
 which is the reference's look; the day-time window texture shows through
 as stroke density. Pure (unit-tested in node, mirroring the shader term for
-term): `SCRIBBLE_LAYERS`, `SLOPE_K`, `PAPER`, `INK`, `SKY_INK`, `hash2(a, b)`,
-`surfaceClass(dC, dU, dD, far): 0 | 1 | 2`, `depthFade(d)`,
+term): `SCRIBBLE_LAYERS`, `SLOPE_K` (v1 only — v2 below replaces it), `PAPER`, `INK`, `SKY_INK`, `hash2(a, b)`,
+`surfaceClass(dC, dU, dD, far): 0 | 1 | 2` (v1 signature), `depthFade(d)`,
 `strokeInk(u, along, tone)`, `tangleInk(px, py, density)`,
 `inkColour(tint)`, `washColour(tint, tone)`. Budget: three unrolled layers
 + five depth taps per pixel — comparable to `quest`.
+
+**`scribble` v2 (T-0136, PM GPU review 2026-09-18 of v1 on the host:
+synthetic noon/night, London, Tokyo night, sky tilt).** v1 met the brief
+(paper, coloured surface-following strokes, tangle, outlines, fade — kept).
+Four fixes, all locked here:
+
+    1. Surface class by NORMAL, not by vertical slope (v1 flipped walls to
+       horizontal strokes when the camera pitched up ≳ 45°, and drew vertical
+       ticks on the bottom pixel row where the −y tap fell off the texture):
+         aspect = sceneSize.x / sceneSize.y
+         P(uv, d) = vec3((uv.x·2 − 1)·tanHalfFov·aspect·d, (uv.y·2 − 1)·tanHalfFov·d, −d)
+         with uv the (clamped) texel-centre uv of each tap and d its linearDepth:
+         uvL/uvR/uvU/uvD = clamp(centreUv ± stepUv, 0.5·texel, 1 − 0.5·texel)   // never off-texture
+         n = normalize(cross(P(uvR, dR) − P(uvL, dL), P(uvU, dU) − P(uvD, dD)))
+         up = |dot(n, viewUp)|                                                    // 1 = floor/roof, 0 = wall
+         ground if up > UP_K = 0.6, else wall  (sky rule unchanged: dC ≥ 0.98·far)
+       `viewUp` and `tanHalfFov` are new common uniforms (STYLE_PRELUDE; PM-plumbed).
+       Pure: `viewPos(uv, d, tanHalfFov, aspect)`, `viewNormal(...)`, `surfaceClass(dC, far, up)`.
+       `SLOPE_K` is deleted. Note the u/along swap stays: ground → u = p.y, along = p.x.
+    2. Lighter wash (v1 filled every facade with 30 % of its hue — the
+       reference keeps most of the paper white and puts the colour in the ink):
+         washCol = mix(PAPER, tint, 0.14 · satF · min(1, tone · 1.5))            // was 0.30
+    3. Ink a touch darker so the coloured strokes still read as ink:
+         inkCol = mix(INK, tint · 0.50, 0.85 · satF)                             // was tint·0.55, satF
+    4. Sky tangle: denser and more vertical hair — family 0 spacing 3 → 2.5,
+       density = mix(0.60, 0.30, daylight) (was 0.55/0.22); stroke wobble first
+       term 0.35 → 0.50 (shakier pen) for the surface layers.
+
+Everything else (layers, thresholds, half-widths, lifts, outline rule,
+depth fade, PAPER/INK/SKY_INK) is unchanged. e2e (T-0135) thresholds are
+unaffected in kind; the orientation assertions must still pass — the v2
+`check.sh` proves it.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
