@@ -2,8 +2,9 @@
  * `crayon` render style (docs/architecture.md §4.11, wave 18 "sketch
  * family", "crayon" — coloured pencil, `T-0141`): the `pencil` shader
  * with colour. The graphite pencil strokes of `pencil` (soft wide cores
- * `hw = mu·(0.45 + 0.25·tone)`, AA `± 0.6·mu`, 45° cross-hatch in the
- * tone-0.45..0.6 band) are kept exactly, but the ink takes the hue of
+ * `hw = mu·(0.45 + 0.25·tone)`, AA `± 0.6·mu`, 45° cross-hatch on walls
+ * in the tone-0.55..0.70 band at 0.75 weight; none on the ground) are
+ * kept exactly, but the ink takes the hue of
  * the object under it: strokes mix from graphite toward `tint·0.60` by
  * `0.85·satF`, the paper wash is a per-tone coloured wash
  * (`crayonWash`), and the sky is a faint blue wash at day and a faint
@@ -19,15 +20,26 @@
  * primary `nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25,
  * 0.60)`, secondary the same family rotated 45° in stroke space
  * (`u2 = (u + along)/√2`, `along2 = (along − u)/√2`, `mu2 = ma2 =
- * (mu + ma)/2`) gated by `smoothstep(0.45, 0.6, tone2)`,
+ * (mu + ma)/2`) gated by `smoothstep(0.55, 0.70, tone2) · 0.75` on
+ * walls (`s.cls == 2`); ground (`s.cls == 1`) scales `tone2 ·= 0.55`,
+ * drops the cross family and `ink ·= 0.85` (identical GLSL branch to
+ * `pencil`, §4.11 "Pencil / crayon ground tune").
  * `ink = max(·) · (0.65 + 0.30·tone2)`; outline `mix(out, G, 0.7)`.
  * This file keeps only the colours (`PAPER_P`, `G`, sky wash/hair
- * colours), the pure mirrors `crayonStroke` / `crayonWash`, the fragment
+ * colours), the pure mirrors `crayonStroke` / `crayonWash`, the
+ * re-exported `groundTone` / `crossGate` (from `pencil`), the fragment
  * `main()` and `STYLES`.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
 import { STROKE_GLSL } from './strokes';
+
+/**
+ * Ground-tone scale and wall cross-hatch gate (§4.11 "Pencil / crayon
+ * ground tune"). Defined in `pencil.ts`; crayon re-exports the same
+ * functions and applies the identical GLSL branch.
+ */
+export { crossGate, groundTone } from './pencil';
 
 /** GLSL `mix(a, b, t) = a + (b − a)·t`. */
 function mix(a: number, b: number, t: number): number {
@@ -78,12 +90,13 @@ export function crayonWash(tone: number, satF: number): number {
  * chunk, docs/styles/strokes.md). `main()` starts with `Surf s =
  * surfaceAt(vUv)` and then takes `tone`, `tint`, `satF` exactly as
  * scribble, `tone2 = tone·depthFade(s.dC)`. The pencil strokes
- * (primary + 45° cross-hatch, widths `0.45, 0.25, 0.60`,
- * `ink = max(·)·(0.65 + 0.30·tone2)`) are mixed in `crayonStroke` over a
- * coloured paper wash `crayonWash·g`; the sky is a faint blue day wash /
- * violet night wash with pencil hair strokes. `daylight` is the only
- * style uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come from the
- * prelude and are never redeclared.
+ * (primary + 45° cross-hatch on walls, widths `0.45, 0.25, 0.60`,
+ * `ink = max(·)·(0.65 + 0.30·tone2)`; ground: no cross-hatch, `tone2 ·
+ * 0.55`, `ink · 0.85`) are mixed in `crayonStroke` over a coloured paper
+ * wash `crayonWash·g`; the sky is a faint blue day wash / violet night
+ * wash with pencil hair strokes. `daylight` is the only style uniform;
+ * `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude and
+ * are never redeclared.
  */
 const CRAYON_FRAGMENT = `
 uniform float daylight;
@@ -128,21 +141,27 @@ void main() {
 
   float tone2 = tone * depthFade(s.dC);
 
-  // Pencil strokes: soft wide core hw = mu·(0.45 + 0.25·tone), AA
-  // ± 0.6·mu; 45° cross-hatch in the tone-0.45..0.6 band; darker ink in
-  // the darker cells.
+  // Ground tune (wave 18b, T-0146): a road is lightly shaded, not
+  // hatched solid; walls keep the cross family, lighter than the primary.
+  if (s.cls == 1) tone2 *= 0.55;
+
+  // Primary strokes: the shared world-anchored family with pencil's
+  // wider, softer widths — hw = mu·(0.45 + 0.25·tone), edge ± 0.60·mu.
+  // LOD base spacing stays 8 cells (unchanged).
   float primary = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25, 0.60);
-  float ink = primary;
-  if (tone2 > 0.45) {
-    const float INV_SQRT2 = 0.70710678;
-    float u2 = (s.u + s.along) * INV_SQRT2;
-    float along2 = (s.along - s.u) * INV_SQRT2;
+  float secondary = 0.0;
+  if (s.cls == 2) {
+    // Cross-hatch on walls: the same family rotated 45° in stroke
+    // space (u2 = (u+along)/√2, along2 = (along−u)/√2, mu2 = ma2 = (mu+ma)/2),
+    // fading in past tone2 = 0.55, at 0.75 the primary's weight.
+    float u2 = (s.u + s.along) * 0.70710678;
+    float along2 = (s.along - s.u) * 0.70710678;
     float mu2 = 0.5 * (s.mu + s.ma);
-    ink = max(primary,
-              nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25, 0.60)
-                  * smoothstep(0.45, 0.6, tone2));
+    secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25, 0.60)
+        * smoothstep(0.55, 0.70, tone2) * 0.75;
   }
-  ink *= (0.65 + 0.30 * tone2);
+  float ink = max(primary, secondary) * (0.65 + 0.30 * tone2);
+  if (s.cls == 1) ink *= 0.85;
 
   // Coloured pencil: the strokes take the object's hue; the paper itself
   // takes a per-tone coloured wash under the grain.
@@ -156,11 +175,12 @@ void main() {
 `;
 
 /**
- * Coloured pencil — the pencil's graphite strokes and cross-hatch in
- * each object's own hue, paper that takes a per-tone coloured wash under
- * the world/dome-anchored tooth, soft blue day sky / violet night sky with
- * pencil hair, one-sided graphite outlines. Cell 2×2, sub 1×1, `targetCap`
- * 960×540, depth. `R` cycles, `?render=crayon`.
+ * Coloured pencil — the pencil's graphite strokes and wall cross-hatch in
+ * each object's own hue (ground lightly shaded, no cross-hatch), paper
+ * that takes a per-tone coloured wash under the world/dome-anchored tooth,
+ * soft blue day sky / violet night sky with pencil hair, one-sided graphite
+ * outlines. Cell 2×2, sub 1×1, `targetCap` 960×540, depth. `R` cycles,
+ * `?render=crayon`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {

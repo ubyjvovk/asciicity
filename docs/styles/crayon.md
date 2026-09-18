@@ -16,7 +16,8 @@ blue wash by day and a faint violet at night, with pencil hair strokes.
 mirrors live in `src/render/styles/strokes.ts` (`STROKE_GLSL`); see
 **`docs/styles/strokes.md`**. This file documents only what is
 crayon-specific: the colours, the two pure mirrors (`crayonStroke`,
-`crayonWash`), and the fragment `main()` (which starts with
+`crayonWash`), the re-exported `groundTone` / `crossGate` (from
+`pencil`), and the fragment `main()` (which starts with
 `Surf s = surfaceAt(vUv);`).
 
 ## Algorithm (per pixel)
@@ -47,18 +48,25 @@ shared chunk's `Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`).
    - night: `base = mix(PAPER_P, (0.25, 0.22, 0.45), 0.60·g)`;
      `out = mix(base, G, hair·0.35)` (graphite hair).
 5. **Surface cells**: `tone2 = tone · depthFade(s.dC)` (far things wash
-   lighter, as in every sketch style). The pencil strokes (T-0140 spec,
-   implemented here since the colours are all that differ):
+   lighter, as in every sketch style). The pencil strokes (T-0140 spec
+   plus the T-0146 ground tune; identical GLSL branch to `pencil`,
+   since the colours are all that differ):
+   - **Ground** (`s.cls == 1`): `tone2 ·= 0.55` (`groundTone`) so a
+     road is lightly shaded, not hatched solid.
    - `primary = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45,
      0.25, 0.60)` — pencil widths: soft wide core
      `hw = mu·(0.45 + 0.25·tone)`, AA edge `± 0.6·mu` (softer and wider
-     than scribble's v4 `0.30, 0.20, 0.15`).
-   - **45° cross-hatch for `tone2 > 0.45`** — the same stroke family
-     rotated 45° in stroke space: `u2 = (s.u + s.along)/√2`,
+     than scribble's v4 `0.30, 0.20, 0.15`). The primary's LOD base
+     spacing stays 8 cells (unchanged).
+   - **45° cross-hatch on walls** (`s.cls == 2`) — the same stroke
+     family rotated 45° in stroke space: `u2 = (s.u + s.along)/√2`,
      `along2 = (s.along − s.u)/√2`, `mu2 = ma2 = (s.mu + s.ma)/2`;
      `secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45,
-     0.25, 0.60) · smoothstep(0.45, 0.6, tone2)`.
-   - `ink = max(primary, secondary) · (0.65 + 0.30·tone2)`.
+     0.25, 0.60) · crossGate(tone2) · 0.75` with
+     `crossGate = smoothstep(0.55, 0.70, tone2)`. **Ground:
+     `secondary = 0`** — no cross-hatch on the road.
+   - `ink = max(primary, secondary) · (0.65 + 0.30·tone2)`; if
+     `s.cls == 1`, `ink ·= 0.85`.
 6. **Colour** (this is where crayon differs from pencil):
    - `strokeCol = mix(G, tint·0.60, 0.85·satF)` — graphite for grey
      things, the object's own hue for saturated ones (`crayonStroke`).
@@ -72,19 +80,23 @@ shared chunk's `Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`).
    `out = mix(out, G, 0.7)`.
 
 Lit windows read as bare paper with a faint tinted wash (tone ≈ 0); the
-shade reads as dense coloured strokes and cross-hatch.
+shade on walls reads as dense coloured strokes and a lighter
+cross-hatch; the ground is a light wash with primary strokes only.
 
 ## Shader notes
 
 - **Pencil strokes, crayon colours** — the stroke call, widths
-  (`0.45, 0.25, 0.60`), the 45° cross-hatch rotation in stroke space and
-  the `0.65 + 0.30·tone2` darkening are exactly the `pencil` spec; only
+  (`0.45, 0.25, 0.60`), the 45° cross-hatch rotation in stroke space,
+  the ground/wall branch (`tone2 ·= 0.55` / `secondary = 0` /
+  `ink ·= 0.85` on ground; `crossGate · 0.75` on walls) and the
+  `0.65 + 0.30·tone2` darkening are exactly the `pencil` spec; only
   `strokeCol`, `wash`, `base` and the sky colours carry the hue.
 - **Grain only** — crayon uses the chunk's `toothOf(s)`, not
   `blotchA`/`vnoiseA`. The tooth rides the surfaces and the sky dome.
-- **Cross-hatch gate** — the secondary family is evaluated only when
-  `tone2 > 0.45` (the `smoothstep(0.45, 0.6, tone2)` soft gate then fades
-  it in, so there is no pop at the threshold).
+- **Cross-hatch gate** — the secondary family is evaluated only on
+  walls (`s.cls == 2`); the `smoothstep(0.55, 0.70, tone2)` soft gate
+  then fades it in (and `· 0.75` keeps it lighter than the primary), so
+  there is no pop at the threshold. Ground never draws a cross family.
 - **Chunk + fragment** — `fragment: STROKE_GLSL + CRAYON_FRAGMENT`:
   the shared machinery (`docs/styles/strokes.md`) plus crayon's
   constants (`PAPER_P`, `G`), the `daylight` uniform and `main()` (which
@@ -109,6 +121,9 @@ keeps:
   0.85·satF)` per channel.
 - `crayonWash(tone, satF): number` — `0.45·satF·tone^0.7 +
   0.20·(1−satF)·tone` (0 at tone 0 → bare paper; monotone in tone).
+- `groundTone`, `crossGate` — re-exported from `pencil` (`toBe`
+  identity): `groundTone(tone2) = tone2 · 0.55`,
+  `crossGate(tone2) = smoothstep(0.55, 0.70, tone2)`.
 
 The sky wash/hair colours (`(0.55, 0.70, 0.95)`, `(0.35, 0.45, 0.70)`,
 `(0.25, 0.22, 0.45)`) are GLSL constants in the fragment; the hair
@@ -134,9 +149,10 @@ them and never redeclares them. No textures are created, so there is no
    grain `g = toothOf(s)`.
 2. Sample, `tone`, `tint`, `satF` (per cell).
 3. Sky cells paint the faint blue/violet wash with pencil hair (step 4).
-4. Surface cells: depth-fade `tone2`, pencil strokes + 45° cross-hatch
-   (step 5), coloured wash under the grain, mix in the hue-tinted stroke
-   colour, one-sided graphite outline (steps 6–7).
+4. Surface cells: depth-fade `tone2`, ground tune (scale / no
+   cross-hatch / lighter ink) or wall cross-hatch (step 5), coloured
+   wash under the grain, mix in the hue-tinted stroke colour, one-sided
+   graphite outline (steps 6–7).
 5. Write `out` as `gl_FragColor` (alpha = 1).
 
 The result is a coloured-pencil drawing: every object shaded in its own

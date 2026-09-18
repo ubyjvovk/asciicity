@@ -1,7 +1,9 @@
 /**
  * Unit tests for the pure parts of the `crayon` render style
  * (docs/architecture.md §4.11, wave 18 "sketch family", "crayon"): the
- * coloured-pencil stroke colour and the paper wash strength. The shared
+ * coloured-pencil stroke colour, the paper wash strength, and the
+ * ground-tune re-exports (`groundTone` / `crossGate` identity with
+ * `pencil`). The shared
  * stroke machinery (pencil widths, wobble, lifts, sky hair) is the
  * `strokes.ts` chunk — its tests live in `tests/styles/strokes.test.ts`.
  * Runs in node; no WebGL is touched.
@@ -12,7 +14,20 @@ import {
   PAPER_P,
   crayonStroke,
   crayonWash,
+  crossGate,
+  groundTone,
 } from '../../src/render/styles/crayon';
+import {
+  crossGate as pencilCrossGate,
+  groundTone as pencilGroundTone,
+} from '../../src/render/styles/pencil';
+
+describe('groundTone / crossGate', () => {
+  it('re-exports the same functions (`toBe` identity)', () => {
+    expect(groundTone).toBe(pencilGroundTone);
+    expect(crossGate).toBe(pencilCrossGate);
+  });
+});
 
 describe('crayonStroke', () => {
   it('formula at 3 points: mix(G, tint·0.60, 0.85·satF) per channel', () => {

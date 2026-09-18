@@ -4,7 +4,9 @@
  * *wash* whose strength follows the 2×2-px paper tooth `g`, world-anchored
  * strokes from the shared chunk with pencil's wider, softer widths
  * (`hw = mu·(0.45 + 0.25·tone)`, edge `± 0.60·mu`), a 45°-rotated
- * cross-hatch family that fades in for `tone2 > 0.45`, soft one-sided
+ * cross-hatch family on *walls* that fades in for `tone2 > 0.55` at
+ * 0.75 weight (ground: no cross-hatch, `tone2 · 0.55`, `ink · 0.85`),
+ * soft one-sided
  * graphite outlines (never solid black) and a pencilled sky — darker
  * toward the zenith by day, an even grey by night, with sparse hair
  * strokes. Cell 2×2, sub 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
@@ -60,6 +62,31 @@ export function crossCoords(
   };
 }
 
+/** GLSL `smoothstep(edge0, edge1, x)`: clamped, Hermite-smoothed 0→1. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Ground-tone scale (§4.11 "Pencil / crayon ground tune"): `tone2 · 0.55`
+ * — a road is lightly shaded, not hatched solid. Applied in the fragment
+ * when `s.cls == 1` (before wash, primary strokes and the ink mix).
+ */
+export function groundTone(tone2: number): number {
+  return tone2 * 0.55;
+}
+
+/**
+ * Wall cross-hatch gate (§4.11 "Pencil / crayon ground tune"):
+ * `smoothstep(0.55, 0.70, tone2)` — the cross family fades in later than
+ * v1's `smoothstep(0.45, 0.60, tone2)`, and the fragment then scales it
+ * by 0.75 so it sits lighter than the primary.
+ */
+export function crossGate(tone2: number): number {
+  return smoothstep(0.55, 0.70, tone2);
+}
+
 /**
  * §4.11 wave-18 "pencil" fragment (the half after the shared `STROKE_GLSL`
  * chunk, docs/styles/strokes.md). The scene sample is per cell
@@ -71,10 +98,13 @@ export function crossCoords(
  * mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45` plus
  * `hairInk(s.ps, 0.5)·0.35` hair. Surface cells paint
  * `mix(mix(PAPER_P, G, pencilWash(tone2, g)), G, ink)` with
- * `ink = max(primary, secondary)·(0.65 + 0.30·tone2)`; the cross-hatch
- * `secondary` gates on `smoothstep(0.45, 0.6, tone2)`. Outlines mix to
- * graphite at 0.7 — soft, never solid black. `daylight` is the only style
- * uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude.
+ * `ink = max(primary, secondary)·(0.65 + 0.30·tone2)`. Ground (`s.cls
+ * == 1`) scales `tone2 ·= 0.55`, drops the cross family (`secondary =
+ * 0`) and `ink ·= 0.85`; walls (`s.cls == 2`) gate the cross-hatch on
+ * `smoothstep(0.55, 0.70, tone2)` and `secondary ·= 0.75` (§4.11
+ * "Pencil / crayon ground tune"). Outlines mix to graphite at 0.7 —
+ * soft, never solid black. `daylight` is the only style uniform;
+ * `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude.
  */
 const PENCIL_FRAGMENT = `
 uniform float daylight;
@@ -114,24 +144,31 @@ void main() {
     return;
   }
 
-  // Smudged tone wash under the strokes, modulated by the tooth.
-  float washS = tone2 * 0.55 * g;
-  vec3 base = mix(PAPER_P, G, washS);
+  // Ground tune (wave 18b, T-0146): a road is lightly shaded, not
+  // hatched solid; walls keep the cross family, lighter than the primary.
+  if (s.cls == 1) tone2 *= 0.55;
 
   // Primary strokes: the shared world-anchored family with pencil's
   // wider, softer widths — hw = mu·(0.45 + 0.25·tone), edge ± 0.60·mu.
+  // LOD base spacing stays 8 cells (unchanged).
   float primary = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25, 0.60);
-
-  // Cross-hatch in the shade: the same family rotated 45° in stroke
-  // space (u2 = (u+along)/√2, along2 = (along−u)/√2, mu2 = ma2 = (mu+ma)/2),
-  // fading in past tone2 = 0.45.
-  float u2 = (s.u + s.along) * 0.70710678;
-  float along2 = (s.along - s.u) * 0.70710678;
-  float mu2 = 0.5 * (s.mu + s.ma);
-  float secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25, 0.60)
-      * smoothstep(0.45, 0.60, tone2);
-
+  float secondary = 0.0;
+  if (s.cls == 2) {
+    // Cross-hatch on walls: the same family rotated 45° in stroke
+    // space (u2 = (u+along)/√2, along2 = (along−u)/√2, mu2 = ma2 = (mu+ma)/2),
+    // fading in past tone2 = 0.55, at 0.75 the primary's weight.
+    float u2 = (s.u + s.along) * 0.70710678;
+    float along2 = (s.along - s.u) * 0.70710678;
+    float mu2 = 0.5 * (s.mu + s.ma);
+    secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25, 0.60)
+        * smoothstep(0.55, 0.70, tone2) * 0.75;
+  }
   float ink = max(primary, secondary) * (0.65 + 0.30 * tone2);
+  if (s.cls == 1) ink *= 0.85;
+
+  // Smudged tone wash under the strokes, modulated by the tooth.
+  float washS = tone2 * 0.55 * g;
+  vec3 base = mix(PAPER_P, G, washS);
 
   vec3 outc = mix(base, G, ink);
 
@@ -145,10 +182,10 @@ void main() {
 /**
  * Graphite pencil sketch on warm paper — smudged tone wash modulated by
  * the world/dome-anchored paper tooth, world-anchored nested-LOD strokes with
- * wider softer pencil widths, a 45° cross-hatch family in the shade,
- * soft graphite outlines and a zenith-darkened (day) / even grey (night)
- * pencilled sky with sparse hair. Cell 2×2, sub 1×1, `targetCap` 960×540, depth.
- * `R` cycles, `?render=pencil`.
+ * wider softer pencil widths, a 45° cross-hatch family on walls (lighter,
+ * later-gated; none on the ground), soft graphite outlines and a
+ * zenith-darkened (day) / even grey (night) pencilled sky with sparse hair.
+ * Cell 2×2, sub 1×1, `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
