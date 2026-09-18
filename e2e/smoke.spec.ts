@@ -224,7 +224,7 @@ async function waitReady(page: Page): Promise<void> {
 }
 
 test('smoke: R cycles every render style and each paints', async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000); // 20 styles under SwiftShader; the sketch family renders ~2× slower (wave 18b)
   // `?cell=3x6` so SwiftShader's 64-row blanking does not hide the lower half.
   await page.goto('/?synthetic=1&cell=3x6');
   await waitReady(page);
