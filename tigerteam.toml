@@ -62,7 +62,7 @@ model = "qwen-local/qwen3.8-27b-q8:medium" # pi "provider/id:thinking" form; con
                                           # `./qwen/start.sh --host 0.0.0.0` (its default binds loopback only)
 max_complexity = 2
 ticket_timeout_s = 7200                   # ~65 tok/s single-slot server; one request generates at a time
-scale = 1
+scale = 0                                 # 2026-09-18 user: qwen is fine but slow — back to grok/ds by default; set 1 to re-enable
 
 # [worker.glm]  — GLM-5.2 on DeepInfra is too slow (user, 2026-08-23); re-enable only
 #                 when DeepInfra ships GLM-5.3. (Also 400'd via pi on 2026-08-23.)

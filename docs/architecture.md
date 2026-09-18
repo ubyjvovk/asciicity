@@ -1147,6 +1147,51 @@ Pure per style (unit-tested): `pencil`: `pencilWash(tone, g)`, `crossCoords(u, a
 `scribble.spec.ts`): paper share, ink/dark share, coloured share for the coloured ones, sky
 day/night split, no full-width inked row; the PM writes the thresholds into each ticket.
 
+**Sketch family — anchored tooth (wave 18b, T-0144; user 2026-09-18:
+"in pastel it seems like there's a static noise mask on top of everything
+— look into the sky and it never changes").** The v1 paper grain `g` and
+`blotch` are screen-space, so they read as a fixed mask (the same
+shower-door effect scribble v3 fixed for strokes). v2 anchors both to the
+world on surfaces and to the sky dome, at a constant on-screen size via
+a blended power-of-two LOD — no shimmer, no pop. Everything lives in
+`strokes.ts` (the chunk) and the four styles call it; the old screen-space
+`g`/`blotch`/`vnoise` definitions in `pastel.ts` / `watercolor.ts` /
+`pencil.ts` / `crayon.ts` are deleted.
+
+    surface coordinates: (s.u, s.along) — the world-anchored stroke coordinates every
+      Surf already carries (wall: facade tangent metres × height; ground: depth × x+z),
+      with (s.mu, s.ma) metres per screen cell in each.  Sky: s.ps (dome cells) with
+      scale 1.
+    anchoredNoise(x, y, mx, my, cells, key) — hash grain of `cells` on-screen cells, in
+      world units, blended across the two nearest power-of-two levels:
+        lx = log2(cells · mx);  Lx = floor(lx);  fx = fract(lx)      (same for y)
+        n(L) = hash2(floor(x / 2^Lx) + 7·key, floor(y / 2^Ly) + 13·key)   // key selects the layer
+        n0 = n(Lx, Ly);  n1 = n(Lx + 1, Ly + 1)
+        result = mix(n0, n1, max(fx, fy))                              // in [0, 1]
+      For the sky pass mx = my = 1 (ps is already in cells).
+    tooth(s):   g = 0.80 + 0.40 · anchoredNoise(u, along, mu, ma, 0.67, 1)      // ≈ 2 px tooth
+                (sky: anchoredNoise(ps.x, ps.y, 1, 1, 0.67, 1))
+    vnoiseA(x, y, mx, my, cells, key) — bilinear value noise on the same anchored lattice
+      (corner hashes from n(L) at the four floor/ceil corners of the level-Lx/Ly cell,
+      smoothstep weights, blended across the two levels like anchoredNoise)
+    blotchA(s) = 0.5 · vnoiseA(u, along, mu, ma, 6, 2) + 0.5 · vnoiseA(u, along, mu, ma, 17, 3)
+                (sky: the same on ps with scale 1)
+    bloomA(s)  = smoothstep(0.60, 0.90, vnoiseA(u, along, mu, ma, 40, 4));  sky clouds:
+                 smoothstep(0.55, 0.80, vnoiseA(ps.x, ps.y, 1, 1, 30, 5))
+
+Style changes (colour formulas unchanged; only the noise sources move):
+  pencil, crayon:  g → tooth(s)  (surface and sky branches)
+  pastel:          g → tooth(s);  sky streaks blotch(p) → blotchA(s)
+  watercolor:      gran = 0.70 + 0.60·blotchA(s);  bloom → bloomA(s);  cloud gaps → the sky
+                   vnoiseA above;  local vnoise/blotch deleted
+Outlines and strokes unchanged. Pure (strokes.ts, unit-tested):
+`anchoredNoise`, `vnoiseA`, `toothOf(u, along, mu, ma)`, `blotchA(u, along, mu, ma)`,
+`bloomA(u, along, mu, ma)`. Mechanical criteria: (1) stability — for fixed (x, y),
+`anchoredNoise` at `mx = 2^j·(1 ∓ 1e−4)` differs by < 0.05 (no pop); (2) the grid mean
+of `anchoredNoise` over 64×64 samples is 0.5 ± 0.1 for `mx = my ∈ {0.01, 0.05, 0.3}`;
+(3) `vnoiseA` is continuous: |Δ| < 0.02 for a 1e−3-cell step. e2e: the existing
+smoke loop; the scribble spec is untouched (scribble uses no grain).
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
