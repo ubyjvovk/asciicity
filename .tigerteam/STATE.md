@@ -409,6 +409,18 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - **Wave 18b complete (145 done, 19 styles).** Board empty. Awaiting the
   user's second walk (pastel edges, resolution, ground tune, crayon at
   Minas Tirith). Wave 18 + 18b grok spend ≈ $9.60 (T-0145 alone $5.77).
+
+## Wave 18c (2026-09-19) — pencil/crayon v2 "quick drawing"
+- User's second walk: pastel + watercolor "no notes". Sketch (pencil,
+  crayon): hair sky reads as a dome of hairs, every horizontal surface has
+  lines (even bus roofs) — remove both; a good sketch = mostly white,
+  contrasting edges, soft shading here and there, no uniform thatch, one
+  stroke direction per area (screenshot at repo root, untracked). §4.11
+  "Pencil / crayon v2 (T-0147)": paper sky, horizontals = paper + shadow
+  smudge only, 3×3-smoothed tone, walls = wash + hatch only where dark
+  (gate 0.50–0.75) in ONE direction per facade (hash of normal + 40 m
+  segment; vertical or 45°), far walls outline-only (150–400 m), 2-cell
+  outlines with silhouette 1.0 / crease 0.7. T-0147 boarded (grok).
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
