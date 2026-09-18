@@ -79,7 +79,7 @@ of sitting as a screen-space grid.
    `vnoise1(x, key) = mix(hash2(floor(x), key), hash2(floor(x)+1, key),
    smoothstep(0, 1, fract(x)))`,
    `wob = mu · Σ_{k=0..2} A_k · (2 · vnoise1(along / P_k + 3·ph, key + 11·k) − 1) · vis(P_k)`
-   with `P = [0.9, 3.5, 14]` m, `A = [0.35, 0.30, 0.30]`,
+   with `P = [0.9, 3.5, 14]` m, `A = [0.60, 0.40, 0.40]`,
    `lifted` if any `k = 0..2` has `vis(G_k) > 0.5` and
    `hash2(key, floor(along / G_k) + 40 + k) < 0.06` with `G = [1.5, 6, 24]` m.
    For fixed `(along, ph, mu, key)`, `wobble` is identical for every
@@ -101,8 +101,8 @@ of sitting as a screen-space grid.
    `ph = hash2(key, 0)·6.2832`,
    `wob = wobble(along, ph, mu, ma, key)`,
    skip the line when `lifted(key, along, ma)`,
-   `hw = mu·(0.38 + 0.15·tone)` (v4 wider stroke core, tight edge),
-   `cov = 1 − smoothstep(hw − 0.22·mu, hw + 0.22·mu, |u − key − wob|)`,
+   `hw = mu·(0.30 + 0.20·tone)` (the v3 core — wider cores went grey),
+   `cov = 1 − smoothstep(hw − 0.15·mu, hw + 0.15·mu, |u − key − wob|)`,
    `weight = (mod(i, 2) == 1) ? (1 − f) : 1` (odd lines fade out as the LOD
    climbs; at `f → 1` they are gone and the even lines become the next
    level — no pop),

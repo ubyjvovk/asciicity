@@ -20,7 +20,7 @@
  * metres with screen-size fades (hand tremor is per-line value noise, not
  * a sine), soft-switches layers, widens the stroke core, and replaces the
  * sky tangle with short hair strokes. Stroke core is
- * `hw = mu·(0.38 + 0.15·tone)` with AA ±0.22·mu; sky mix is 0.85.
+ * `hw = mu·(0.30 + 0.20·tone)` with AA ±0.15·mu; sky mix is 0.85.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -92,7 +92,7 @@ export const SCRIBBLE_LAYERS: readonly { spacing: number; threshold: number }[] 
 /** Wobble octave periods in metres (§4.11 v4). */
 const WOBBLE_P: readonly [number, number, number] = [0.9, 3.5, 14];
 /** Wobble octave amplitudes (§4.11 v4, value-noise tremor). */
-const WOBBLE_A: readonly [number, number, number] = [0.35, 0.3, 0.3];
+const WOBBLE_A: readonly [number, number, number] = [0.6, 0.4, 0.4];
 /** Pen-lift gap lengths in metres (§4.11 v4). */
 const LIFT_G: readonly [number, number, number] = [1.5, 6, 24];
 /** Sky-hair cell size in cells (§4.11 v4). */
@@ -288,7 +288,7 @@ export function lifted(key: number, along: number, ma: number): boolean {
  * a faded odd line must fall back to the even neighbour or the LOD
  * transition pops. v4: wobble/lifts in world metres ({@link wobble},
  * {@link lifted}), soft layer switching, wider stroke core with a tight
- * edge (`hw = mu·(0.38 + 0.15·tone)`, AA ±0.22·mu). `mu` / `ma` are
+ * edge (`hw = mu·(0.30 + 0.20·tone)`, AA ±0.15·mu). `mu` / `ma` are
  * metres of `u` / `along` per screen cell from {@link strokeScale}.
  */
 export function nestedStrokeInk(
@@ -307,14 +307,14 @@ export function nestedStrokeInk(
     const j = L - k;
     const S = 2 ** j;
     const i0 = Math.floor(u / S + 0.5);
-    const hw = mu * (0.38 + 0.15 * tone);
+    const hw = mu * (0.30 + 0.20 * tone);
     for (let di = -2; di <= 2; di++) {
       const i = i0 + di;
       const key = i * S;
       const ph = hash2(key, 0) * 6.2832;
       if (lifted(key, along, ma)) continue;
       const wob = wobble(along, ph, mu, ma, key);
-      const cov = 1 - smoothstep(hw - 0.22 * mu, hw + 0.22 * mu, Math.abs(u - key - wob));
+      const cov = 1 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, Math.abs(u - key - wob));
       const weight = mod(i, 2) === 1 ? 1 - f : 1;
       ink = Math.max(ink, cov * weight * layerW);
     }
@@ -528,9 +528,9 @@ float vnoise1(float x, float key) {
 
 float wobble(float along, float ph, float mu, float ma, float key) {
   float s = 0.0;
-  s += 0.35 * (2.0 * vnoise1(along / 0.9 + 3.0 * ph, key + 0.0) - 1.0) * vis(0.9, ma);
-  s += 0.30 * (2.0 * vnoise1(along / 3.5 + 3.0 * ph, key + 11.0) - 1.0) * vis(3.5, ma);
-  s += 0.30 * (2.0 * vnoise1(along / 14.0 + 3.0 * ph, key + 22.0) - 1.0) * vis(14.0, ma);
+  s += 0.60 * (2.0 * vnoise1(along / 0.9 + 3.0 * ph, key + 0.0) - 1.0) * vis(0.9, ma);
+  s += 0.40 * (2.0 * vnoise1(along / 3.5 + 3.0 * ph, key + 11.0) - 1.0) * vis(3.5, ma);
+  s += 0.40 * (2.0 * vnoise1(along / 14.0 + 3.0 * ph, key + 22.0) - 1.0) * vis(14.0, ma);
   return mu * s;
 }
 
@@ -543,7 +543,7 @@ bool lifted(float key, float along, float ma) {
 float strokeLayer(float u, float along, float tone, float mu, float ma, float j, float f) {
   float S = exp2(j);
   float i0 = floor(u / S + 0.5);
-  float hw = mu * (0.38 + 0.15 * tone);
+  float hw = mu * (0.30 + 0.20 * tone);
   float ink = 0.0;
   for (int di = -2; di <= 2; di++) {
     float i = i0 + float(di);
@@ -551,7 +551,7 @@ float strokeLayer(float u, float along, float tone, float mu, float ma, float j,
     float ph = hash2(key, 0.0) * 6.2832;
     if (!lifted(key, along, ma)) {
       float wob = wobble(along, ph, mu, ma, key);
-      float cov = 1.0 - smoothstep(hw - 0.22 * mu, hw + 0.22 * mu, abs(u - key - wob));
+      float cov = 1.0 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, abs(u - key - wob));
       float weight = (mod(abs(i), 2.0) > 0.5) ? (1.0 - f) : 1.0;
       ink = max(ink, cov * weight);
     }

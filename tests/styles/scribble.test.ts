@@ -313,7 +313,7 @@ describe('wobble', () => {
       const key = rng() * 200 - 50;
       expect(wobble(along, ph, mu, 5, key)).toBe(0);
       expect(wobble(along, ph, mu, 1.2, key)).toBeCloseTo(
-        mu * 0.3 * (2 * vnoise1(along / 14 + 3 * ph, key + 22) - 1),
+        mu * 0.4 * (2 * vnoise1(along / 14 + 3 * ph, key + 22) - 1),
         6,
       );
     }
