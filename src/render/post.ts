@@ -18,6 +18,10 @@ import {
 export const MAX_TARGET_W = 640;
 /** Hard cap on the scene-target height at 1080p. */
 export const MAX_TARGET_H = 360;
+/** Absolute ceiling a style's `targetCap` may request (wave 18b). */
+export const MAX_TARGET_CAP_W = 960;
+/** Absolute ceiling a style's `targetCap` height may request. */
+export const MAX_TARGET_CAP_H = 540;
 
 /**
  * Cell grid for a style at a canvas size. `?cell=` overrides `cellW`/`cellH`;
@@ -26,7 +30,7 @@ export const MAX_TARGET_H = 360;
  * 960×540 target.
  */
 export function styleGrid(
-  style: Pick<RenderStyle, 'cellW' | 'cellH' | 'subX' | 'subY'>,
+  style: Pick<RenderStyle, 'cellW' | 'cellH' | 'subX' | 'subY' | 'targetCap'>,
   width: number,
   height: number,
   cellW = style.cellW,
@@ -34,8 +38,10 @@ export function styleGrid(
 ): { cols: number; rows: number } {
   const cols = Math.max(1, Math.floor(width / cellW));
   const rows = Math.max(1, Math.floor(height / cellH));
-  const maxCols = Math.max(1, Math.floor(MAX_TARGET_W / style.subX));
-  const maxRows = Math.max(1, Math.floor(MAX_TARGET_H / style.subY));
+  const capW = Math.min(style.targetCap?.w ?? MAX_TARGET_W, MAX_TARGET_CAP_W);
+  const capH = Math.min(style.targetCap?.h ?? MAX_TARGET_H, MAX_TARGET_CAP_H);
+  const maxCols = Math.max(1, Math.floor(capW / style.subX));
+  const maxRows = Math.max(1, Math.floor(capH / style.subY));
   return {
     cols: Math.min(cols, maxCols),
     rows: Math.min(rows, maxRows),

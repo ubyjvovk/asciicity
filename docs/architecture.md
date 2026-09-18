@@ -461,7 +461,9 @@ is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
 `edges`, `hatch`, `matrix`, `lowpoly`, `quest`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (twenty with the wave-18 sketch family). Every style must keep ≥ 30 fps on an integrated GPU: the scene
-target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
+target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p), or ≤ the
+style's `targetCap` (ceiling 960×540; wave 18b — the sketch family and `scribble`
+use it with 2×2 cells; they must still hold ≥ 30 fps on an integrated GPU).
 
 ```ts
 // src/render/post.ts
@@ -1191,6 +1193,42 @@ Outlines and strokes unchanged. Pure (strokes.ts, unit-tested):
 of `anchoredNoise` over 64×64 samples is 0.5 ± 0.1 for `mx = my ∈ {0.01, 0.05, 0.3}`;
 (3) `vnoiseA` is continuous: |Δ| < 0.02 for a 1e−3-cell step. e2e: the existing
 smoke loop; the scribble spec is untouched (scribble uses no grain).
+
+**Sketch family resolution + soft pastel (wave 18b, T-0145; user
+2026-09-18: "it still has this blocky feeling from ascii-like renders —
+can we afford to bump up resolution for these artsy styles? … for pastel,
+we don't want sharp edges").** Two changes.
+
+**1. Resolution.** `scribble`, `pencil`, `crayon`, `pastel`, `watercolor`
+go to **cell 2×2** with `targetCap: { w: 960, h: 540 }` (contract field,
+PM-plumbed): the scene target becomes 640×360 at 720p and 960×540 at
+1080p, i.e. one world sample per 2×2 screen pixels everywhere instead of
+3×3. Nothing in the shaders changes (all stroke/grain scales are in
+cells or metres per cell). The e2e specs keep `?cell=3x3` in their URLs,
+so their measurements are unchanged. Budget: the scene pass is 2.25× the
+pixels; every one of the five must still show ≥ 30 fps in the PM's host
+review (`window.__asciicity.fps`), else the cap comes back down to
+800×450 for that style.
+
+**2. Pastel soft edges** (`pastel` only; colour formulas unchanged):
+    smoothed sample, per PIXEL instead of per cell: let c00..c11 be the 3×3-mean
+      samples (as v1) of the four cells nearest to p − 0.5, blended bilinearly with
+      fract(p − 0.5)  → 36 taps; sky cells contribute their sky colour (PAPER_S mix) so
+      building/sky borders feather over one cell
+    chalk smudge: the sample position is jittered before the blend —
+      pj = p + 1.2 · (vec2(anchoredNoise(u, along, mu, ma, 1.5, 6),
+                          anchoredNoise(u, along, mu, ma, 1.5, 7)) − 0.5)
+      (sky: the same on ps)  — a ragged, chalky edge instead of a straight one
+    outline → soft edge: no binary cell outline. Instead
+      e = bilinear blend (same weights) of the four cells' outline flags (0/1)
+      col = mix(col, DARK_CHALK, 0.35 · smoothstep(0.15, 0.85, e))       // 2-cell-wide ramp
+    (the `Surf` outline flag is still read per cell for the four cells; `surfaceAt` is
+     called once for the centre cell for the class/u/along/ps; the four neighbour outline
+     flags come from a new chunk helper `outlineAt(vec2 cellUv): float` — extract the
+     one-sided outline test from `surfaceAt` into it)
+Pure (pastel.ts): `bilinearWeights(p): [w00, w10, w01, w11]` (sum 1), `softEdge(e)`.
+e2e: the smoke loop; the PM checks the pastel frames for feathered
+silhouettes and no staircase.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 

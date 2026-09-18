@@ -25,14 +25,26 @@ describe('styles/index.ts', () => {
 });
 
 describe('style target budget', () => {
-  it('every style cols·subX × rows·subY at 1920×1080 with its default cell is ≤ 640×360', () => {
+  it('every style cols·subX × rows·subY at 1920×1080 with its default cell is ≤ its cap (640×360 default, 960×540 ceiling)', () => {
     for (const style of STYLES) {
       const { cols, rows } = styleGrid(style, 1920, 1080);
       const tw = cols * style.subX;
       const th = rows * style.subY;
-      expect(tw, `${style.id} width ${tw}`).toBeLessThanOrEqual(640);
-      expect(th, `${style.id} height ${th}`).toBeLessThanOrEqual(360);
+      const capW = style.targetCap?.w ?? 640;
+      const capH = style.targetCap?.h ?? 360;
+      expect(capW, `${style.id} cap width`).toBeLessThanOrEqual(960);
+      expect(capH, `${style.id} cap height`).toBeLessThanOrEqual(540);
+      expect(tw, `${style.id} width ${tw}`).toBeLessThanOrEqual(capW);
+      expect(th, `${style.id} height ${th}`).toBeLessThanOrEqual(capH);
     }
+  });
+
+  it('targetCap raises the clamp and is itself clamped to 960×540 (wave 18b)', () => {
+    const base = { cellW: 2, cellH: 2, subX: 1, subY: 1 };
+    expect(styleGrid(base, 1920, 1080)).toEqual({ cols: 640, rows: 360 });
+    expect(styleGrid({ ...base, targetCap: { w: 960, h: 540 } }, 1920, 1080)).toEqual({ cols: 960, rows: 540 });
+    expect(styleGrid({ ...base, targetCap: { w: 4000, h: 4000 } }, 1920, 1080)).toEqual({ cols: 960, rows: 540 });
+    expect(styleGrid({ ...base, targetCap: { w: 960, h: 540 } }, 1280, 720)).toEqual({ cols: 640, rows: 360 });
   });
 });
 

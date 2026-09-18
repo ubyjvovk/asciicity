@@ -48,6 +48,14 @@ export interface RenderStyle {
    */
   groundGrid?: boolean;
   /**
+   * Scene-target cap for this style (wave 18b, T-0145): `cols·subX ×
+   * rows·subY` is clamped to it. Absent = the default 640×360
+   * (`MAX_TARGET_W/H` in post.ts). The painterly sketch styles raise it to
+   * 960×540 so 2×2 cells stay 2×2 at 1080p; nothing may exceed
+   * `MAX_TARGET_CAP_W/H` (960×540) — the unit budget test enforces it.
+   */
+  targetCap?: { w: number; h: number };
+  /**
    * GLSL ES 1.0 fragment shader body appended to `STYLE_PRELUDE` (which
    * declares the common uniforms, `vUv` and the helpers below). Must define
    * `void main()` writing `gl_FragColor`.
