@@ -338,6 +338,22 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   that the common block's `tone2`/depthFade is not used by pastel (spec
   says so implicitly) and that pastel defines vnoise/blotch locally until
   watercolor puts them in strokes.ts — both fine.
+- T-0143 watercolor: attempt 1 (16 min) was spec-faithful but the PM's
+  v1 mix saturated at 1 on every coloured wall — flat cel fills. §4.11
+  amended (dens ≤ 0.8, mix ≤ 0.9, granulation 0.7–1.3, backrun blooms,
+  cloud gaps); rework ACCEPTED 2026-09-18 (qwen, attempt 2, 18 min, $0).
+  PM host review (`pm-watercolor-v2-*.png`): transparent washes with
+  granulation, blooms, cloudy sky. Walls still fairly saturated — tune
+  after the user's look.
+- **Wave 18 complete (142 done, 20 styles).** Qwen lane verdict on real
+  work: 5/5 tickets accepted, 4 on the first attempt (the one rework was a
+  PM formula error), 15–25 min each, $0, reports on par with grok, three
+  valid spec flags. Keep it as the default C2 lane.
+- Open after the user's look at the family: (a) switch Minas Tirith
+  `defaultRender` to `crayon` and retire `quest`? (b) pencil/crayon ground
+  is heavy (cross-hatch on the road) — one shared tune; (c) move
+  vnoise/blotch into strokes.ts (pastel + watercolor each carry a local
+  copy); (d) e2e specs per style; (e) README style list.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
