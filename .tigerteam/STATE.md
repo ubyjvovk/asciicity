@@ -306,6 +306,16 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   edge left no pixel fully dark (ink share halved, ground runs collapsed)
   → core 0.45+0.25·tone, edge ±0.25·mu. Answered; scope + e2e/scribble.spec.ts
   (assertion-5 factor may drop to 1.2 only if measured 1.2–1.5).
+- Qwen server came back 18:17Z bound to loopback (qwen fast-failed
+  again); restarted with `--host 0.0.0.0` 18:2xZ and T-0139 was claimed
+  cleanly. T-0139 ACCEPTED 2026-09-18 (qwen, attempt 4 — the first three
+  were 15-s server failures; 23 min, 1.71M in / 46k out, $0): `strokes.ts`
+  with `STROKE_GLSL` + `Surf surfaceAt()`, mirrors + tests moved, scribble
+  trimmed 635 lines. Qwen flagged that the ticket and §4.11 quoted two
+  different scribble width tuples, neither the accepted v4 one, and
+  correctly used (0.30, 0.20, 0.15); §4.11 corrected. PM pixel diff vs the
+  v4 frames: London + sky byte-identical, synthetic frames ≤ 27 px, Tokyo
+  night 1 % = moving traffic. Qwen verdict on a real refactor: excellent.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
