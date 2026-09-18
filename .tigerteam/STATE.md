@@ -231,8 +231,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   gone, walls stay vertical when pitched up, more paper showing, tangle
   denser. e2e unchanged and green (ground vertical runs rose 84 → 537
   because the shakier wobble makes horizontal lines swing ≥ 6 px — not a
-  misclassification). Wave 17 spend: 3 tickets, 7 attempts, ≈ $0.16.
-- **Wave 17 complete (136/136).** Board empty. Awaiting the user's look at
+  misclassification). Wave 17 spend: 3 tickets, 6 attempts, ≈ $0.16.
+- **Wave 17 complete (135 done; T-0123 Spark spike still in drafts).** Board empty. Awaiting the user's look at
   `?render=scribble` (best frames: Tokyo 22:00, London noon on the bridge).
   Open polish ideas, only if the user asks: wet-floor reflection (mirror
   the scene about the horizon for ground cells), loopier sky curls
