@@ -391,6 +391,15 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   near-white was the wrong metric). Gate green. T-0146 (ground tune:
   ground tone × 0.55, no cross-hatch on the ground, wall cross gate 0.55,
   secondary × 0.75) boarded, grok, after T-0145.
+- T-0145 ACCEPTED 2026-09-18 23:50Z (grok-1, attempt 1, 83 min, $5.77 —
+  its longest ticket; it dropped a 36-tap pastel blend to a 4-tap one
+  because the SwiftShader smoke loop timed out, before my 240 s bump
+  merged). Five styles at 2×2 / cap 960×540; PM host fps at 1080p: all
+  five 60 fps (grid 960×530). Pastel frames (`pm-pastel-v3-*`): feathered
+  silhouettes, chalk jitter, no staircase. `accept` hit a conflict in
+  docs/render.md (my quest row vs grok's five 2×2 rows) — resolved by
+  hand, board move / worktree / branch cleaned up manually, gate green.
+  Lesson: don't edit a file that sits in an in-flight ticket's scope.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
