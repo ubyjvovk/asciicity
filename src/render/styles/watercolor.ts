@@ -7,8 +7,10 @@
  * (one-sided outline → `col · 0.55`), and lights left white (a lit window
  * reads as paper because its tone ≈ 0). Saturated things take the
  * object's own hue (`pig = mix(1, tint, 0.8·satF)`); grey things get a
- * neutral slate wash. The sky is a plain granulated blue by day and deep
- * indigo at night. Cell 3×3, sub 1×1, `needsDepth: true`,
+ * neutral slate wash. Backruns (blotchy paper gaps — `bloom`) keep the
+ * wash looking wet, and the day sky carries cloud gaps. The sky is a
+ * granulated blue by day and deep indigo at night. Cell 3×3, sub 1×1,
+ * `needsDepth: true`,
  * `groundGrid: false`.
  *
  * The world-anchored surface machinery is the shared chunk `./strokes.ts`:
@@ -37,8 +39,9 @@ function mix(a: number, b: number, t: number): number {
 export const PAPER_W: readonly [number, number, number] = [0.99, 0.98, 0.95];
 
 /**
- * The neutral slate the wash mixes toward for grey things (satF < 0.5,
- * §4.11 `watercolor`). `[r, g, b]` in `[0, 1]`.
+ * The neutral slate the wash mixes toward for grey things (§4.11
+ * `watercolor`, factor `(1 − satF)·tone2·0.5·gran`). `[r, g, b]` in
+ * `[0, 1]`.
  */
 export const GREY_WASH: readonly [number, number, number] = [0.35, 0.36, 0.42];
 
@@ -66,8 +69,8 @@ export function vnoise(x: number, y: number): number {
 /**
  * Granulation blotches (the wave-18 common block `blotch`, `q` in
  * screen-space cells): `0.5·vnoise(q/6) + 0.5·vnoise(q/17)` — two octaves
- * of value noise, in `[0, 1]` (so `gran = 0.85 + 0.30·blotch` sits in
- * `[0.85, 1.15]`).
+ * of value noise, in `[0, 1]` (so `gran = 0.70 + 0.60·blotch` sits in
+ * `[0.70, 1.30]`).
  */
 export function blotch(x: number, y: number): number {
   return 0.5 * vnoise(x / 6, y / 6) + 0.5 * vnoise(x / 17, y / 17);
@@ -91,35 +94,50 @@ export function pigmentOf(
 }
 
 /**
- * Wash pigment density for (depth-faded) tone (§4.11 `watercolor`
- * `washDensity`): `0.35 + 0.65·tone^0.6` — more pigment in the shade; a
- * floor of 0.35 keeps even the lightest wash slightly tinted.
+ * Wash pigment density for (depth-faded) tone (§4.11 `watercolor` v2
+ * `washDensity`): `0.25 + 0.55·tone^0.6` — more pigment in the shade; a
+ * floor of 0.25 keeps even the lightest wash slightly tinted, a ceiling
+ * of 0.8 keeps nothing a full-strength wash.
  */
 export function washDensity(tone: number): number {
-  return 0.35 + 0.65 * Math.pow(tone, 0.6);
+  return 0.25 + 0.55 * Math.pow(tone, 0.6);
 }
 
 /**
- * Clamped paper→pigment mix factor of the wash (§4.11 `watercolor`
- * `col` term): `dens·gran·(0.3 + 0.7·satF) + 0.25·tone2·(1−satF)` —
- * saturated pigment is laid on full, grey pigment only at 30 %, plus a
- * small flat grey-darkening with tone. Monotone in `tone2`; minimal (
- * `0.35·gran·(0.3 + 0.7·satF)`) at tone 0, where the paper still reads
- * as paper.
+ * Clamped paper→pigment mix factor of the wash (§4.11 `watercolor` v2
+ * `mixF`): `clamp(dens·gran·(0.35 + 0.65·satF), 0, 0.9)` — the wash is
+ * never laid on at full strength (0.9 cap), so the paper grain always
+ * shows through. Monotone in `tone2`; at most `0.25·gran·(0.35 +
+ * 0.65·satF) ≤ 0.325` at tone 0, where the paper still reads as paper.
  */
 export function washStrength(tone2: number, satF: number, gran: number): number {
   const dens = washDensity(tone2);
-  return Math.min(
-    1,
-    Math.max(0, dens * gran * (0.3 + 0.7 * satF) + 0.25 * tone2 * (1 - satF)),
-  );
+  return Math.min(0.9, Math.max(0, dens * gran * (0.35 + 0.65 * satF)));
+}
+
+/** GLSL `smoothstep(edge0, edge1, x)` — clamped Hermite fade. */
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
- * The full surface wash colour (§4.11 `watercolor` `col`, before the
- * pooled edge): `mix(PAPER_W, pig, washStrength(tone2, satF, gran))`,
- * then — grey things only (satF < 0.5) — `mix` toward `GREY_WASH` by
- * `tone2·0.6`.
+ * Backruns bloom factor (§4.11 `watercolor` v2 `bloom`): `0.25 ·
+ * smoothstep(0.60, 0.90, vnoise(q/40))` — in `[0, 0.25]`; the fragment
+ * applies it as `col = mix(col, PAPER_W, bloom)`, letting paper peek
+ * through the wet wash in blotchy gaps.
+ */
+export function bloom(x: number, y: number): number {
+  return 0.25 * smoothstep(0.60, 0.90, vnoise(x / 40, y / 40));
+}
+
+/**
+ * The full surface wash colour (§4.11 `watercolor` v2 `col`, before
+ * bloom and the pooled edge): `mix(PAPER_W, pigmentOf(tint, satF),
+ * washStrength(tone2, satF, gran))`, then `mix` toward `GREY_WASH` by
+ * `(1 − satF)·tone2·0.5·gran` — a no-op for saturated things (factor
+ * 0), so grey things read as neutral slate and coloured things keep
+ * their hue.
  */
 export function watercolorWash(
   tint: readonly [number, number, number],
@@ -134,32 +152,30 @@ export function watercolorWash(
     mix(PAPER_W[1], pig[1], f),
     mix(PAPER_W[2], pig[2], f),
   ];
-  if (satF < 0.5) {
-    const gg = tone2 * 0.6;
-    return [
-      mix(col[0], GREY_WASH[0], gg),
-      mix(col[1], GREY_WASH[1], gg),
-      mix(col[2], GREY_WASH[2], gg),
-    ];
-  }
-  return col;
+  const gg = (1 - satF) * tone2 * 0.5 * gran;
+  return [
+    mix(col[0], GREY_WASH[0], gg),
+    mix(col[1], GREY_WASH[1], gg),
+    mix(col[2], GREY_WASH[2], gg),
+  ];
 }
 
 /**
- * §4.11 "watercolor" fragment (the half after the shared `STROKE_GLSL`
+ * §4.11 "watercolor" v2 fragment (the half after the shared `STROKE_GLSL`
  * chunk, docs/styles/strokes.md). `main()` starts with `Surf s =
  * surfaceAt(vUv)` and then takes `tone`, `tint`, `satF` exactly as
- * scribble, `tone2 = tone·depthFade(s.dC)`. The granulation
- * `gran = 0.85 + 0.30·blotch(p)` (p in screen-space cells) is the new
- * term; `vnoise`/`blotch` are defined here because `strokes.ts` does not
- * carry them yet. Sky: plain granulated washes (day a zenith-gradient
- * blue via `s.dirW`, night deep indigo) — no hair strokes. Surface:
- * `pig = mix(1, tint, 0.8·satF)`, `dens = 0.35 + 0.65·tone2^0.6`,
- * `col = mix(PAPER_W, pig, clamp(dens·gran·(0.3 + 0.7·satF) +
- * 0.25·tone2·(1−satF), 0, 1))`, grey mix for satF < 0.5, and the pooled
- * edge `col · 0.55` on `s.outline`. `daylight` is the only style
- * uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come from the
- * prelude and are never redeclared.
+ * scribble, `tone2 = tone·depthFade(s.dC)`. Granulation `gran =
+ * 0.70 + 0.60·blotch(p)` (p in screen-space cells); `vnoise`/`blotch`
+ * are defined here because `strokes.ts` does not carry them yet. Sky:
+ * granulated washes (day a zenith-gradient blue via `s.dirW` with cloud
+ * gaps, night deep indigo) — no hair strokes. Surface: `pig = mix(1,
+ * tint, 0.8·satF)`, `dens = 0.25 + 0.55·tone2^0.6`, `mixF = clamp(
+ * dens·gran·(0.35 + 0.65·satF), 0, 0.9)`, `col = mix(PAPER_W, pig,
+ * mixF)`, grey mix toward `GREY_WASH` by `(1−satF)·tone2·0.5·gran`,
+ * backruns bloom `col = mix(col, PAPER_W, 0.25·smoothstep(0.60, 0.90,
+ * vnoise(p/40)))`, and the pooled edge `col · 0.55` on `s.outline`.
+ * `daylight` is the only style uniform; `viewUp`, `tanHalfFov` and
+ * `viewToWorld` come from the prelude and are never redeclared.
  */
 const WATERCOLOR_FRAGMENT = `
 uniform float daylight;
@@ -179,14 +195,14 @@ float vnoise(vec2 q) {
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// Granulation blotches: two octaves of value noise, in [0.5, 1].
+// Granulation blotches: two octaves of value noise, in [0, 1].
 float blotch(vec2 q) {
   return 0.5 * vnoise(q / 6.0) + 0.5 * vnoise(q / 17.0);
 }
 
 void main() {
   vec2 p = vUv * grid;
-  float gran = 0.85 + 0.30 * blotch(p);
+  float gran = 0.70 + 0.60 * blotch(p);
 
   // Everything about the surface: watercolor only needs the sky test,
   // dirW (zenith gradient) and the outline flag.
@@ -201,30 +217,36 @@ void main() {
   float satF = smoothstep(0.10, 0.45, sat);
 
   // Sky: a plain granulated wash — day a blue that deepens toward the
-  // zenith, night deep indigo. No strokes, no hair.
+  // zenith with blotchy cloud gaps, night deep indigo. No strokes, no hair.
   if (s.cls == 0) {
     vec3 col;
     if (daylight >= 0.5) {
       col = mix(vec3(0.86, 0.92, 1.0), vec3(0.55, 0.72, 0.95),
-                clamp(s.dirW.y, 0.0, 1.0));
+                clamp(s.dirW.y, 0.0, 1.0)) * gran;
+      // Cloud gaps: paper peeks through the sky wash.
+      col = mix(col, vec3(0.97, 0.98, 1.0),
+                0.6 * smoothstep(0.55, 0.80, vnoise(p / 30.0)));
     } else {
-      col = vec3(0.18, 0.20, 0.40);
+      col = vec3(0.18, 0.20, 0.40) * gran;
     }
-    gl_FragColor = vec4(col * gran, 1.0);
+    gl_FragColor = vec4(col, 1.0);
     return;
   }
 
   float tone2 = tone * depthFade(s.dC);
 
-  // Transparent pigment, denser in the shade, granulated in screen space.
+  // Transparent pigment, denser in the shade, granulated in screen
+  // space; never a full-strength wash (mixF capped at 0.9).
   vec3 pig = mix(vec3(1.0), tint, 0.8 * satF);
-  float dens = 0.35 + 0.65 * pow(tone2, 0.6);
-  vec3 col = mix(PAPER_W, pig,
-    clamp(dens * gran * (0.3 + 0.7 * satF) + 0.25 * tone2 * (1.0 - satF),
-          0.0, 1.0));
+  float dens = 0.25 + 0.55 * pow(tone2, 0.6);
+  float mixF = clamp(dens * gran * (0.35 + 0.65 * satF), 0.0, 0.9);
+  vec3 col = mix(PAPER_W, pig, mixF);
 
   // Grey things take a neutral slate wash instead of a hue.
-  if (satF < 0.5) col = mix(col, GREY_WASH, tone2 * 0.6);
+  col = mix(col, GREY_WASH, (1.0 - satF) * tone2 * 0.5 * gran);
+
+  // Bloom (backruns): paper peeks through the wet wash in blotchy gaps.
+  col = mix(col, PAPER_W, 0.25 * smoothstep(0.60, 0.90, vnoise(p / 40.0)));
 
   // Pooled edge: pigment collects at the edge of a wash.
   if (s.outline) col *= 0.55;
