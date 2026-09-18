@@ -3,12 +3,11 @@
  * family"): soft chalk pastel on toned paper — a **stroke-free** sketch
  * family member. The scene sample is 3×3-cell **smoothed** (nine taps,
  * soft edges), the hue becomes a pastel (`chalk = mix(white, tint,
- * 0.65·satF)`) that the screen-space paper tooth `g` lets bleed through,
- * and dark chalk deepens the shadows. `surfaceAt` (shared chunk,
- * T-0139) is used ONLY for the sky test (`s.cls`) and the outline flag
- * (`s.outline`) — there are no stroke calls at all. The family's
- * `vnoise`/`blotch` are not (yet) in `strokes.ts`, so this fragment
- * defines them locally (2-D value noise over the chunk's `hash2`). Cell
+ * 0.65·satF)`) that the world/dome-anchored paper tooth `g = toothOf(s)`
+ * lets bleed through, and dark chalk deepens the shadows. `surfaceAt`
+ * (shared chunk, T-0139) supplies the sky test (`s.cls`), the outline
+ * flag (`s.outline`), and the coordinates the chunk's `toothOf` /
+ * `blotchA` read — there are no stroke calls at all. Cell
  * 3×3, sub 1×1, `needsDepth: true`, `groundGrid: false`.
  *
  * `daylight` is the only style uniform, seeded in `makeUniforms` and
@@ -55,7 +54,7 @@ export function chalkOf(
  * `col = mix(PAPER_S, chalkOf(tint, satF), 0.9·g)` (the tooth lets paper
  * through), then `col = mix(col, DARK_CHALK, (1−v)·0.55·g)` (dark chalk
  * in the shadows) — `v` the shaped brightness of the smoothed sample,
- * `g` the screen-space paper tooth. `satF = smoothstep(0.10, 0.45, sat)`
+ * `g` the world/dome-anchored paper tooth. `satF = smoothstep(0.10, 0.45, sat)`
  * is derived from `tint`, exactly as scribble.
  */
 export function pastelColour(
@@ -83,13 +82,10 @@ export function pastelColour(
  * `STROKE_GLSL` chunk, docs/styles/strokes.md). The smoothed sample is
  * the mean of `sampleSub` over the 3×3 CELL neighbourhood (9 taps; soft
  * edges); `v = shaped(bright(cs))`, `tint = tintOf(cs)`,
- * `satF = smoothstep(0.10, 0.45, sat)`. The paper grain
- * `g = 0.80 + 0.40·hash2(floor(p.x/2), floor(p.y/2))` is SCREEN space —
- * the paper is the screen and does not move with the world.
- * `vnoise`/`blotch` (family common block) are defined here —
- * `strokes.ts` does not carry them yet — over the chunk's `hash2`.
- * Sky cells: `mix(PAPER_S, (0.62,0.75,0.92), 0.75·g)` with white
- * streaks by day, `mix(PAPER_S, (0.18,0.18,0.35), 0.8·g)` by night.
+ * `satF = smoothstep(0.10, 0.45, sat)`. The paper grain `g = toothOf(s)`
+ * and the sky streaks `blotchA(s)` come from the chunk (§4.11
+ * "anchored tooth"). Sky cells: `mix(PAPER_S, (0.62,0.75,0.92), 0.75·g)`
+ * with white streaks by day, `mix(PAPER_S, (0.18,0.18,0.35), 0.8·g)` by night.
  * Surface cells: `pastelColour(v, tint, g)`; the faint chalky outline
  * mixes to dark chalk at 0.35. `daylight` is the only style uniform;
  * `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude.
@@ -98,22 +94,6 @@ const PASTEL_FRAGMENT = `
 uniform float daylight;
 const vec3 PAPER_S = vec3(0.93, 0.90, 0.84);
 const vec3 DARK_CHALK = vec3(0.20, 0.18, 0.22);
-
-// 2-D value noise: bilinear blend of the chunk's hash2 at the four
-// corners of floor(q) (family common block; not in strokes.ts yet).
-float vnoise(vec2 q) {
-  vec2 i = floor(q);
-  vec2 f = fract(q);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = mix(hash2(i.x, i.y), hash2(i.x + 1.0, i.y), u.x);
-  float b = mix(hash2(i.x, i.y + 1.0), hash2(i.x + 1.0, i.y + 1.0), u.x);
-  return mix(a, b, u.y);
-}
-
-// Screen-space wash blotches in cells: two octaves of the value noise.
-float blotch(vec2 q) {
-  return 0.5 * vnoise(q / 6.0) + 0.5 * vnoise(q / 17.0);
-}
 
 void main() {
   vec2 p = vUv * grid;
@@ -135,13 +115,13 @@ void main() {
   float satF = smoothstep(0.10, 0.45, sat);
 
   // Everything about the surface: clamped taps, sky test, class, dPix,
-  // W / nW, stroke coordinates + scale, one-sided outline. Only
-  // s.cls (the sky test) and s.outline are used — no stroke calls.
+  // W / nW, stroke coordinates + scale, one-sided outline. No stroke
+  // calls — toothOf / blotchA read the Surf coords.
   Surf s = surfaceAt(vUv);
 
-  // Paper grain: the paper is the SCREEN — it does not move with the
-  // world. Per 2×2-px tooth, in [0.80, 1.20].
-  float g = 0.80 + 0.40 * hash2(floor(p.x / 2.0), floor(p.y / 2.0));
+  // Paper grain: world-anchored on surfaces, dome-anchored on sky,
+  // ≈ 2 px (§4.11 "anchored tooth").
+  float g = toothOf(s);
 
   // Sky: soft pastel blue with white streaks by day; a deep chalk
   // indigo by night.
@@ -149,7 +129,7 @@ void main() {
     vec3 col;
     if (daylight >= 0.5) {
       col = mix(PAPER_S, vec3(0.62, 0.75, 0.92), 0.75 * g);
-      col = mix(col, vec3(1.0), 0.5 * smoothstep(0.55, 0.75, blotch(p)));
+      col = mix(col, vec3(1.0), 0.5 * smoothstep(0.55, 0.75, blotchA(s)));
     } else {
       col = mix(PAPER_S, vec3(0.18, 0.18, 0.35), 0.8 * g);
     }
@@ -172,7 +152,7 @@ void main() {
 
 /**
  * Soft chalk pastel on toned paper — 3×3-smoothed scene sample, no
- * strokes, the screen-space paper tooth letting paper through the
+ * strokes, the world/dome-anchored paper tooth letting paper through the
  * chalk, dark chalk in the shadows, a faint chalky outline, pastel-blue
  * (day) / indigo (night) sky. Cell 3×3, sub 1×1, depth.
  * `R` cycles, `?render=pastel`.

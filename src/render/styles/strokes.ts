@@ -19,10 +19,13 @@
  * The TS pure mirrors of the chunk (`UP_K`, `SCRIBBLE_LAYERS`, `hash2`,
  * `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `lodOf`,
  * `vnoise1`, `wobble`, `lifted`, `nestedStrokeInk`, `skyCoords`,
- * `hairInk`, `hairDir`) mirror the shader term for term and are
+ * `hairInk`, `hairDir`, `anchoredNoise`, `vnoiseA`, `toothOf`,
+ * `blotchA`, `bloomA`) mirror the shader term for term and are
  * unit-tested in node. `nestedStrokeInk` takes explicit stroke widths:
  * `hw = mu·(wBase + wTone·tone)` with an edge of `± aa·mu`; `scribble`
- * passes its v4 values `(0.30, 0.20, 0.15)`.
+ * passes its v4 values `(0.30, 0.20, 0.15)`. The GLSL `toothOf` /
+ * `blotchA` / `bloomA` take a `Surf` (sky branch: `s.ps` with
+ * `mx = my = 1`); the TS mirrors take `(u, along, mu, ma)`.
  */
 
 /** GLSL `fract(x)`: fractional part, in `[0, 1)` even for negative x. */
@@ -386,16 +389,116 @@ export function hairInk(ps: readonly [number, number], density: number): number 
 }
 
 /**
- * The shared stroke GLSL chunk (§4.11 "Shared stroke chunk (T-0139)"):
- * `hash2`, `depthFade`, `viewPos`, `viewNormal`, `strokeCoords`,
- * `strokeScale`, `vis`, `vnoise1`, `wobble`, `lifted`, `strokeLayer`,
- * `nestedStrokeInk` (parameterised stroke widths `wBase`/`wTone`/`aa`),
- * `hairInk`, `skyCoords`, the `Surf` struct and
- * `Surf surfaceAt(vec2 uv)`. A style prepends it to its own fragment,
- * which is appended to `STYLE_PRELUDE` — nothing here redeclares a
- * prelude uniform. GLSL ES 1.0: the three nested layers are an `if`
- * ladder; the hair loop is 3 × 3 × 3 constant-bound; `exp2`/`log2`/`mod`
- * are ES 1.0.
+ * Hash grain of `cells` on-screen cells, in world units, blended across
+ * the two nearest power-of-two levels (§4.11 "anchored tooth"):
+ * `lx = log2(cells·mx)`, `Lx = floor(lx)`, `fx = fract(lx)` (same for
+ * `y`); `n(L) = hash2(floor(x / 2^Lx) + 7·key, floor(y / 2^Ly) + 13·key)`;
+ * result `mix(n(Lx, Ly), n(Lx+1, Ly+1), max(fx, fy))` in `[0, 1]`.
+ * Sky pass uses `mx = my = 1` (`ps` is already in cells).
+ */
+export function anchoredNoise(
+  x: number,
+  y: number,
+  mx: number,
+  my: number,
+  cells: number,
+  key: number,
+): number {
+  const lx = Math.log2(cells * mx);
+  const ly = Math.log2(cells * my);
+  const Lx = Math.floor(lx);
+  const Ly = Math.floor(ly);
+  const n = (LvX: number, LvY: number): number =>
+    hash2(Math.floor(x / 2 ** LvX) + 7 * key, Math.floor(y / 2 ** LvY) + 13 * key);
+  return mix(n(Lx, Ly), n(Lx + 1, Ly + 1), Math.max(lx - Lx, ly - Ly));
+}
+
+/**
+ * Bilinear value noise on one power-of-two level of the anchored
+ * lattice: corner hashes of `n(L)` at the four floor/ceil corners,
+ * Hermite `smoothstep` weights.
+ */
+function vnoiseALevel(x: number, y: number, Lx: number, Ly: number, key: number): number {
+  const px = x / 2 ** Lx;
+  const py = y / 2 ** Ly;
+  const ix = Math.floor(px);
+  const iy = Math.floor(py);
+  const ux = smoothstep(0, 1, fract(px));
+  const uy = smoothstep(0, 1, fract(py));
+  const a = hash2(ix + 7 * key, iy + 13 * key);
+  const b = hash2(ix + 1 + 7 * key, iy + 13 * key);
+  const c = hash2(ix + 7 * key, iy + 1 + 13 * key);
+  const d = hash2(ix + 1 + 7 * key, iy + 1 + 13 * key);
+  return mix(mix(a, b, ux), mix(c, d, ux), uy);
+}
+
+/**
+ * Bilinear value noise on the same anchored lattice as
+ * {@link anchoredNoise} (§4.11 "anchored tooth"): corner hashes from
+ * `n(L)` at the four floor/ceil corners of the level-`Lx`/`Ly` cell,
+ * smoothstep weights, blended across the two nearest power-of-two
+ * levels. Result in `[0, 1]`.
+ */
+export function vnoiseA(
+  x: number,
+  y: number,
+  mx: number,
+  my: number,
+  cells: number,
+  key: number,
+): number {
+  const lx = Math.log2(cells * mx);
+  const ly = Math.log2(cells * my);
+  const Lx = Math.floor(lx);
+  const Ly = Math.floor(ly);
+  return mix(
+    vnoiseALevel(x, y, Lx, Ly, key),
+    vnoiseALevel(x, y, Lx + 1, Ly + 1, key),
+    Math.max(lx - Lx, ly - Ly),
+  );
+}
+
+/**
+ * Paper tooth in `[0.80, 1.20]` (§4.11 `toothOf`):
+ * `0.80 + 0.40 · anchoredNoise(u, along, mu, ma, 0.67, 1)` — ≈ 2 px
+ * grain, world-anchored. The GLSL twin takes a `Surf` and uses `s.ps`
+ * with `mx = my = 1` on sky.
+ */
+export function toothOf(u: number, along: number, mu: number, ma: number): number {
+  return 0.8 + 0.4 * anchoredNoise(u, along, mu, ma, 0.67, 1);
+}
+
+/**
+ * Granulation blotches in `[0, 1]` (§4.11 `blotchA`):
+ * `0.5 · vnoiseA(u, along, mu, ma, 6, 2) + 0.5 · vnoiseA(u, along, mu, ma, 17, 3)`.
+ * The GLSL twin takes a `Surf` and uses `s.ps` with scale 1 on sky.
+ */
+export function blotchA(u: number, along: number, mu: number, ma: number): number {
+  return 0.5 * vnoiseA(u, along, mu, ma, 6, 2) + 0.5 * vnoiseA(u, along, mu, ma, 17, 3);
+}
+
+/**
+ * Backruns / bloom factor in `[0, 1]` (§4.11 `bloomA`):
+ * `smoothstep(0.60, 0.90, vnoiseA(u, along, mu, ma, 40, 4))`. The GLSL
+ * twin takes a `Surf`; on sky it is the cloud-gap field
+ * `smoothstep(0.55, 0.80, vnoiseA(ps.x, ps.y, 1, 1, 30, 5))`.
+ */
+export function bloomA(u: number, along: number, mu: number, ma: number): number {
+  return smoothstep(0.6, 0.9, vnoiseA(u, along, mu, ma, 40, 4));
+}
+
+/**
+ * The shared stroke GLSL chunk (§4.11 "Shared stroke chunk (T-0139)" +
+ * "anchored tooth" T-0144): `hash2`, `depthFade`, `viewPos`,
+ * `viewNormal`, `strokeCoords`, `strokeScale`, `vis`, `vnoise1`,
+ * `wobble`, `lifted`, `strokeLayer`, `nestedStrokeInk` (parameterised
+ * stroke widths `wBase`/`wTone`/`aa`), `hairInk`, `skyCoords`,
+ * `anchoredNoise`, `vnoiseA`, the `Surf` struct,
+ * `Surf surfaceAt(vec2 uv)`, `toothOf(s)`, `blotchA(s)`, `bloomA(s)`.
+ * A style prepends it to its own fragment, which is appended to
+ * `STYLE_PRELUDE` — nothing here redeclares a prelude uniform. GLSL
+ * ES 1.0: the three nested layers are an `if` ladder; the hair loop is
+ * 3 × 3 × 3 constant-bound; `exp2`/`log2`/`mod` are ES 1.0.
  */
 export const STROKE_GLSL = `
 const float UP_K = 0.6;
@@ -540,6 +643,42 @@ vec2 skyCoords(vec3 dirW, float K) {
   return K * vec2(dirW.x, dirW.z) / (1.0 + dirW.y);
 }
 
+// Hash grain of a given on-screen cell count, in world units, blended across
+// the two nearest power-of-two levels (§4.11 "anchored tooth"). Sky
+// pass uses mx = my = 1 (ps is already in cells).
+float anchoredNoise(float x, float y, float mx, float my, float cells, float key) {
+  float lx = log2(cells * mx);
+  float ly = log2(cells * my);
+  float Lx = floor(lx);
+  float Ly = floor(ly);
+  float n0 = hash2(floor(x / exp2(Lx)) + 7.0 * key, floor(y / exp2(Ly)) + 13.0 * key);
+  float n1 = hash2(floor(x / exp2(Lx + 1.0)) + 7.0 * key, floor(y / exp2(Ly + 1.0)) + 13.0 * key);
+  return mix(n0, n1, max(fract(lx), fract(ly)));
+}
+
+// Bilinear value noise on one power-of-two level of the anchored lattice.
+float vnoiseALevel(float x, float y, float Lx, float Ly, float key) {
+  vec2 p = vec2(x / exp2(Lx), y / exp2(Ly));
+  vec2 i = floor(p);
+  vec2 u = vec2(smoothstep(0.0, 1.0, fract(p.x)), smoothstep(0.0, 1.0, fract(p.y)));
+  float a = hash2(i.x + 7.0 * key, i.y + 13.0 * key);
+  float b = hash2(i.x + 1.0 + 7.0 * key, i.y + 13.0 * key);
+  float c = hash2(i.x + 7.0 * key, i.y + 1.0 + 13.0 * key);
+  float d = hash2(i.x + 1.0 + 7.0 * key, i.y + 1.0 + 13.0 * key);
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Bilinear value noise on the same anchored lattice as anchoredNoise.
+float vnoiseA(float x, float y, float mx, float my, float cells, float key) {
+  float lx = log2(cells * mx);
+  float ly = log2(cells * my);
+  float Lx = floor(lx);
+  float Ly = floor(ly);
+  float n0 = vnoiseALevel(x, y, Lx, Ly, key);
+  float n1 = vnoiseALevel(x, y, Lx + 1.0, Ly + 1.0, key);
+  return mix(n0, n1, max(fract(lx), fract(ly)));
+}
+
 struct Surf {
   int cls;      // 0 sky | 1 ground | 2 wall
   float dC;     // cell-centre linear depth (metres)
@@ -653,5 +792,33 @@ Surf surfaceAt(vec2 uv) {
                   (dD > dC || (skyD && dC < skyThr));
   s.outline = (jump || crease) && nearSide;
   return s;
+}
+
+// Paper tooth in [0.80, 1.20]: ≈ 2 px, world-anchored on surfaces,
+// dome-anchored on sky (§4.11 "anchored tooth").
+float toothOf(Surf s) {
+  if (s.cls == 0) {
+    return 0.80 + 0.40 * anchoredNoise(s.ps.x, s.ps.y, 1.0, 1.0, 0.67, 1.0);
+  }
+  return 0.80 + 0.40 * anchoredNoise(s.u, s.along, s.mu, s.ma, 0.67, 1.0);
+}
+
+// Granulation blotches in [0, 1]; sky uses s.ps with scale 1.
+float blotchA(Surf s) {
+  if (s.cls == 0) {
+    return 0.5 * vnoiseA(s.ps.x, s.ps.y, 1.0, 1.0, 6.0, 2.0)
+         + 0.5 * vnoiseA(s.ps.x, s.ps.y, 1.0, 1.0, 17.0, 3.0);
+  }
+  return 0.5 * vnoiseA(s.u, s.along, s.mu, s.ma, 6.0, 2.0)
+       + 0.5 * vnoiseA(s.u, s.along, s.mu, s.ma, 17.0, 3.0);
+}
+
+// Surface backruns: smoothstep(0.60, 0.90, vnoiseA(..., 40, 4)).
+// Sky clouds:      smoothstep(0.55, 0.80, vnoiseA(ps, 1, 1, 30, 5)).
+float bloomA(Surf s) {
+  if (s.cls == 0) {
+    return smoothstep(0.55, 0.80, vnoiseA(s.ps.x, s.ps.y, 1.0, 1.0, 30.0, 5.0));
+  }
+  return smoothstep(0.60, 0.90, vnoiseA(s.u, s.along, s.mu, s.ma, 40.0, 4.0));
 }
 `;

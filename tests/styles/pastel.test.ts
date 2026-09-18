@@ -2,9 +2,8 @@
  * Unit tests for the pure parts of the `pastel` render style
  * (docs/architecture.md §4.11, wave 18 "sketch family"): the pastel
  * chalk (`chalkOf`) and the full surface colour (`pastelColour`) — the
- * 3×3 smoothing and the `vnoise`/`blotch` washes live only in the
- * fragment. The shared stroke machinery (hash, viewPos/viewNormal,
- * depthFade, stroke coordinates/scale/LOD, …) is unit-tested in
+ * 3×3 smoothing lives only in the fragment. The shared stroke machinery
+ * and the anchored tooth (`toothOf` / `blotchA`) are unit-tested in
  * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
