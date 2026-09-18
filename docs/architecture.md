@@ -895,6 +895,70 @@ depth fade, PAPER/INK/SKY_INK) is unchanged. e2e (T-0135) thresholds are
 unaffected in kind; the orientation assertions must still pass — the v2
 `check.sh` proves it.
 
+**`scribble` v3 (T-0137, user review 2026-09-18: "looks like it has a
+fixed grid overlay of irregular lines that looks out of place").** v1/v2
+drew the strokes in *screen* space, so the pen pattern stays put while the
+world slides under it (the shower-door effect). v3 anchors every stroke to
+the **world** and keeps the on-screen spacing constant with a nested
+power-of-two level of detail (LOD). Colour, outline, tone, thresholds,
+half-widths, lifts and the class rule are unchanged from v2.
+
+    common uniform (PM-plumbed): viewToWorld — mat4, the scene camera's matrixWorld
+    P   = viewPos(vUv, dC, tanHalfFov, aspect)               // per PIXEL (continuous vUv), cell depth dC
+    W   = (viewToWorld · vec4(P, 1)).xyz                      // world position, metres
+    nW  = normalize(mat3(viewToWorld) · n)                    // world normal (n = viewNormal of v2)
+    m   = dC · 2 · tanHalfFov / sceneSize.y                   // metres per cell at this depth
+
+    stroke coordinates, metres (`strokeCoords(W, nW, dC, up)` → { u, along }):
+      wall   (up ≤ UP_K):  t = normalize(cross(vec3(0, 1, 0), nW));  u = dot(W, t);  along = W.y
+      ground (up >  UP_K):  u = dC;                                    along = W.x + W.z
+    (wall strokes are vertical WORLD lines on the facade — they converge like a real
+     perspective sketch when the camera pitches; ground strokes are lines of constant
+     depth — horizontal on screen — that flow past as you walk)
+
+    nested LOD family: level j has lines at u = i · 2^j metres (integer i); the
+    level-(j + 1) lines are exactly the even-i lines of level j.
+      lod = log2(8 · m);  L = floor(lod);  f = fract(lod)     // level L is 8 cells apart on screen
+      layer k = 0..2 draws level j = L − k when tone > t_k, t = [0.10, 0.40, 0.70]
+      at level j, S = 2^j:
+        i      = floor(u / S + 0.5)                            // nearest line
+        key    = i · S                                          // the line's world coordinate — the SAME
+                                                                // number at every level that contains it
+        ph     = hash2(key, 0.0) · 6.2832
+        wob    = m · (0.50·sin(along / m · 0.16 + ph) + 0.25·sin(along / m · 0.043 + 2·ph))
+        lift   = hash2(key, floor(along / (24 · m)) + 40.0) < 0.12   → skip this line
+        hw     = m · (0.28 + 0.22 · tone)
+        cov    = 1 − smoothstep(hw − 0.15·m, hw + 0.15·m, |u − key − wob|)
+        weight = (mod(i, 2.0) == 1.0) ? (1 − f) : 1            // odd lines fade out as the LOD climbs;
+                                                                // at f → 1 they are gone and the even
+                                                                // lines become the next level — no pop
+        ink    = max(ink, cov · weight)
+    `nestedStrokeInk(u, along, tone, m)` is the pure mirror of the loop.
+
+    sky (per pixel): dirW = normalize(mat3(viewToWorld) · viewPos(vUv, 1, tanHalfFov, aspect))
+      K   = sceneSize.y / (2 · atan(tanHalfFov))                // cells per radian
+      ps  = (atan(dirW.x, −dirW.z) · K,  asin(dirW.y) · K)      // dome coordinates in "cells"
+      ink = tangleInk(ps.x, ps.y, density)                      // unchanged families; the tangle now
+                                                                // sticks to the sky and pans with the camera
+      (the atan seam behind the camera is accepted)
+
+    hash2 (v3, precision-safe for |a|, |b| up to 1e5 — the sin hash of v1 breaks
+    for world-sized inputs):
+      p  = fract(vec3(a, b, a) · vec3(0.1031, 0.1030, 0.0973))
+      p += dot(p, p.yzx + 33.33)
+      hash2 = fract((p.x + p.y) · p.z)
+    Every hash2 caller (strokes, lifts, tangle) uses the v3 hash; the tangle
+    is unchanged otherwise.
+
+Outline: unchanged (per cell, screen space). `strokeInk(u, along, tone)` of
+v1/v2 is deleted. Pure: `strokeCoords`, `lodOf(m): { L, f }`,
+`nestedStrokeInk`, `skyCoords(dirW, K)`, `hash2` (v3). Mechanical
+no-pop criterion: for tone 1 and any sample point, `nestedStrokeInk` at
+`m = 2^j·(1 − 1e−4)` and at `m = 2^j·(1 + 1e−4)` differ by < 0.05; and the
+mean coverage over a grid is within ±35 % across `m ∈ {0.01, 0.02, 0.05}`
+(screen density is depth-independent). e2e (T-0135) is unchanged and must
+stay green.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting

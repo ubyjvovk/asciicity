@@ -76,6 +76,9 @@ export interface RenderStyle {
  *   tanHalfFov — tan(vertical fov / 2) of the scene camera (0.7002 at 70°);
  *                view-space position of a texel = (ndc.x·tanHalfFov·aspect·d,
  *                ndc.y·tanHalfFov·d, −d) with d = linearDepth, aspect = sceneSize.x/sceneSize.y
+ *   viewToWorld — mat4, the scene camera's `matrixWorld` (wave 17 v3): world
+ *                position of a texel = (viewToWorld · vec4(P, 1)).xyz, world
+ *                direction of a view vector = mat3(viewToWorld) · v
  * Helpers:
  *   sampleSub(cell, sx, sy) — exposed scene colour of sub-sample (sx, sy) of
  *     `cell` (0-based, cell (0,0) bottom-left; (sx, sy) = (0, 0) is the
@@ -100,6 +103,7 @@ uniform float cameraNear;
 uniform float cameraFar;
 uniform vec3 viewUp;
 uniform float tanHalfFov;
+uniform mat4 viewToWorld;
 varying vec2 vUv;
 vec3 sampleSub(vec2 cell, float sx, float sy) {
   vec2 px = cell * sub + vec2(sx, sy) + 0.5;

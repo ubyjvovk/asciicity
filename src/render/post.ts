@@ -131,6 +131,7 @@ export class StyleRenderer {
       cameraFar: { value: 2000 },
       viewUp: { value: new THREE.Vector3(0, 1, 0) },
       tanHalfFov: { value: Math.tan((70 / 2) * (Math.PI / 180)) },
+      viewToWorld: { value: new THREE.Matrix4() },
     };
 
     const wanted = opts?.initial ?? 'ascii';
@@ -235,6 +236,7 @@ export class StyleRenderer {
       camera.updateMatrixWorld();
       worldUpInView(camera.matrixWorld, this.common.viewUp.value as THREE.Vector3);
       this.common.tanHalfFov.value = Math.tan((camera.fov / 2) * (Math.PI / 180));
+      (this.common.viewToWorld.value as THREE.Matrix4).copy(camera.matrixWorld);
     }
     this.style.update?.(this.material.uniforms, timeS, this.ctx());
     this.renderer.setRenderTarget(this.target);
