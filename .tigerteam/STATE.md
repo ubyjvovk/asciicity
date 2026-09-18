@@ -177,6 +177,30 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   "shiny", quest, and Minas Tirith; Spark spike still drafted.
 - Spark spike stays in drafts/ until the user says go.
 
+## Wave 17 (2026-09-18) — `scribble` style (coloured-ink scribble sketch)
+- User brief: `lines.jpg` (repo root, untracked) — a scribble-hatching /
+  continuous-line ink sketch of a neon street: white paper, tone = stroke
+  density, wobbly strokes that follow the surface (vertical on walls,
+  horizontal on the ground, tangle in the sky), ink coloured per object.
+  PM assessment: fits the §4.11 post-pass contract; ~70 % of the vibe on the
+  first ticket, the rest is the tune loop. Wet-floor reflections deferred.
+- PM decisions locked in architecture.md §4.11 "`scribble` (wave 17)":
+  cell 3×3 sub 1×1 depth on, `groundGrid: false`; strokes drawn per canvas
+  pixel in continuous cell space (long unbroken lines); surface class from
+  the vertical depth slope (`SLOPE_K` 0.006); 3 stroke layers (spacing
+  8/4/2, thresholds 0.10/0.40/0.70) with sin wobble, jitter, pen lifts;
+  sky tangle of 3 wavy families gated by `daylight`; one-sided outline
+  (`isEdge` one cell apart + `isNearSide`); ink = mix(black, tint·0.55,
+  satF), pale wash; depth fade 0.55 by 900 m.
+- PM wiring committed (7cffda2 + angle fix): stub, STYLE_ORDER (16 styles,
+  smoke count 16), docs/render.md row, ground-grid test; gate green.
+- Board: T-0134 shader + pure mirrors + unit tests + docs/styles/scribble.md
+  (P1/C2) · T-0135 e2e (P2/C2, dep 0134: paper/ink shares, ≥ 3 hue bins,
+  stroke-orientation run counts, sky tangle day < night, no full-width row).
+- Review plan: rerun unit + gate in the worker container; PM GPU review of
+  `style-scribble.png` plus London / Tokyo night walks; expect a v2 tune
+  ticket from that (line weight, density thresholds, maybe reflections).
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
