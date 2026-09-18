@@ -306,6 +306,21 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   edge left no pixel fully dark (ink share halved, ground runs collapsed)
   → core 0.45+0.25·tone, edge ±0.25·mu. Answered; scope + e2e/scribble.spec.ts
   (assertion-5 factor may drop to 1.2 only if measured 1.2–1.5).
+- T-0138 blocked three times in total, every time on PM numbers (grok's
+  analysis was right each time: sky mix, grey cores, then value-noise
+  tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
+  pm, the twice-rejected rule) and finished it on grok's branch with host
+  screenshots in two iterations: tremor 0.6/0.4/0.4, v3 core 0.30+0.20
+  ±0.15. The e2e orientation metric was itself broken — it counted RUNS,
+  so one long straight line scored 1 while the columns crossing it scored
+  hundreds; now it counts stroke pixels (max < 0.45) in runs ≥ 4 px,
+  factor 1.5 both ways (wall 3.1×, ground 5.8×). ACCEPTED 2026-09-18
+  17:20Z; grok cost $2.26 over 3 attempts + PM. Frames:
+  `e2e/__shots__/pm-scribble-v4-*.png`. Lesson: when a worker blocks
+  twice on the same PM constant, look at the frames and finish it
+  yourself instead of a third paid guess.
+- **Wave 17 closed at 138.** `scribble` v4 = world-anchored, motion-stable
+  strokes, hair sky. Awaiting the user's walk.
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
