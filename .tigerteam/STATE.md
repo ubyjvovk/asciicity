@@ -225,6 +225,18 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   on the host: paper 0.21, ink 0.08, coloured 0.16, 4 hue bins, wall
   vertical runs 190 vs 34 horizontal, ground horizontal 697 vs 84 vertical,
   sky paper 0.73, night tangle 0.085 > noon 0.042. T-0136 (v2) now claimable.
+- T-0136 ACCEPTED 2026-09-18 (ds-1, attempt 1, 13 min, $0.03): normal-based
+  class with clamped taps, wash 0.14, darker ink, denser tangle. PM host-GPU
+  review (`e2e/__shots__/pm-scribble-v2-*.png`, 60 fps): bottom-row ticks
+  gone, walls stay vertical when pitched up, more paper showing, tangle
+  denser. e2e unchanged and green (ground vertical runs rose 84 → 537
+  because the shakier wobble makes horizontal lines swing ≥ 6 px — not a
+  misclassification). Wave 17 spend: 3 tickets, 7 attempts, ≈ $0.16.
+- **Wave 17 complete (136/136).** Board empty. Awaiting the user's look at
+  `?render=scribble` (best frames: Tokyo 22:00, London noon on the bridge).
+  Open polish ideas, only if the user asks: wet-floor reflection (mirror
+  the scene about the horizon for ground cells), loopier sky curls
+  (parametric curves rather than wavy level sets), coloured sky ink at dusk.
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
