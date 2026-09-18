@@ -46,20 +46,30 @@ grid.
 7. **World position + nested LOD** (v3):
    `P = viewPos(vUv, dC, tanHalfFov, aspect)` (per pixel, cell depth);
    `W = (viewToWorld · vec4(P, 1)).xyz`;
-   `nW = normalize(mat3(viewToWorld) · n)`;
-   `m = dC · 2 · tanHalfFov / sceneSize.y` (metres per cell at this depth).
-   **Stroke coordinates** (`strokeCoords(W, nW, dC, up)` → `{ u, along }`,
+   `nW = normalize(mat3(viewToWorld) · n)`.
+   **Stroke coordinates** (`strokeCoords(W, nW, d, up)` → `{ u, along }`,
    metres): wall (`up ≤ UP_K`) `t = normalize(cross((0,1,0), nW))`,
    `u = W·t`, `along = W.y` (vertical WORLD lines on the facade — they
    converge like a real perspective sketch when the camera pitches); ground
-   (`up > UP_K`) `u = dPix`, `along = W.x + W.z` (lines of constant depth —
-   horizontal on screen — that flow past as you walk). `dPix` is the cell
-   depth `dC` reconstructed at the pixel from the one-cell taps
-   (`dC + ½(dR−dL)·ox + ½(dU−dD)·oy`, gradient zeroed on a 35 % jump)
+   (`up > UP_K`) `u = d`, `along = W.x + W.z` (lines of constant depth —
+   horizontal on screen — that flow past as you walk). For the pixel,
+   ground `d` is `dPix`, the cell depth reconstructed from the one-cell
+   taps (`dC + ½(dR−dL)·ox + ½(dU−dD)·oy`, gradient zeroed on a 35 % jump)
    because the scene target is 1 sample per cell — `linearDepth(vUv)`
    equals `dC` everywhere inside it.
-   **Nested strokes** (`nestedStrokeInk(u, along, tone, m)`):
-   `lod = log2(8·m)`, `L = floor(lod)`, `f = fract(lod)` (level `L` is 8
+   **Stroke scale** (`strokeScale(uN, alongN, up)` → `{ mu, ma }`) is the
+   screen gradient of the stroke coordinate, not a facing-camera
+   `m = dC·2·tanHalfFov/sceneSize.y` (that under-scales the ground and
+   oblique facades so the lines fall below a pixel). Per cell, from the
+   same five taps: `W_N = (viewToWorld · vec4(viewPos(uv_N, d_N), 1)).xyz`
+   for `N ∈ {L, R, U, D}`; `u_N, along_N = strokeCoords(W_N, nW, d_N, up)`
+   (ground: `u_N = d_N`);
+   wall: `mu = max(|u_R − u_L|/2, 1e−4)`, `ma = max(|along_U − along_D|/2, 1e−4)`;
+   ground: `mu = max(|u_U − u_D|/2, 1e−4)`, `ma = max(|along_R − along_L|/2, 1e−4)`.
+   `mu` is metres of `u` per screen cell across the strokes; `ma` is metres
+   of `along` per screen cell along them.
+   **Nested strokes** (`nestedStrokeInk(u, along, tone, mu, ma)`):
+   `lod = log2(8·mu)`, `L = floor(lod)`, `f = fract(lod)` (level `L` is 8
    cells apart on screen). Layer `k = 0..2` draws level `j = L − k` when
    `tone > t_k`, `t = [0.10, 0.40, 0.70]` (`SCRIBBLE_LAYERS` thresholds).
    At level `j`, `S = exp2(j)`:
@@ -70,10 +80,10 @@ grid.
    `key = i·S` (the line's world coordinate — the same number at every
    level that contains it),
    `ph = hash2(key, 0)·6.2832`,
-   `wob = m·(0.50·sin(along/m·0.16 + ph) + 0.25·sin(along/m·0.043 + 2·ph))`,
-   `lift = hash2(key, floor(along/(24·m)) + 40) < 0.12` → pen lifts,
-   `hw = m·(0.28 + 0.22·tone)`,
-   `cov = 1 − smoothstep(hw − 0.15·m, hw + 0.15·m, |u − key − wob|)`,
+   `wob = mu·(0.50·sin(along/ma·0.16 + ph) + 0.25·sin(along/ma·0.043 + 2·ph))`,
+   `lift = hash2(key, floor(along/(24·ma)) + 40) < 0.12` → pen lifts,
+   `hw = mu·(0.28 + 0.22·tone)`,
+   `cov = 1 − smoothstep(hw − 0.15·mu, hw + 0.15·mu, |u − key − wob|)`,
    `weight = (mod(i, 2) == 1) ? (1 − f) : 1` (odd lines fade out as the LOD
    climbs; at `f → 1` they are gone and the even lines become the next
    level — no pop),
@@ -82,19 +92,21 @@ grid.
 8. **Sky tangle** (v3, per pixel):
    `dirW = normalize(mat3(viewToWorld) · viewPos(vUv, 1, tanHalfFov, aspect))`;
    `K = sceneSize.y / (2 · atan(tanHalfFov))` (cells per radian);
-   `ps = skyCoords(dirW, K) = (atan(dirW.x, −dirW.z)·K, asin(dirW.y)·K)`
-   (dome coordinates in "cells"; the `atan` seam behind the camera is
-   accepted). Then `tangleInk(ps.x, ps.y, density)` — three wavy families
-   at fixed angles `θ = [0.12, 1.25, 2.30]`, `S = [2.5, 9, 7]` (family 0
-   spacing 3 → 2.5 in v2, denser vertical hair); per line
-   `u = px·cosθ + py·sinθ`, `along = −px·sinθ + py·cosθ`,
+   `ps = skyCoords(dirW, K) = K · (dirW.x, dirW.z) / (1 + dirW.y)`
+   (stereographic from the **nadir**: the only pole is straight down,
+   never in the sky, and there is no azimuthal seam — the v3.0 `atan`/`asin`
+   map put a starburst at the zenith). Then `tangleInk(ps.x, ps.y, density)`
+   — three wavy families at fixed angles `θ = [0.12, 1.25, 2.30]`,
+   `S = [2.5, 9, 7]` (family 0 spacing 3 → 2.5 in v2, denser vertical hair);
+   per line `u = px·cosθ + py·sinθ`, `along = −px·sinθ + py·cosθ`,
    `idx = floor(u/S)`; line absent when `hash2(idx, 20+j) > density`
    (`skyDensity = mix(0.60, 0.30, daylight)` — night a denser tangle, noon
    sparse); `ph = hash2(idx, 30+j)·2π`,
    `wob = 2.0·sin(along·0.09 + ph) + 1.2·sin(along·0.31 + 2·ph)`,
    `cov = 1 − smoothstep(0.15, 0.45, |u − (idx+0.5)·S − wob|)`. Sky ink =
-   `SKY_INK` at `coverage · 0.85`; sky wash = paper. The tangle now sticks
-   to the sky dome and pans with the camera.
+   `SKY_INK` at `coverage · 0.85`; sky wash = paper. The tangle sticks to
+   the sky dome, pans with the camera, and is ~2× sparser at the zenith
+   (accepted).
 9. **Outline** (one-sided, with the one-CELL-apart samples, still screen
    space / per cell): the cell is fully inked (`ink = 1`, `surfaceOutline`)
    when `isEdge(dC, [dL, dR, dU, dD], far)` (imported from `edges.ts`, term
@@ -115,8 +127,11 @@ stroke density.
 
 - **Per-pixel world strokes** — `P = viewPos(vUv, dC, …)` uses the
   continuous `vUv` and the cell's depth; `W` comes from the prelude
-  `viewToWorld` (the camera's `matrixWorld`). A nested LOD (`lodOf(m)`,
-  `nestedStrokeInk`) keeps spacing ~8/4/2 cells on screen at every depth.
+  `viewToWorld` (the camera's `matrixWorld`). Stroke scale is the screen
+  gradient of `u` (`strokeScale` → `mu`/`ma` from the four neighbour
+  taps), not a facing-camera metres-per-cell, so the ground and oblique
+  facades keep the same on-screen spacing as a frontal wall. A nested LOD
+  (`lodOf(mu)`, `nestedStrokeInk`) keeps spacing ~8/4/2 cells on screen.
 - **Depth taps** are ONE CELL apart at texel centres (`stepUv = sub·texel`),
   exactly as `lowpoly` v2 — the ticket explicitly says NOT one sub-sample
   apart like `edges.ts`.
@@ -157,12 +172,15 @@ stroke density.
 - `surfaceClass(dC, far, up): 0 | 1 | 2` — sky / ground / wall (v2).
 - `skyDensity(daylight): number` — `mix(0.60, 0.30, daylight)` (v2).
 - `depthFade(d): number` — `1 − 0.45·smoothstep(120, 900, d)`.
-- `strokeCoords(W, nW, dC, up): { u, along }` — world stroke coordinates
+- `strokeCoords(W, nW, d, up): { u, along }` — world stroke coordinates
   in metres (v3).
-- `lodOf(m): { L, f }` — `L = floor(log2(8·m))`, `f = fract(lod)` (v3).
-- `nestedStrokeInk(u, along, tone, m): number` — nested-LOD surface-stroke
-  coverage in `[0, 1]` (v3). Replaces deleted `strokeInk`.
-- `skyCoords(dirW, K): [x, y]` — dome coordinates in cells (v3).
+- `strokeScale(uN, alongN, up): { mu, ma }` — metres of `u` / `along` per
+  screen cell from the four neighbour taps (v3.1).
+- `lodOf(mu): { L, f }` — `L = floor(log2(8·mu))`, `f = fract(lod)` (v3).
+- `nestedStrokeInk(u, along, tone, mu, ma): number` — nested-LOD
+  surface-stroke coverage in `[0, 1]` (v3). Replaces deleted `strokeInk`.
+- `skyCoords(dirW, K): [x, y]` — stereographic-from-nadir dome coordinates
+  in cells (v3.1).
 - `tangleInk(px, py, density): number` — sky-tangle coverage in `[0, 1]`.
 - `surfaceOutline(dC, neighbours, far): boolean` — the one-sided outline
   gate (`isEdge` AND `isNearSide` over the four neighbours).
@@ -191,9 +209,9 @@ textures are created, so there is no `dispose`.
 1. `p = vUv · grid`, `cell = floor(p)`; sample, tone, tint (steps 1–3).
 2. Clamped depth taps one cell apart; classify sky / ground / wall by the
    view-space normal (steps 4–5).
-3. Sky cells paint the dome tangle on paper (step 8); return.
-4. Non-sky: fade, world `W` / nested-LOD strokes, one-sided outline
-   (steps 6–7, 9).
+3. Sky cells paint the stereographic dome tangle on paper (step 8); return.
+4. Non-sky: fade, world `W` / screen-gradient scale / nested-LOD strokes,
+   one-sided outline (steps 6–7, 9).
 5. Write `mix(washCol, inkCol, ink)` as `gl_FragColor` (alpha = 1).
 
 Because strokes are anchored in world metres with a nested LOD and the

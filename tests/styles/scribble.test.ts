@@ -2,7 +2,8 @@
  * Unit tests for the pure parts of the `scribble` render style
  * (docs/architecture.md §4.11, wave 17 T-0134 / v2 T-0136 / v3 T-0137): the
  * view-space-normal surface class, far-depth fade, world-anchored nested-LOD
- * strokes, sky-dome coordinates, tangle coverage growth, the neutral vs
+ * strokes (screen-gradient scale), stereographic sky-dome coordinates, tangle
+ * coverage growth, the neutral vs
  * coloured ink/wash colours, and the v3 precision-safe hash. Runs in node;
  * no WebGL is touched.
  */
@@ -19,6 +20,7 @@ import {
   skyCoords,
   skyDensity,
   strokeCoords,
+  strokeScale,
   surfaceClass,
   tangleInk,
   viewNormal,
@@ -180,25 +182,50 @@ describe('lodOf', () => {
   });
 });
 
+describe('strokeScale', () => {
+  it('wall taps {L:1,R:3}/{U:7,D:5} → {mu:1, ma:1}; ground {U:25,D:20}/{L:0,R:4} → {mu:2.5, ma:2}; degenerate u L=R=5 → mu = 1e−4', () => {
+    const wall = strokeScale(
+      { L: 1, R: 3, U: 0, D: 0 },
+      { L: 0, R: 0, U: 7, D: 5 },
+      0,
+    );
+    expect(wall.mu).toBeCloseTo(1, 6);
+    expect(wall.ma).toBeCloseTo(1, 6);
+    const ground = strokeScale(
+      { L: 0, R: 0, U: 25, D: 20 },
+      { L: 0, R: 4, U: 0, D: 0 },
+      1,
+    );
+    expect(ground.mu).toBeCloseTo(2.5, 6);
+    expect(ground.ma).toBeCloseTo(2, 6);
+    const degenerate = strokeScale(
+      { L: 5, R: 5, U: 0, D: 0 },
+      { L: 0, R: 0, U: 0, D: 0 },
+      0,
+    );
+    expect(degenerate.mu).toBeCloseTo(1e-4, 12);
+  });
+});
+
 describe('nestedStrokeInk', () => {
   it('tone 0 draws nothing on a 64 × 64 grid', () => {
     for (const { u, along } of grid64(0.05)) {
-      expect(nestedStrokeInk(u, along, 0, 0.02)).toBe(0);
+      expect(nestedStrokeInk(u, along, 0, 0.02, 0.02)).toBe(0);
     }
   });
 
   it('every value at tone 1 lies in [0, 1]', () => {
     for (const { u, along } of grid64(0.05)) {
-      const ink = nestedStrokeInk(u, along, 1, 0.02);
-      expect(ink, `nestedStrokeInk(${u}, ${along}, 1, 0.02) in [0, 1]`).toBeGreaterThanOrEqual(0);
-      expect(ink, `nestedStrokeInk(${u}, ${along}, 1, 0.02) in [0, 1]`).toBeLessThanOrEqual(1);
+      const ink = nestedStrokeInk(u, along, 1, 0.02, 0.02);
+      expect(ink, `nestedStrokeInk(${u}, ${along}, 1, 0.02, 0.02) in [0, 1]`).toBeGreaterThanOrEqual(0);
+      expect(ink, `nestedStrokeInk(${u}, ${along}, 1, 0.02, 0.02) in [0, 1]`).toBeLessThanOrEqual(1);
     }
   });
 
   it('density grows with tone', () => {
     const pts = grid64(0.05);
     const tones = [0, 0.2, 0.5, 0.8, 1];
-    const means = tones.map((t) => mean(pts, (u, a) => nestedStrokeInk(u, a, t, 0.02)));
+    const means = tones.map((t) => mean(pts, (u, a) => nestedStrokeInk(u, a, t, 0.02, 0.02)));
     for (let i = 1; i < means.length; i++) {
       expect(means[i], `mean at tone ${tones[i]} > tone ${tones[i - 1]}`).toBeGreaterThan(
         means[i - 1],
@@ -214,8 +241,8 @@ describe('nestedStrokeInk', () => {
       for (const j of [-3, -2]) {
         const mLo = 2 ** j * (1 - 1e-4);
         const mHi = 2 ** j * (1 + 1e-4);
-        const a = nestedStrokeInk(u, along, 1, mLo);
-        const b = nestedStrokeInk(u, along, 1, mHi);
+        const a = nestedStrokeInk(u, along, 1, mLo, mLo);
+        const b = nestedStrokeInk(u, along, 1, mHi, mHi);
         expect(
           Math.abs(a - b),
           `no pop at (${u}, ${along}) j=${j}: ${a} vs ${b}`,
@@ -226,7 +253,7 @@ describe('nestedStrokeInk', () => {
 
   it('depth-independent density', () => {
     const ms = [0.01, 0.02, 0.05];
-    const means = ms.map((m) => mean(grid64(m), (u, a) => nestedStrokeInk(u, a, 1, m)));
+    const means = ms.map((m) => mean(grid64(m), (u, a) => nestedStrokeInk(u, a, 1, m, m)));
     const avg = (means[0] + means[1] + means[2]) / 3;
     for (let i = 0; i < ms.length; i++) {
       expect(means[i], `mean at m=${ms[i]} within ±35 % of ${avg}`).toBeGreaterThanOrEqual(avg * 0.65);
@@ -236,14 +263,16 @@ describe('nestedStrokeInk', () => {
 });
 
 describe('skyCoords', () => {
-  it('skyCoords([0, 0, −1], 100) → [0, 0]; zenith y ≈ 157.08; east x ≈ 157.08', () => {
+  it('skyCoords([0, 0, −1], 100) → [0, −100]; zenith [0, 0]; east [100, 0]', () => {
     const north = skyCoords([0, 0, -1], 100);
     expect(north[0]).toBeCloseTo(0, 6);
-    expect(north[1]).toBeCloseTo(0, 6);
+    expect(north[1]).toBeCloseTo(-100, 6);
     const zenith = skyCoords([0, 1, 0], 100);
-    expect(zenith[1]).toBeCloseTo(157.08, 2);
+    expect(zenith[0]).toBeCloseTo(0, 6);
+    expect(zenith[1]).toBeCloseTo(0, 6);
     const east = skyCoords([1, 0, 0], 100);
-    expect(east[0]).toBeCloseTo(157.08, 2);
+    expect(east[0]).toBeCloseTo(100, 6);
+    expect(east[1]).toBeCloseTo(0, 6);
   });
 });
 

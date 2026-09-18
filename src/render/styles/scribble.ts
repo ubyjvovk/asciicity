@@ -12,13 +12,15 @@
  * the scene sample, the depth taps, the class and the outline are per cell
  * (`cell = floor(vUv · grid)`). Pure helpers (`SCRIBBLE_LAYERS`, `UP_K`,
  * `PAPER`, `INK`, `SKY_INK`, `hash2`, `viewPos`, `viewNormal`,
- * `surfaceClass`, `skyDensity`, `depthFade`, `strokeCoords`, `lodOf`,
- * `nestedStrokeInk`, `skyCoords`, `tangleInk`, `surfaceOutline`,
+ * `surfaceClass`, `skyDensity`, `depthFade`, `strokeCoords`, `strokeScale`,
+ * `lodOf`, `nestedStrokeInk`, `skyCoords`, `tangleInk`, `surfaceOutline`,
  * `inkColour`, `washColour`) mirror the shader term for term and are
  * unit-tested in node. v3 (T-0137) replaces the screen-space `strokeInk`
  * overlay with world-anchored nested LOD and sticks the sky tangle to the
- * dome; colour, outline, tone, thresholds, half-widths, lifts and the
- * ground/wall class rule stay as v2.
+ * dome; the v3.1 rework scales strokes from the screen gradient of `u`
+ * (`strokeScale`) and maps the sky stereographically from the nadir.
+ * Colour, outline, tone, thresholds, half-widths, lifts and the ground/wall
+ * class rule stay as v2.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -44,11 +46,6 @@ function mix(a: number, b: number, t: number): number {
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
-}
-
-/** GLSL `clamp(x, lo, hi)`: saturate `x` into `[lo, hi]`. */
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, x));
 }
 
 /**
@@ -185,11 +182,35 @@ export function strokeCoords(
 }
 
 /**
- * Nested LOD for metres-per-cell `m` (§4.11 v3): `lod = log2(8·m)`,
- * `L = floor(lod)`, `f = fract(lod)`.
+ * Screen-space stroke scale from the four neighbour taps (§4.11 v3
+ * `strokeScale`): `{ mu, ma }` metres of `u` / `along` per screen cell.
+ * Wall uses the L/R pair of `u` and the U/D pair of `along`; ground uses
+ * the U/D pair of `u` and the L/R pair of `along`. Each is floored at
+ * `1e−4` so a degenerate (constant) tap never blows the LOD.
  */
-export function lodOf(m: number): { L: number; f: number } {
-  const lod = Math.log2(8 * m);
+export function strokeScale(
+  uN: { L: number; R: number; U: number; D: number },
+  alongN: { L: number; R: number; U: number; D: number },
+  up: number,
+): { mu: number; ma: number } {
+  if (up > UP_K) {
+    return {
+      mu: Math.max(Math.abs(uN.U - uN.D) / 2, 1e-4),
+      ma: Math.max(Math.abs(alongN.R - alongN.L) / 2, 1e-4),
+    };
+  }
+  return {
+    mu: Math.max(Math.abs(uN.R - uN.L) / 2, 1e-4),
+    ma: Math.max(Math.abs(alongN.U - alongN.D) / 2, 1e-4),
+  };
+}
+
+/**
+ * Nested LOD for metres-of-`u`-per-cell `mu` (§4.11 v3): `lod = log2(8·mu)`,
+ * `L = floor(lod)`, `f = fract(lod)`. Level `L` is 8 cells apart on screen.
+ */
+export function lodOf(mu: number): { L: number; f: number } {
+  const lod = Math.log2(8 * mu);
   const L = Math.floor(lod);
   return { L, f: lod - L };
 }
@@ -201,28 +222,35 @@ export function lodOf(m: number): { L: number; f: number } {
  * Each level takes the max over the nearest line and its neighbours
  * (`i0 ± 2`): stroke width + wobble can cover more than the nearest, and
  * a faded odd line must fall back to the even neighbour or the LOD
- * transition pops.
+ * transition pops. `mu` / `ma` are metres of `u` / `along` per screen cell
+ * from {@link strokeScale}; they replace a single facing-camera `m`.
  */
-export function nestedStrokeInk(u: number, along: number, tone: number, m: number): number {
-  const { L, f } = lodOf(m);
+export function nestedStrokeInk(
+  u: number,
+  along: number,
+  tone: number,
+  mu: number,
+  ma: number,
+): number {
+  const { L, f } = lodOf(mu);
   let ink = 0;
   for (let k = 0; k < SCRIBBLE_LAYERS.length; k++) {
     if (tone <= SCRIBBLE_LAYERS[k].threshold) continue;
     const j = L - k;
     const S = 2 ** j;
     const i0 = Math.floor(u / S + 0.5);
-    const hw = m * (0.28 + 0.22 * tone);
+    const hw = mu * (0.28 + 0.22 * tone);
     for (let di = -2; di <= 2; di++) {
       const i = i0 + di;
       const key = i * S;
       const ph = hash2(key, 0) * 6.2832;
       const wob =
-        m *
-        (0.5 * Math.sin((along / m) * 0.16 + ph) +
-          0.25 * Math.sin((along / m) * 0.043 + 2 * ph));
-      const lift = hash2(key, Math.floor(along / (24 * m)) + 40) < 0.12;
+        mu *
+        (0.5 * Math.sin((along / ma) * 0.16 + ph) +
+          0.25 * Math.sin((along / ma) * 0.043 + 2 * ph));
+      const lift = hash2(key, Math.floor(along / (24 * ma)) + 40) < 0.12;
       if (lift) continue;
-      const cov = 1 - smoothstep(hw - 0.15 * m, hw + 0.15 * m, Math.abs(u - key - wob));
+      const cov = 1 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, Math.abs(u - key - wob));
       const weight = mod(i, 2) === 1 ? 1 - f : 1;
       ink = Math.max(ink, cov * weight);
     }
@@ -231,11 +259,13 @@ export function nestedStrokeInk(u: number, along: number, tone: number, m: numbe
 }
 
 /**
- * Sky-dome coordinates in cells (§4.11 v3 `skyCoords`):
- * `(atan(dirW.x, −dirW.z)·K, asin(dirW.y)·K)`.
+ * Sky-dome coordinates in cells (§4.11 v3 `skyCoords`): stereographic
+ * projection from the nadir, `K · (dirW.x, dirW.z) / (1 + dirW.y)`. The
+ * only pole is straight down (never sky); there is no azimuthal seam.
  */
 export function skyCoords(dirW: readonly [number, number, number], K: number): [number, number] {
-  return [Math.atan2(dirW[0], -dirW[2]) * K, Math.asin(clamp(dirW[1], -1, 1)) * K];
+  const den = 1 + dirW[1];
+  return [(K * dirW[0]) / den, (K * dirW[2]) / den];
 }
 
 /**
@@ -320,12 +350,14 @@ export function washColour(
  * §4.11 "scribble" v3 fragment. Scene sample, depth taps, class and outline
  * are per cell (`cell = floor(vUv · grid)`). Strokes are per pixel: world
  * position `W` from `viewPos(vUv, dC)` (continuous `vUv`, cell depth) via
- * `viewToWorld`, nested-LOD ink in metres. Sky tangle uses dome coordinates
- * so it pans with the camera. Ground/wall is classified from the view-space
+ * `viewToWorld`, nested-LOD ink in metres scaled by the screen gradient of
+ * `u` (`mu`/`ma` from the four neighbour taps). Sky tangle uses
+ * stereographic-from-nadir dome coordinates so it pans with the camera
+ * without a zenith pole. Ground/wall is classified from the view-space
  * normal (`up = |dot(n, viewUp)| > UP_K`). `daylight` is the only style
  * uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude
  * and are never redeclared. GLSL ES 1.0: the three nested layers are an
- * `if` ladder; `exp2`/`log2`/`mod`/`atan`/`asin` are ES 1.0.
+ * `if` ladder; `exp2`/`log2`/`mod` are ES 1.0.
  */
 const SCRIBBLE_FRAGMENT = `
 uniform float daylight;
@@ -354,18 +386,31 @@ vec3 viewNormal(vec2 uvL, vec2 uvR, vec2 uvU, vec2 uvD, float dL, float dR, floa
   return normalize(cross(a, b));
 }
 
-float strokeLayer(float u, float along, float tone, float m, float j, float f) {
+vec2 strokeCoords(vec3 W, vec3 nW, float d, float up) {
+  if (up > UP_K) return vec2(d, W.x + W.z);
+  vec3 t = normalize(cross(vec3(0.0, 1.0, 0.0), nW));
+  return vec2(dot(W, t), W.y);
+}
+
+vec2 strokeScale(vec2 scL, vec2 scR, vec2 scU, vec2 scD, float up) {
+  if (up > UP_K) {
+    return vec2(max(abs(scU.x - scD.x) * 0.5, 1e-4), max(abs(scR.y - scL.y) * 0.5, 1e-4));
+  }
+  return vec2(max(abs(scR.x - scL.x) * 0.5, 1e-4), max(abs(scU.y - scD.y) * 0.5, 1e-4));
+}
+
+float strokeLayer(float u, float along, float tone, float mu, float ma, float j, float f) {
   float S = exp2(j);
   float i0 = floor(u / S + 0.5);
-  float hw = m * (0.28 + 0.22 * tone);
+  float hw = mu * (0.28 + 0.22 * tone);
   float ink = 0.0;
   for (int di = -2; di <= 2; di++) {
     float i = i0 + float(di);
     float key = i * S;
     float ph = hash2(key, 0.0) * 6.2832;
-    float wob = m * (0.50 * sin(along / m * 0.16 + ph) + 0.25 * sin(along / m * 0.043 + 2.0 * ph));
-    if (hash2(key, floor(along / (24.0 * m)) + 40.0) >= 0.12) {
-      float cov = 1.0 - smoothstep(hw - 0.15 * m, hw + 0.15 * m, abs(u - key - wob));
+    float wob = mu * (0.50 * sin(along / ma * 0.16 + ph) + 0.25 * sin(along / ma * 0.043 + 2.0 * ph));
+    if (hash2(key, floor(along / (24.0 * ma)) + 40.0) >= 0.12) {
+      float cov = 1.0 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, abs(u - key - wob));
       float weight = (mod(abs(i), 2.0) > 0.5) ? (1.0 - f) : 1.0;
       ink = max(ink, cov * weight);
     }
@@ -373,14 +418,14 @@ float strokeLayer(float u, float along, float tone, float m, float j, float f) {
   return ink;
 }
 
-float nestedStrokeInk(float u, float along, float tone, float m) {
+float nestedStrokeInk(float u, float along, float tone, float mu, float ma) {
   float ink = 0.0;
-  float lod = log2(8.0 * m);
+  float lod = log2(8.0 * mu);
   float L = floor(lod);
   float f = fract(lod);
-  if (tone > 0.10) ink = max(ink, strokeLayer(u, along, tone, m, L - 0.0, f));
-  if (tone > 0.40) ink = max(ink, strokeLayer(u, along, tone, m, L - 1.0, f));
-  if (tone > 0.70) ink = max(ink, strokeLayer(u, along, tone, m, L - 2.0, f));
+  if (tone > 0.10) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 0.0, f));
+  if (tone > 0.40) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 1.0, f));
+  if (tone > 0.70) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 2.0, f));
   return ink;
 }
 
@@ -465,7 +510,7 @@ void main() {
     float density = mix(0.60, 0.30, daylight);
     vec3 dirW = normalize(mat3(viewToWorld) * viewPos(vUv, 1.0, tanHalfFov, aspect));
     float K = sceneSize.y / (2.0 * atan(tanHalfFov));
-    vec2 ps = vec2(atan(dirW.x, -dirW.z) * K, asin(dirW.y) * K);
+    vec2 ps = K * vec2(dirW.x, dirW.z) / (1.0 + dirW.y);
     float tang = tangleInk(ps.x, ps.y, density);
     gl_FragColor = vec4(mix(PAPER, SKY_INK, tang * 0.85), 1.0);
     return;
@@ -479,11 +524,12 @@ void main() {
   float tone2 = tone * depthFade(dC);
 
   // World-anchored strokes (v3): per-pixel viewPos at the cell depth, then
-  // viewToWorld. Nested LOD keeps on-screen spacing ~8/4/2 cells.
+  // viewToWorld. Stroke scale is the screen gradient of u (mu/ma from the
+  // four neighbour taps) so oblique facades and the ground keep ~8/4/2
+  // cells of on-screen spacing.
   vec3 P = viewPos(vUv, dC, tanHalfFov, aspect);
   vec3 W = (viewToWorld * vec4(P, 1.0)).xyz;
   vec3 nW = normalize(mat3(viewToWorld) * n);
-  float m = dC * 2.0 * tanHalfFov / sceneSize.y;
   // Reconstruct a per-pixel depth from the one-cell taps so ground u
   // (metres of depth) varies inside the cell. The depth target is 1 sample
   // per cell, so linearDepth(vUv) equals dC everywhere inside it.
@@ -493,17 +539,15 @@ void main() {
   if (abs(dR - dC) > 0.35 * dC || abs(dL - dC) > 0.35 * dC) gX = 0.0;
   if (abs(dU - dC) > 0.35 * dC || abs(dD - dC) > 0.35 * dC) gY = 0.0;
   float dPix = dC + gX * o.x + gY * o.y;
-  float u;
-  float along;
-  if (up > UP_K) {
-    u = dPix;
-    along = W.x + W.z;
-  } else {
-    vec3 t = normalize(cross(vec3(0.0, 1.0, 0.0), nW));
-    u = dot(W, t);
-    along = W.y;
-  }
-  float ink = nestedStrokeInk(u, along, tone2, m);
+  vec2 sc = strokeCoords(W, nW, dPix, up);
+  float u = sc.x;
+  float along = sc.y;
+  vec2 scL = strokeCoords((viewToWorld * vec4(viewPos(uvL, dL, tanHalfFov, aspect), 1.0)).xyz, nW, dL, up);
+  vec2 scR = strokeCoords((viewToWorld * vec4(viewPos(uvR, dR, tanHalfFov, aspect), 1.0)).xyz, nW, dR, up);
+  vec2 scU = strokeCoords((viewToWorld * vec4(viewPos(uvU, dU, tanHalfFov, aspect), 1.0)).xyz, nW, dU, up);
+  vec2 scD = strokeCoords((viewToWorld * vec4(viewPos(uvD, dD, tanHalfFov, aspect), 1.0)).xyz, nW, dD, up);
+  vec2 scale = strokeScale(scL, scR, scU, scD, up);
+  float ink = nestedStrokeInk(u, along, tone2, scale.x, scale.y);
 
   // One-sided pencil outline: a depth discontinuity whose nearer side this
   // cell is (isEdge AND isNearSide) inks the whole cell.
@@ -533,10 +577,10 @@ void main() {
 
 /**
  * Coloured-ink scribble sketch on white paper — tone by stroke density,
- * world-anchored nested-LOD pen strokes (v3) following the surface (classed
- * by view-space normal, v2), sky-dome tangle, one-sided pencil outlines, far
- * buildings sketched lighter. Cell 3×3, sub 1×1, depth. `R` cycles,
- * `?render=scribble`.
+ * world-anchored nested-LOD pen strokes (v3) scaled by the screen gradient
+ * of `u`, following the surface (classed by view-space normal, v2),
+ * stereographic sky-dome tangle, one-sided pencil outlines, far buildings
+ * sketched lighter. Cell 3×3, sub 1×1, depth. `R` cycles, `?render=scribble`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
