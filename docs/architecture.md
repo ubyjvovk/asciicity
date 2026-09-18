@@ -1124,13 +1124,19 @@ Same strokes, widths and grain as `pencil`; only the colours differ:
 **`watercolor` (T-0143) — wet washes.**
 
     PAPER_W = (0.99, 0.98, 0.95)
+    (v2, PM review 2026-09-18 of the v1 frames: the v1 mix saturated at 1 on every
+     coloured wall — flat cel fills, no granulation, plain grey ground. v2 keeps the
+     wash transparent and lets the paper texture through:)
     pig    = mix(vec3(1.0), tint, 0.8 · satF)                              // transparent pigment
-    dens   = 0.35 + 0.65 · pow(tone2, 0.6)                                 // more pigment in the shade
-    gran   = 0.85 + 0.30 · blotch(p)                                       // granulation, screen space
-    col    = mix(PAPER_W, pig, clamp(dens · gran · (0.3 + 0.7 · satF) + 0.25 · tone2 · (1 − satF), 0, 1))
-    grey things (satF < 0.5) get a neutral wash: mix toward (0.35, 0.36, 0.42) by tone2 · 0.6
+    dens   = 0.25 + 0.55 · pow(tone2, 0.6)                                 // never a full-strength wash (≤ 0.8)
+    gran   = 0.70 + 0.60 · blotch(p)                                       // granulation 0.7–1.3, screen space
+    mixF   = clamp(dens · gran · (0.35 + 0.65 · satF), 0, 0.9)
+    col    = mix(PAPER_W, pig, mixF)
+    grey things: col = mix(col, GREY_WASH = (0.35, 0.36, 0.42), (1 − satF) · tone2 · 0.5 · gran)
+    bloom  (backruns): col = mix(col, PAPER_W, 0.25 · smoothstep(0.60, 0.90, vnoise(p / 40)))
     pooled edge: col = col · 0.55 when s.outline (pigment collects at the edge of a wash)
-    sky day:   col = mix((0.86, 0.92, 1.0), (0.55, 0.72, 0.95), clamp(s.dirW.y, 0, 1)) · gran
+    sky day:   col = mix((0.86, 0.92, 1.0), (0.55, 0.72, 0.95), clamp(s.dirW.y, 0, 1)) · gran,
+               then cloud gaps: col = mix(col, (0.97, 0.98, 1.0), 0.6 · smoothstep(0.55, 0.80, vnoise(p / 30)))
         night: col = (0.18, 0.20, 0.40) · gran
     windows lit at night read as paper (tone ≈ 0) — the classic "lights left white" watercolour trick.
 
