@@ -22,15 +22,17 @@ describe('groundGridFor', () => {
 });
 
 describe('registry ground-grid flags (T-0132)', () => {
-  it('quest and lowpoly carry groundGrid === false', () => {
+  it('quest, lowpoly and scribble carry groundGrid === false', () => {
     const quest = STYLES.find((s) => s.id === 'quest');
     const lowpoly = STYLES.find((s) => s.id === 'lowpoly');
+    const scribble = STYLES.find((s) => s.id === 'scribble');
     expect(quest?.groundGrid).toBe(false);
     expect(lowpoly?.groundGrid).toBe(false);
+    expect(scribble?.groundGrid).toBe(false);
   });
 
   it('every other registry style resolves to groundGrid true', () => {
-    const painterly = new Set(['quest', 'lowpoly']);
+    const painterly = new Set(['quest', 'lowpoly', 'scribble']);
     for (const style of STYLES) {
       if (!painterly.has(style.id)) {
         expect(groundGridFor(style), style.id).toBe(true);

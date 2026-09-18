@@ -43,7 +43,7 @@ export interface RenderStyle {
   /**
    * Whether the world's perspective floor grid (`world/ground.ts`) should be
    * drawn under this style (wave 16b, T-0132). Absent = `true`. Painterly
-   * styles (`quest`, `lowpoly`) set `false`; main.ts swaps the ground map on
+   * styles (`quest`, `lowpoly`, `scribble`) set `false`; main.ts swaps the ground map on
    * every style change.
    */
   groundGrid?: boolean;
@@ -142,5 +142,6 @@ export const STYLE_ORDER = [
   'matrix',
   'lowpoly',
   'quest',
+  'scribble',
 ] as const;
 export type StyleId = (typeof STYLE_ORDER)[number];

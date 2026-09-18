@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`, `lowpoly`, `quest` (fifteen with `quest`, wave 16). Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `hatch`, `matrix`, `lowpoly`, `quest`, `scribble` (sixteen with `scribble`, wave 17). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
 
 ```ts
@@ -782,6 +782,86 @@ built once, cached on `mesh.userData`); main.ts calls it at boot and in
 `applyStyleChange`, and exposes `window.__asciicity.groundGrid`. `quest` and
 `lowpoly` declare `groundGrid: false`. Pure: `groundGridFor(style): boolean`
 (`style.groundGrid ?? true`).
+
+**`scribble` (wave 17, T-0134) — coloured-ink scribble sketch on white
+paper.** User brief 2026-09-18 (reference `lines.jpg`, a "scribble
+hatching" / continuous-line ink sketch of a neon street): white paper, tone
+carried by stroke *density*, long wobbly pen strokes that follow the surface
+(vertical on walls, horizontal on the ground, a loose tangle in the sky),
+ink coloured by the object under it, one-sided pencil outlines. Cell 3×3,
+sub 1×1, `needsDepth: true`, `groundGrid: false`. Strokes are drawn
+**analytically per canvas pixel** in continuous cell space — nothing is
+tiled — so a line runs unbroken across many cells like a real pen.
+
+    p    = vUv · grid                      // continuous cell coords (x right, y up), unit = 1 cell
+    cell = floor(p)
+    c    = sampleSub(cell, 0, 0);  v = shaped(bright(c));  tone = 1 − v      // 0 = paper, 1 = solid ink
+    tint = tintOf(c);  sat = max(tint) − min(tint);  satF = smoothstep(0.10, 0.45, sat)
+    depth (texel centres, ONE CELL apart, exactly as lowpoly v2):
+        texel = 1/sceneSize;  centreUv = (cell·sub + 0.5)·texel;  stepUv = sub·texel
+        dC, dL, dR, dU, dD = linearDepth at centre / ±x / ±y
+    skyThr = 0.98 · cameraFar
+    class (surfaceClass(dC, dU, dD, far) → 0 sky | 1 ground | 2 wall):
+        sky    if dC ≥ skyThr
+        slope  = (dU − dD) / (2·dC)          // relative depth gain per cell going UP the screen
+        ground if slope > SLOPE_K = 0.006  (horizontal planes: ≈ 1–20 %; walls at any sane pitch < 0.3 %)
+        wall   otherwise
+    fade (non-sky): tone ·= depthFade(dC) = 1 − 0.45 · smoothstep(120, 900, dC)   // far blocks sketch lighter
+    hash(a, b) = fract(sin(a·12.9898 + b·78.233)·43758.5453)                     // the matrix hash, c = 0
+
+Surface strokes (`strokeInk(u, along, tone)` → coverage in [0, 1]) — wall:
+`u = p.x`, `along = p.y` (vertical lines); ground: `u = p.y`, `along = p.x`
+(horizontal lines). Three layers, coarse to fine, each switched on by tone:
+
+    SCRIBBLE_LAYERS k = 0..2:  spacing S = [8, 4, 2] cells,  threshold t = [0.10, 0.40, 0.70]
+    for each layer with tone > t_k:
+        idx    = floor(u / S)                                   // which line of the family
+        ph     = hash(idx, k) · 6.2832
+        jit    = (hash(idx, k + 7) − 0.5) · 0.5 · S             // uneven spacing
+        wob    = 0.35·sin(along·0.16 + ph) + 0.25·sin(along·0.043 + 2·ph)   // the pen wander, cells
+        centre = (idx + 0.5)·S + jit + wob
+        lift   = hash(idx, floor(along / 24) + 3·k + 40) < 0.12  → skip this layer here (pen lifts)
+        hw     = 0.28 + 0.22·tone                                // half-width, cells (≈ 0.8–1.5 px)
+        cov    = 1 − smoothstep(hw − 0.15, hw + 0.15, |u − centre|)
+        ink    = max(ink, cov)
+
+Sky tangle (`tangleInk(px, py, density)` → coverage): three wavy families
+at fixed angles, the near-vertical one dominant, each line present with
+probability `density` (`skyDensity = mix(0.55, 0.22, daylight)` — night is a
+denser tangle, noon a sparse one):
+
+    families j = 0..2:  θ = [1.45, 0.35, 2.40] rad,  S = [3, 9, 7] cells
+        u = p.x·cos θ + p.y·sin θ;   along = −p.x·sin θ + p.y·cos θ
+        idx = floor(u / S);   if hash(idx, 20 + j) > density → line absent
+        ph  = hash(idx, 30 + j) · 6.2832
+        wob = 2.0·sin(along·0.09 + ph) + 1.2·sin(along·0.31 + 2·ph)          // loopy, cells
+        cov = 1 − smoothstep(0.15, 0.45, |u − (idx + 0.5)·S − wob|)
+        ink = max(ink, cov)
+    sky ink colour = SKY_INK = (0.15, 0.14, 0.18), coverage · 0.85; sky wash = paper
+
+Outline (one-sided, like quest v2, but with the one-CELL-apart samples
+above): `edge = isEdge(dC, [dL, dR, dU, dD], cameraFar)` (import from
+`edges.ts`) **and** `isNearSide(dC, dN, skyThr)` (import from `quest.ts`)
+for at least one neighbour `dN` → the cell is fully inked (`ink = 1`) in
+the surface ink colour. Sky cells never carry an outline (the building side
+draws the skyline).
+
+Colour (`inkColour(tint)`, `washColour(tint, tone)`):
+
+    PAPER   = (0.98, 0.97, 0.94)
+    INK     = (0.12, 0.10, 0.12)                                    // neutral pen
+    inkCol  = mix(INK, tint · 0.55, satF)                            // grey things: black ink; red things: red ink
+    washCol = mix(PAPER, tint, 0.30 · satF · min(1, tone · 1.5))     // a pale flat wash under the strokes
+    out     = mix(washCol, inkCol, ink)                              // sky: mix(PAPER, SKY_INK, tangle·0.85)
+
+Lit windows and neon read as bare paper with a coloured wash (tone ≈ 0),
+which is the reference's look; the day-time window texture shows through
+as stroke density. Pure (unit-tested in node, mirroring the shader term for
+term): `SCRIBBLE_LAYERS`, `SLOPE_K`, `PAPER`, `INK`, `SKY_INK`, `hash2(a, b)`,
+`surfaceClass(dC, dU, dD, far): 0 | 1 | 2`, `depthFade(d)`,
+`strokeInk(u, along, tone)`, `tangleInk(px, py, density)`,
+`inkColour(tint)`, `washColour(tint, tone)`. Budget: three unrolled layers
++ five depth taps per pixel — comparable to `quest`.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
