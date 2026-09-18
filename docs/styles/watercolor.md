@@ -1,6 +1,6 @@
 # watercolor render style
 
-Cell **3×3**, sub **1×1**, depth texture (`needsDepth: true`),
+Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
 `groundGrid: false`. Implements the `watercolor` look from
 `docs/architecture.md` §4.11 (wave 18 "sketch family", T-0143),
 **v2 formula** (PM review 2026-09-18 of the v1 frames): **wet washes —

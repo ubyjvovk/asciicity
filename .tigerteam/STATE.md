@@ -400,6 +400,15 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   docs/render.md (my quest row vs grok's five 2×2 rows) — resolved by
   hand, board move / worktree / branch cleaned up manually, gate green.
   Lesson: don't edit a file that sits in an in-flight ticket's scope.
+- T-0146 ACCEPTED 2026-09-19 00:0xZ (grok-1, attempt 1, 20 min, $0.71):
+  ground tone × 0.55, no cross-hatch on the road, wall cross gate 0.55 ×
+  0.75; pencil and crayon stroke blocks byte-identical. PM host review
+  (`pm-crayon-v3-*`, `pm-pencil-v2-*`): the road is a light sketched
+  surface with sparse strokes, walls keep their hatching. Grok flagged:
+  the two style docs still open with "Cell 3×3" — one-line doc fix, PM.
+- **Wave 18b complete (145 done, 19 styles).** Board empty. Awaiting the
+  user's second walk (pastel edges, resolution, ground tune, crayon at
+  Minas Tirith). Wave 18 + 18b grok spend ≈ $9.60 (T-0145 alone $5.77).
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee

@@ -1,6 +1,6 @@
 # scribble render style
 
-Cell **3×3**, sub **1×1**, depth texture (`needsDepth: true`),
+Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
 `groundGrid: false`. Implements the coloured-ink scribble-sketch look from
 `docs/architecture.md` §4.11 (wave 17, T-0134; v2 T-0136; v3 T-0137; v4
 T-0138; reference `lines.jpg`, a "scribble hatching" / continuous-line ink

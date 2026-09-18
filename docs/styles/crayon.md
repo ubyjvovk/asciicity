@@ -1,6 +1,6 @@
 # crayon render style
 
-Cell **3×3**, sub **1×1**, depth texture (`needsDepth: true`),
+Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
 `groundGrid: false`. Implements the `crayon` look from
 `docs/architecture.md` §4.11 (wave 18 "sketch family", T-0141):
 **coloured pencil — the `pencil` shader with colour**. The graphite
