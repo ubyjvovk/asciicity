@@ -354,6 +354,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   is heavy (cross-hatch on the road) — one shared tune; (c) move
   vnoise/blotch into strokes.ts (pastel + watercolor each carry a local
   copy); (d) e2e specs per style; (e) README style list.
+- User 2026-09-18 evening: "looks nice"; pastel's screen-space paper
+  tooth reads as a static noise mask ("look into the sky and it never
+  changes") — not required, PM design choice; §4.11 "anchored tooth (wave
+  18b)" moves grain/blotch/bloom into strokes.ts as world-/dome-anchored
+  noise with a blended power-of-two LOD for all four sketch styles.
+  T-0144 boarded, pinned grok. Fleet: user says qwen is ok but slow →
+  `[worker.qwen] scale = 0`, grok is the default again (ds ×2 still on).
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
