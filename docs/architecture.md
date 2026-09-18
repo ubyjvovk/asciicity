@@ -907,40 +907,59 @@ half-widths, lifts and the class rule are unchanged from v2.
     P   = viewPos(vUv, dC, tanHalfFov, aspect)               // per PIXEL (continuous vUv), cell depth dC
     W   = (viewToWorld · vec4(P, 1)).xyz                      // world position, metres
     nW  = normalize(mat3(viewToWorld) · n)                    // world normal (n = viewNormal of v2)
-    m   = dC · 2 · tanHalfFov / sceneSize.y                   // metres per cell at this depth
 
-    stroke coordinates, metres (`strokeCoords(W, nW, dC, up)` → { u, along }):
+    stroke coordinates, metres (`strokeCoords(W, nW, d, up)` → { u, along }):
       wall   (up ≤ UP_K):  t = normalize(cross(vec3(0, 1, 0), nW));  u = dot(W, t);  along = W.y
-      ground (up >  UP_K):  u = dC;                                    along = W.x + W.z
+      ground (up >  UP_K):  u = d;                                     along = W.x + W.z
     (wall strokes are vertical WORLD lines on the facade — they converge like a real
      perspective sketch when the camera pitches; ground strokes are lines of constant
      depth — horizontal on screen — that flow past as you walk)
+    per-pixel u/along: W from viewPos(vUv, dC) as above; for the ground `d` is the
+      per-pixel depth reconstructed from the one-cell taps (the target has one depth
+      sample per cell): o = p − (cell + 0.5); gX = ½(dR − dL); gY = ½(dU − dD), each
+      zeroed when either tap differs from dC by > 35 %; dPix = dC + gX·o.x + gY·o.y
+
+    stroke scale = the SCREEN gradient of the stroke coordinate (the texture-mip rule;
+    revised 2026-09-18 after the v3.0 review — a single "metres per cell" `m = dC·2·tanHalfFov/
+    sceneSize.y` is only right for a surface facing the camera: on the ground and on an
+    oblique facade u changes many metres per cell, the lines fell below a pixel and the
+    surface turned to static). Per cell, from the same five taps:
+      W_N = (viewToWorld · vec4(viewPos(uv_N, d_N), 1)).xyz for N ∈ {L, R, U, D};
+      u_N, along_N = strokeCoords(W_N, nW, d_N, up)
+      wall:   mu = max(|u_R − u_L| / 2, 1e−4);   ma = max(|along_U − along_D| / 2, 1e−4)
+      ground: mu = max(|u_U − u_D| / 2, 1e−4);   ma = max(|along_R − along_L| / 2, 1e−4)
+    `mu` = metres of u per screen cell across the strokes, `ma` = metres of along per
+    screen cell along them. `strokeScale(uN, alongN, up)` → { mu, ma } is the pure mirror.
 
     nested LOD family: level j has lines at u = i · 2^j metres (integer i); the
     level-(j + 1) lines are exactly the even-i lines of level j.
-      lod = log2(8 · m);  L = floor(lod);  f = fract(lod)     // level L is 8 cells apart on screen
+      lod = log2(8 · mu);  L = floor(lod);  f = fract(lod)    // level L is 8 cells apart on screen
       layer k = 0..2 draws level j = L − k when tone > t_k, t = [0.10, 0.40, 0.70]
       at level j, S = 2^j:
-        i      = floor(u / S + 0.5)                            // nearest line
+        i0     = floor(u / S + 0.5); evaluate the lines i = i0 − 2 … i0 + 2 (the wobble
+                 and the width can carry a neighbour over this pixel; nearest-only pops)
         key    = i · S                                          // the line's world coordinate — the SAME
                                                                 // number at every level that contains it
         ph     = hash2(key, 0.0) · 6.2832
-        wob    = m · (0.50·sin(along / m · 0.16 + ph) + 0.25·sin(along / m · 0.043 + 2·ph))
-        lift   = hash2(key, floor(along / (24 · m)) + 40.0) < 0.12   → skip this line
-        hw     = m · (0.28 + 0.22 · tone)
-        cov    = 1 − smoothstep(hw − 0.15·m, hw + 0.15·m, |u − key − wob|)
+        wob    = mu · (0.50·sin(along / ma · 0.16 + ph) + 0.25·sin(along / ma · 0.043 + 2·ph))
+        lift   = hash2(key, floor(along / (24 · ma)) + 40.0) < 0.12   → skip this line
+        hw     = mu · (0.28 + 0.22 · tone)
+        cov    = 1 − smoothstep(hw − 0.15·mu, hw + 0.15·mu, |u − key − wob|)
         weight = (mod(i, 2.0) == 1.0) ? (1 − f) : 1            // odd lines fade out as the LOD climbs;
                                                                 // at f → 1 they are gone and the even
                                                                 // lines become the next level — no pop
         ink    = max(ink, cov · weight)
-    `nestedStrokeInk(u, along, tone, m)` is the pure mirror of the loop.
+    `nestedStrokeInk(u, along, tone, mu, ma)` is the pure mirror of the loop.
 
     sky (per pixel): dirW = normalize(mat3(viewToWorld) · viewPos(vUv, 1, tanHalfFov, aspect))
       K   = sceneSize.y / (2 · atan(tanHalfFov))                // cells per radian
-      ps  = (atan(dirW.x, −dirW.z) · K,  asin(dirW.y) · K)      // dome coordinates in "cells"
-      ink = tangleInk(ps.x, ps.y, density)                      // unchanged families; the tangle now
-                                                                // sticks to the sky and pans with the camera
-      (the atan seam behind the camera is accepted)
+      ps  = K · (dirW.x, dirW.z) / (1 + dirW.y)                 // stereographic from the NADIR: the only
+                                                                // pole is straight down, never in the sky,
+                                                                // and there is no seam (revised 2026-09-18:
+                                                                // atan/asin put a starburst at the zenith)
+      ink = tangleInk(ps.x, ps.y, density)                      // unchanged families; the tangle sticks to
+                                                                // the sky and pans with the camera; it is
+                                                                // ~2× sparser at the zenith — accepted
 
     hash2 (v3, precision-safe for |a|, |b| up to 1e5 — the sin hash of v1 breaks
     for world-sized inputs):
@@ -951,11 +970,11 @@ half-widths, lifts and the class rule are unchanged from v2.
     is unchanged otherwise.
 
 Outline: unchanged (per cell, screen space). `strokeInk(u, along, tone)` of
-v1/v2 is deleted. Pure: `strokeCoords`, `lodOf(m): { L, f }`,
+v1/v2 is deleted. Pure: `strokeCoords`, `strokeScale`, `lodOf(mu): { L, f }`,
 `nestedStrokeInk`, `skyCoords(dirW, K)`, `hash2` (v3). Mechanical
 no-pop criterion: for tone 1 and any sample point, `nestedStrokeInk` at
-`m = 2^j·(1 − 1e−4)` and at `m = 2^j·(1 + 1e−4)` differ by < 0.05; and the
-mean coverage over a grid is within ±35 % across `m ∈ {0.01, 0.02, 0.05}`
+`mu = 2^j·(1 − 1e−4)` and at `mu = 2^j·(1 + 1e−4)` differ by < 0.05; and the
+mean coverage over a grid is within ±35 % across `mu ∈ {0.01, 0.02, 0.05}`
 (screen density is depth-independent). e2e (T-0135) is unchanged and must
 stay green.
 
