@@ -104,7 +104,8 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   tirith.d.ts` (out of scope, justified: typecheck needs it like
   tile-city.d.ts) — accepted. Root `vite.config.ts` carries the user's
   uncommitted `server.allowedHosts: ['dub']` — set aside with a tagged
-  stash for the accept and restored; never commit or discard it.
+  stash for the accept and restored. (Committed 2026-09-18 at the user's
+  request, 85d7827 — no stash dance any more.)
 - User review 2026-09-16 of the two new styles → wave 16 revisions
   boarded: T-0129 lowpoly v2 (bug: cell-centre depth samples sit on the
   2×2 sub-sample texel seam → full-width horizontal ink rows on the ground;
