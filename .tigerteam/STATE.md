@@ -219,6 +219,12 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   density 0.60/0.30, family-0 spacing 2.5, wobble 0.50. T-0136 boarded
   behind T-0135 (disjoint scopes, but the e2e should be written against a
   stable v1 and re-proved by v2's check.sh).
+- T-0135 ACCEPTED 2026-09-18 (ds-1, attempt 2, 19 min total, $0.06):
+  blocked once with a good question (pitch 0.9 left the synthetic towers in
+  the top 30 %; PM: aim pitch 1.1, thresholds unchanged). PM reran the spec
+  on the host: paper 0.21, ink 0.08, coloured 0.16, 4 hue bins, wall
+  vertical runs 190 vs 34 horizontal, ground horizontal 697 vs 84 vertical,
+  sky paper 0.73, night tangle 0.085 > noon 0.042. T-0136 (v2) now claimable.
 
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
