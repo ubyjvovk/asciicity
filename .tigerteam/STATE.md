@@ -269,6 +269,18 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
 - **Wave 17 complete (136 done).** Board empty. Awaiting the user's second
   walk in `?render=scribble`.
 
+- User review 2026-09-18 of v3 (live walk): (a) "open sky still has the
+  same open grid, like inside a big wire dome" — PM sky frames confirm:
+  three continuous wavy families anchored to the dome read as a cage;
+  (b) "surfaces shimmer when walking" — v3 scales the wobble phase and
+  lift segments by the per-cell `ma`, so strokes writhe with depth, and
+  walls use one depth per cell. (c) User wants a `pencil` (smudged pencil
+  sketch) style as the next renderer — PM asked whether graphite-only or
+  coloured pencil before speccing. §4.11 "scribble v4 (T-0138)": per-pixel
+  depth on walls, world-metre wobble/lifts with screen-size fades (stable
+  under motion, unit-tested), soft layer switching, wider AA, short hair
+  strokes on the dome replacing the tangle. T-0138 boarded (grok).
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
