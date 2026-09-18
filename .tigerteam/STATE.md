@@ -281,6 +281,32 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   under motion, unit-tested), soft layer switching, wider AA, short hair
   strokes on the dome replacing the tangle. T-0138 boarded (grok).
 
+## Wave 18 (2026-09-18) — sketch family: pencil, crayon, pastel, watercolor
+- User: "both greys and colors as separate renderers"; coloured pencil to
+  replace `quest` (which they don't like) as the fantasy default once it
+  lands; "bonus points" for pastel / watercolor variations; "for the next
+  couple of tickets default them to qwen/pi — I want it tested in real-ish
+  work". Qwen server was DOWN at 16:50Z (nothing on :8080, no llama.cpp
+  process); user asked to start it (`sudo -v && ./qwen/start.sh --host
+  0.0.0.0`). If the lane fast-fails twice it auto-STOPs: `rm
+  .tigerteam/STOP.qwen` after the server is back.
+- PM wiring (754e734, gate green): four stubs, STYLE_ORDER = 20 styles,
+  smoke count 20, doc rows, ground-grid test. §4.11 "Sketch family":
+  T-0139 extracts `strokes.ts` (`STROKE_GLSL`, `Surf surfaceAt()`, pure
+  mirrors; pixel-identical scribble — PM diffs host shots), then
+  T-0140 pencil (graphite smudge + soft hatching + 45° cross-hatch),
+  T-0141 crayon (pencil in the object's hue), T-0142 pastel (3×3-smoothed
+  chalk blocks, no strokes), T-0143 watercolor (pigment washes, blotch
+  granulation, pooled edges). All pinned `assignee: qwen`; 0139 depends on
+  T-0138, the four styles on 0139. e2e specs per style come after the
+  user's visual review. When crayon is accepted: switch Minas Tirith
+  `defaultRender` to `crayon` and ask the user whether to retire `quest`.
+- T-0138 (scribble v4, grok) blocked once with two good findings: sky mix
+  0.7 could never reach the e2e ink threshold (→ 0.85), and my wider AA
+  edge left no pixel fully dark (ink share halved, ground runs collapsed)
+  → core 0.45+0.25·tone, edge ±0.25·mu. Answered; scope + e2e/scribble.spec.ts
+  (assertion-5 factor may drop to 1.2 only if measured 1.2–1.5).
+
 ## Configuration notes
 - Mode: single-branch (accepts merge straight into main; no staging worktree).
 - Fleet (`tigerteam.toml`, 2026-09-16): **`qwen` ×1 (C2)** is the only live
