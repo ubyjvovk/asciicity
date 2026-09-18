@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`, `lowpoly`, `quest`, `scribble` (sixteen with `scribble`, wave 17). Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `hatch`, `matrix`, `lowpoly`, `quest`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (twenty with the wave-18 sketch family). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p).
 
 ```ts
@@ -1005,8 +1005,11 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
     3. Soft layer switching (per-cell tone flips no longer pop a whole layer):
          layer k coverage ·= smoothstep(t_k − 0.08, t_k + 0.08, tone)      (t = [0.10, 0.40, 0.70] as before)
 
-    4. Wider anti-aliasing: hw = mu · (0.30 + 0.20 · tone);
-         cov = 1 − smoothstep(hw − 0.35·mu, hw + 0.35·mu, |u − key − wob|)
+    4. Wider stroke CORE, tight edge (revised after grok's attempt-1 measurements: an edge
+       of ± 0.35·mu on a 0.4-cell half-width left no pixel fully dark — the strokes went
+       grey and the e2e ink share halved):
+         hw = mu · (0.45 + 0.25 · tone);
+         cov = 1 − smoothstep(hw − 0.25·mu, hw + 0.25·mu, |u − key − wob|)
 
     5. Sky: short HAIR strokes instead of the tangle (`hairInk(ps, density)`; `tangleInk` is
        deleted). Dome coordinates `ps` as v3 (stereographic from the nadir, in cells).
@@ -1023,11 +1026,110 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
          endF    = 1 − smoothstep(len / 2 − 2, len / 2, |t|)
          cov     = (1 − smoothstep(0.2, 0.55, |s⊥ − bend|)) · endF
          ink     = max over the 27 strokes
-       sky colour: mix(PAPER, SKY_INK, ink · 0.7). Expect ≈ 10–15 % ink in open sky.
+       sky colour: mix(PAPER, SKY_INK, ink · 0.85) (0.7 left no sky pixel below the e2e ink
+       threshold). Expect ≈ 10–15 % stroke coverage in open sky.
 
 Everything else (class rule, nested LOD with `mu`, ±2 neighbours, colours,
 outline, depth fade) is unchanged from v3. Pure: `wobble`, `lifted`,
 `hairInk`, `skyDensity` (new values). e2e (T-0135) unchanged and green.
+
+**Sketch family (wave 18, user 2026-09-18: "smudged pencil would look
+great"; "both greys and colours as separate renderers"; "bonus: pastels /
+watercolor"; coloured pencil is to replace `quest` as the fantasy default
+once it lands).** Four styles — `pencil`, `crayon`, `pastel`, `watercolor`
+— cell 3×3, sub 1×1, `needsDepth: true`, `groundGrid: false`, built on
+the `scribble` machinery, which T-0139 first extracts into a shared chunk.
+
+**Shared stroke chunk (T-0139) — `src/render/styles/strokes.ts`.** Moves
+out of `scribble.ts`, byte-for-byte in behaviour (the PM diffs host
+screenshots before/after — they must be pixel-identical): the GLSL
+helpers `hash2`, `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`,
+`wobble`, `lifted`, `strokeLayer`, `nestedStrokeInk`, `hairInk`,
+`skyCoords`, `depthFade`, and a new
+
+    struct Surf { int cls; float dC; float dPix; vec3 W; vec3 nW; float mu; float ma;
+                  float u; float along; vec3 dirW; vec2 ps; bool outline; };
+    Surf surfaceAt(vec2 uv)   // everything scribble's main() computes before colouring:
+                              // taps (clamped, one cell apart), sky test, class, dPix, W, nW,
+                              // strokeCoords + strokeScale, one-sided outline test; for sky
+                              // cells (cls == 0) dirW / ps are filled and the rest is zero
+
+exported as `export const STROKE_GLSL: string` (a chunk a style prepends
+to its own fragment: `fragment: STROKE_GLSL + PENCIL_FRAGMENT`; it must not
+redeclare prelude uniforms). The TS pure mirrors move too
+(`tests/styles/strokes.test.ts` takes their unit tests, unchanged in
+substance); `scribble.ts` keeps only its colours, `skyDensity`,
+`inkColour`, `washColour`, the fragment main() and `STYLES`, and imports
+the chunk. e2e `scribble.spec.ts` unchanged and green; smoke unchanged.
+
+Common to the four styles (each style's main() starts with
+`Surf s = surfaceAt(vUv)`, then `tone`, `tint`, `satF` exactly as
+scribble, `tone2 = tone · depthFade(s.dC)`):
+
+    paper grain (the paper is the SCREEN — it does not move with the world):
+      g = 0.80 + 0.40 · hash2(floor(p.x / 2), floor(p.y / 2))        // p = vUv·grid, per 2×2-px tooth
+    value noise for washes: vnoise(q) = bilinear blend of hash2 at the four corners of floor(q)
+      blotch(q) = 0.5 · vnoise(q / 6) + 0.5 · vnoise(q / 17)          // q in cells, screen space
+
+**`pencil` (T-0140) — graphite.**
+
+    PAPER_P = (0.97, 0.96, 0.93);  G = (0.22, 0.22, 0.25)                 // graphite
+    smudge:   wash = tone2 · 0.55 · g;                    base = mix(PAPER_P, G, wash)
+    strokes:  primary  = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma)   with pencil widths:
+                hw = mu · (0.45 + 0.25·tone), AA ± 0.6·mu (softer, wider than scribble)
+              cross-hatch for tone2 > 0.45 — the same family rotated 45° in stroke space:
+                u2 = (s.u + s.along) / √2,  along2 = (s.along − s.u) / √2,  mu2 = ma2 = (s.mu + s.ma) / 2
+                secondary = nestedStrokeInk(u2, along2, tone2, mu2, ma2) · smoothstep(0.45, 0.6, tone2)
+              ink = max(primary, secondary) · (0.65 + 0.30 · tone2)
+    out = mix(base, G, ink);   outline: out = mix(out, G, 0.7) when s.outline (soft, never solid black)
+    sky:      wash = daylight ≥ 0.5 ? mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45   // day: darker toward the zenith like a pencilled sky; night: even grey
+              out = mix(PAPER_P, G, wash · g);  then hair: out = mix(out, G, hairInk(s.ps, 0.5) · 0.35)
+    (the pencil `hw`/AA are parameters of `strokeLayer` after T-0139: `nestedStrokeInk(u, along, tone, mu, ma, wBase, wTone, aa)` —
+     scribble passes (0.30, 0.20, 0.35), pencil (0.45, 0.25, 0.60))
+
+**`crayon` (T-0141) — coloured pencil (the `pencil` shader with colour).**
+Same strokes, widths and grain as `pencil`; only the colours differ:
+
+    strokeCol = mix(G, tint · 0.60, 0.85 · satF)                          // graphite for grey things
+    wash      = 0.45 · satF · pow(tone2, 0.7) + 0.20 · (1 − satF) · tone2
+    base      = mix(PAPER_P, mix(G, tint, satF), wash · g)
+    out = mix(base, strokeCol, ink);  outline: mix(out, G, 0.7)
+    sky day:   base = mix(PAPER_P, (0.55, 0.70, 0.95), 0.25 · g · (0.4 + 0.6·clamp(s.dirW.y, 0, 1)));  hair in (0.35, 0.45, 0.70) · 0.35
+        night: base = mix(PAPER_P, (0.25, 0.22, 0.45), 0.60 · g);  hair in G · 0.35
+        (daylight ≥ 0.5 = day)
+
+**`pastel` (T-0142) — soft chalk, no strokes.**
+
+    PAPER_S = (0.93, 0.90, 0.84)                                           // toned pastel paper
+    smoothed sample: cs = mean of sampleSub over the 3×3 cell neighbourhood (9 taps; soft edges)
+    v = shaped(bright(cs)); t = tintOf(cs); satF as before (from t)
+    chalk  = mix(vec3(1.0), t, 0.65 · satF)                                // pastel = hue + white
+    col    = mix(PAPER_S, chalk, 0.9 · g)                                  // the tooth lets paper through
+    col    = mix(col, (0.20, 0.18, 0.22), (1 − v) · 0.55 · g)              // dark chalk in the shadows
+    outline: col = mix(col, (0.20, 0.18, 0.22), 0.35) when s.outline        // faint, chalky
+    sky day:   col = mix(PAPER_S, (0.62, 0.75, 0.92), 0.75 · g) with white streaks:
+               col = mix(col, vec3(1.0), 0.5 · smoothstep(0.55, 0.75, blotch(p)))
+        night: col = mix(PAPER_S, (0.18, 0.18, 0.35), 0.8 · g)
+
+**`watercolor` (T-0143) — wet washes.**
+
+    PAPER_W = (0.99, 0.98, 0.95)
+    pig    = mix(vec3(1.0), tint, 0.8 · satF)                              // transparent pigment
+    dens   = 0.35 + 0.65 · pow(tone2, 0.6)                                 // more pigment in the shade
+    gran   = 0.85 + 0.30 · blotch(p)                                       // granulation, screen space
+    col    = mix(PAPER_W, pig, clamp(dens · gran · (0.3 + 0.7 · satF) + 0.25 · tone2 · (1 − satF), 0, 1))
+    grey things (satF < 0.5) get a neutral wash: mix toward (0.35, 0.36, 0.42) by tone2 · 0.6
+    pooled edge: col = col · 0.55 when s.outline (pigment collects at the edge of a wash)
+    sky day:   col = mix((0.86, 0.92, 1.0), (0.55, 0.72, 0.95), clamp(s.dirW.y, 0, 1)) · gran
+        night: col = (0.18, 0.20, 0.40) · gran
+    windows lit at night read as paper (tone ≈ 0) — the classic "lights left white" watercolour trick.
+
+Pure per style (unit-tested): `pencil`: `pencilWash(tone, g)`, `crossCoords(u, along, mu, ma)`;
+`crayon`: `crayonStroke(tint, satF)`, `crayonWash(tone, satF)`; `pastel`: `chalkOf(tint, satF)`,
+`pastelColour(v, tint, g)`; `watercolor`: `pigmentOf(tint, satF)`, `washDensity(tone)`,
+`blotch(x, y)` (in strokes.ts with `vnoise`). e2e per style (one spec each, patterned on
+`scribble.spec.ts`): paper share, ink/dark share, coloured share for the coloured ones, sky
+day/night split, no full-width inked row; the PM writes the thresholds into each ticket.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
