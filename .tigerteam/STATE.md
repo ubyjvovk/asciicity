@@ -331,6 +331,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   still a stub in its tree — parity with pencil.ts to be checked in the
   tune ticket. Next: switch Minas Tirith `defaultRender` to `crayon` after
   the user confirms; ask about retiring `quest`.
+- T-0142 pastel ACCEPTED 2026-09-18 (qwen, attempt 1, 16 min, $0): chalk
+  blocks with tooth, cloudy pastel sky, no strokes. PM host review
+  (`pm-pastel-v1-*.png`): distinct, gentle storybook look; colours fairly
+  saturated (chalk 0.65·satF) — tune only if the user asks. Qwen flagged
+  that the common block's `tone2`/depthFade is not used by pastel (spec
+  says so implicitly) and that pastel defines vnoise/blotch locally until
+  watercolor puts them in strokes.ts — both fine.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
