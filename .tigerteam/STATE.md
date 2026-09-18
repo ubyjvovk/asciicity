@@ -361,6 +361,16 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   noise with a blended power-of-two LOD for all four sketch styles.
   T-0144 boarded, pinned grok. Fleet: user says qwen is ok but slow →
   `[worker.qwen] scale = 0`, grok is the default again (ds ×2 still on).
+- User (same evening): the sketch styles "still have this blocky feeling
+  from ascii-like renders — can we afford to bump up resolution?" and
+  "for pastel we don't want sharp edges". PM plumbed
+  `RenderStyle.targetCap` (post.ts clamps to it, ceiling 960×540, budget
+  test updated); §4.11 "resolution + soft pastel (T-0145)": the five
+  painterly styles → cell 2×2 + cap 960×540 (2.25× scene pixels; PM must
+  verify ≥ 30 fps on the host, fall back to 800×450 per style), pastel →
+  per-pixel bilinear blend of the 3×3 means, chalk-smudge jitter from
+  anchoredNoise, soft 2-cell edge ramp via a new chunk `outlineAt`.
+  T-0145 boarded (grok) behind T-0144.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
