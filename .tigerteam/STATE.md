@@ -323,6 +323,14 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   Tune candidates after the user's look: the ground is heavy (the 45°
   cross family on the road reads as dark tyre streaks; Tokyo floor is a
   dense barcode) — e.g. ground tone × 0.6, cross-hatch × 0.7.
+- T-0141 crayon ACCEPTED 2026-09-18 (qwen, attempt 1, ~25 min, $0):
+  coloured-pencil hatching in each hue, blue pencil sky; PM host review
+  (`pm-crayon-v1-*.png`) — the best of the family; same heavy ground as
+  pencil (one shared tune for both, after the user's look). Qwen
+  implemented the pencil stroke terms from the spec because pencil.ts was
+  still a stub in its tree — parity with pencil.ts to be checked in the
+  tune ticket. Next: switch Minas Tirith `defaultRender` to `crayon` after
+  the user confirms; ask about retiring `quest`.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
