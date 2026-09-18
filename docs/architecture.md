@@ -978,6 +978,57 @@ mean coverage over a grid is within ±35 % across `mu ∈ {0.01, 0.02, 0.05}`
 (screen density is depth-independent). e2e (T-0135) is unchanged and must
 stay green.
 
+**`scribble` v4 (T-0138, user review 2026-09-18 of v3: "the open sky still
+has the same open grid, like we're inside a big wire dome" and "many
+surfaces shimmer when walking, from re-rendering small strokes").** Two
+causes, both in the v3 formulas. (a) The sky tangle is three families of
+*continuous* wavy lines spanning the whole dome; anchored, they read as a
+cage. (b) The wobble phase (`along / ma`) and the pen-lift segments
+(`along / (24·ma)`) are scaled by the per-cell `ma`, which changes with
+depth, so every stroke writhes and re-breaks as the camera walks; wall
+strokes also use one depth per cell, so they jump at cell borders. v4:
+
+    1. Per-pixel depth for EVERY surface: the v3 ground rule `dPix` (gradient
+       reconstruction from the one-cell taps, zeroed on a 35 % jump) now feeds the
+       wall position too: W = (viewToWorld · vec4(viewPos(vUv, dPix), 1)).xyz.
+
+    2. Wobble and lifts live in WORLD metres, with screen-size fades — `ma` never
+       enters a phase or a segment index (`wobble(along, ph, mu, ma)`, `lifted(key, along, ma)`):
+         vis(P) = smoothstep(3, 8, P / ma)                      // an octave shows once its period spans ≥ 3 cells
+         wob    = mu · Σ_{k=0..2} A_k · sin(2π · along / P_k + (k + 1)·ph) · vis(P_k)
+                  P = [0.9, 3.5, 14] m,  A = [0.5, 0.3, 0.3]
+         lifted = any k = 0..2 with vis(G_k) > 0.5 and hash2(key, floor(along / G_k) + 40 + k) < 0.06
+                  G = [1.5, 6, 24] m
+       Property (unit-tested): for fixed (along, ph, mu), `wobble` is identical for every
+       `ma ≤ 0.9 / 8` (all octaves fully visible) — walking closer never changes a stroke's shape.
+
+    3. Soft layer switching (per-cell tone flips no longer pop a whole layer):
+         layer k coverage ·= smoothstep(t_k − 0.08, t_k + 0.08, tone)      (t = [0.10, 0.40, 0.70] as before)
+
+    4. Wider anti-aliasing: hw = mu · (0.30 + 0.20 · tone);
+         cov = 1 − smoothstep(hw − 0.35·mu, hw + 0.35·mu, |u − key − wob|)
+
+    5. Sky: short HAIR strokes instead of the tangle (`hairInk(ps, density)`; `tangleInk` is
+       deleted). Dome coordinates `ps` as v3 (stereographic from the nadir, in cells).
+       Hair cells of H = 8 cells; for each of the 3 × 3 cells c around floor(ps / H) and
+       each of 3 strokes s = 0..2, with cid = c.x · 7 + c.y · 131 + s · 17:
+         r_n     = hash2(cid, n)  for n = 1..6
+         absent if r_1 > density                      density = skyDensity(daylight) = mix(0.75, 0.45, daylight)
+         centre  = (c + (r_2, r_3)) · H
+         radial  = |centre| < 1 ? (0, 1) : normalize(−centre)          // toward the zenith = "up" everywhere
+         dir     = radial rotated by (r_4 − 0.5) · 0.6 rad             // ±17° off vertical
+         len     = H · (0.6 + 1.4 · r_5)                                // 5–16 cells
+         q       = ps − centre;  t = dot(q, dir);  s⊥ = dot(q, perp(dir)), perp(dir) = (−dir.y, dir.x)
+         bend    = (r_6 − 0.5) · 0.25 · H · sin(π · (clamp(t / len, −0.5, 0.5) + 0.5))
+         endF    = 1 − smoothstep(len / 2 − 2, len / 2, |t|)
+         cov     = (1 − smoothstep(0.2, 0.55, |s⊥ − bend|)) · endF
+         ink     = max over the 27 strokes
+       sky colour: mix(PAPER, SKY_INK, ink · 0.7). Expect ≈ 10–15 % ink in open sky.
+
+Everything else (class rule, nested LOD with `mu`, ±2 neighbours, colours,
+outline, depth fade) is unchanged from v3. Pure: `wobble`, `lifted`,
+`hairInk`, `skyDensity` (new values). e2e (T-0135) unchanged and green.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
