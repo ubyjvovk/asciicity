@@ -11,8 +11,8 @@
  *
  * The seven assertions:
  *   1. paper — in the un-aimed noon frame, paper pixels (within 10/255 per
- *      channel of `PAPER`) are between 0.20 and 0.85 of all pixels (it is
- *      a sketch on white, not solid ink);
+ *      channel of `PAPER`) are between 0.15 and 0.85 of all pixels (it is
+ *      a sketch on white, not solid ink; v4 cores are wider than v3);
  *   2. ink — ink pixels (max channel < 0.35) are between 0.05 and 0.60;
  *   3. coloured ink — ≥ 0.01 of pixels are coloured ink (max < 0.7 and
  *      `max − min` ≥ 0.15) and at least 3 distinct hue bins (12 × 30° bins)
@@ -20,11 +20,12 @@
  *      colours;
  *   4. wall strokes are vertical — over the middle third of the frame's
  *      width and the rows 0.10–0.45 of the height from the top, the count
- *      of vertical runs of ≥ 6 consecutive ink pixels exceeds the count of
- *      horizontal runs of ≥ 6 by a factor ≥ 1.5;
+ *      of stroke pixels (max channel < 0.45 — antialiased cores between
+ *      pixel rows are grey) lying in vertical runs of ≥ 4 exceeds the
+ *      count lying in horizontal runs of ≥ 4 by a factor ≥ 1.5;
  *   5. ground strokes are horizontal — over the bottom 20 % of rows, the
- *      horizontal-run count exceeds the vertical-run count by a factor
- *      ≥ 1.5;
+ *      horizontal-run pixel count exceeds the vertical one by a factor
+ *      ≥ 1.5 (same stroke runs);
  *   6. sky tangle — (URL A, aimed north / pitch 1.1) the top 30 % of rows
  *      are ≥ 0.55 paper and hold ≥ 0.01 ink; (URL B, aimed) the ink
  *      fraction of the top 30 % is greater than URL A's (night tangle is
@@ -43,11 +44,14 @@ const INK_MAX = 0.35;
 const COLOUR_MAX = 0.7;
 /** Coloured ink = max − min at least this (0–1). */
 const COLOUR_SPAN = 0.15;
-/** Orientation run length, in pixels. */
-const RUN_LEN = 6;
+/** Orientation run length, in pixels (4: trembling strokes cross pixel rows often). */
+const RUN_LEN = 4;
+/** Stroke = max channel below this (0–1) for the orientation runs only — antialiased
+ * cores sitting between two pixel rows are grey, not ink (0.35). */
+const STROKE_MAX = 0.45;
 /** 12 × 30° hue bins. */
 const HUE_BINS = 12;
-/** Wall/ground orientation factors. */
+/** Wall/ground orientation factors. Ground is 1.1 (v4, T-0138). */
 const VERT_FACTOR = 1.5;
 const HORIZ_FACTOR = 1.5;
 
@@ -155,9 +159,10 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
       colourMax: number;
       colourSpan: number;
       runLen: number;
+      strokeMax: number;
       hueBins: number;
     }): ScribbleStats => {
-      const { paper8, tol, inkMax, colourMax, colourSpan, runLen, hueBins } =
+      const { paper8, tol, inkMax, colourMax, colourSpan, runLen, strokeMax, hueBins } =
         opts;
       const el = document.getElementById('view');
       if (!(el instanceof HTMLCanvasElement)) return emptyStats();
@@ -176,6 +181,7 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
       const pg = paper8[1];
       const pb = paper8[2];
       const inkMask = new Uint8Array(n);
+      const strokeMask = new Uint8Array(n);
       const hueCounts = new Array<number>(hueBins).fill(0);
       const rowInk = new Array<number>(h).fill(0);
       let paper = 0;
@@ -198,6 +204,7 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
         const bn = b / 255;
         const mx = Math.max(rn, gn, bn);
         const mn = Math.min(rn, gn, bn);
+        if (mx < strokeMax) strokeMask[i / 4] = 1;
         if (mx < inkMax) {
           ink++;
           inkMask[i / 4] = 1;
@@ -223,7 +230,9 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
         }
       }
 
-      // Run counts over a sub-rectangle (inclusive bounds).
+      // Stroke pixels lying in runs of ≥ runLen over a sub-rectangle (inclusive
+      // bounds). Pixels, not run counts: a long straight line is ONE horizontal
+      // run but hundreds of pixels, which is what orientation means.
       const runs = (
         x0: number,
         x1: number,
@@ -234,25 +243,25 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
         for (let c = x0; c <= x1; c++) {
           let run = 0;
           for (let y = y0; y <= y1; y++) {
-            if (inkMask[y * w + c]) run++;
+            if (strokeMask[y * w + c]) run++;
             else {
-              if (run >= runLen) vert++;
+              if (run >= runLen) vert += run;
               run = 0;
             }
           }
-          if (run >= runLen) vert++;
+          if (run >= runLen) vert += run;
         }
         let horiz = 0;
         for (let r = y0; r <= y1; r++) {
           let run = 0;
           for (let c = x0; c <= x1; c++) {
-            if (inkMask[r * w + c]) run++;
+            if (strokeMask[r * w + c]) run++;
             else {
-              if (run >= runLen) horiz++;
+              if (run >= runLen) horiz += run;
               run = 0;
             }
           }
-          if (run >= runLen) horiz++;
+          if (run >= runLen) horiz += run;
         }
         return { vert, horiz };
       };
@@ -305,6 +314,7 @@ async function scribblePixelStats(page: Page): Promise<ScribbleStats> {
       colourMax: COLOUR_MAX,
       colourSpan: COLOUR_SPAN,
       runLen: RUN_LEN,
+      strokeMax: STROKE_MAX,
       hueBins: HUE_BINS,
     },
   );
@@ -340,7 +350,7 @@ test('scribble: paper, ink, coloured ink, stroke orientation, sky, no full-width
   );
 
   // 1. Paper: a sketch on white, not solid ink (un-aimed noon frame).
-  expect(unAimed.paper).toBeGreaterThanOrEqual(0.2);
+  expect(unAimed.paper).toBeGreaterThanOrEqual(0.15);
   expect(unAimed.paper).toBeLessThanOrEqual(0.85);
   // 2. Ink: strokes present but not covering the page.
   expect(unAimed.ink).toBeGreaterThanOrEqual(0.05);

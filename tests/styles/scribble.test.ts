@@ -1,11 +1,12 @@
 /**
  * Unit tests for the pure parts of the `scribble` render style
- * (docs/architecture.md §4.11, wave 17 T-0134 / v2 T-0136 / v3 T-0137): the
- * view-space-normal surface class, far-depth fade, world-anchored nested-LOD
- * strokes (screen-gradient scale), stereographic sky-dome coordinates, tangle
- * coverage growth, the neutral vs
- * coloured ink/wash colours, and the v3 precision-safe hash. Runs in node;
- * no WebGL is touched.
+ * (docs/architecture.md §4.11, wave 17 T-0134 / v2 T-0136 / v3 T-0137 /
+ * v4 T-0138): the view-space-normal surface class, far-depth fade,
+ * world-anchored nested-LOD strokes (screen-gradient scale, world-metre
+ * value-noise wobble/lifts), stereographic sky-dome coordinates, hair
+ * coverage, the neutral vs coloured ink/wash colours, and the v3
+ * precision-safe hash.
+ * Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -13,8 +14,11 @@ import {
   PAPER,
   UP_K,
   depthFade,
+  hairDir,
+  hairInk,
   hash2,
   inkColour,
+  lifted,
   lodOf,
   nestedStrokeInk,
   skyCoords,
@@ -22,10 +26,11 @@ import {
   strokeCoords,
   strokeScale,
   surfaceClass,
-  tangleInk,
   viewNormal,
   viewPos,
+  vnoise1,
   washColour,
+  wobble,
 } from '../../src/render/styles/scribble';
 
 /** A 64 × 64 grid of `(u, along)` at `step` intervals over `[0, 64·step)`. */
@@ -140,9 +145,9 @@ describe('surfaceClass', () => {
 });
 
 describe('skyDensity', () => {
-  it('mix(0.60, 0.30, daylight) — night denser, noon sparse', () => {
-    expect(skyDensity(0)).toBeCloseTo(0.6, 6);
-    expect(skyDensity(1)).toBeCloseTo(0.3, 6);
+  it('mix(0.75, 0.45, daylight) — night denser, noon sparse', () => {
+    expect(skyDensity(0)).toBeCloseTo(0.75, 6);
+    expect(skyDensity(1)).toBeCloseTo(0.45, 6);
   });
 });
 
@@ -276,26 +281,115 @@ describe('skyCoords', () => {
   });
 });
 
-describe('tangleInk', () => {
-  it('density 0 draws nothing across the 64×64 grid', () => {
-    for (let px = 0; px < 64; px++) {
-      for (let py = 0; py < 64; py++) {
-        expect(tangleInk(px, py, 0)).toBe(0);
+describe('vnoise1', () => {
+  it('vnoise1 continuity', () => {
+    const rng = mulberry32(1384);
+    for (let n = 0; n < 100; n++) {
+      const x = rng() * 200 - 50;
+      const k = rng() * 200 - 50;
+      expect(Math.abs(vnoise1(x + 1e-4, k) - vnoise1(x, k))).toBeLessThan(1e-2);
+    }
+  });
+});
+
+describe('wobble', () => {
+  it('wobble stability', () => {
+    const rng = mulberry32(138);
+    for (let n = 0; n < 50; n++) {
+      const along = rng() * 200 - 50;
+      const ph = rng() * 6.2832;
+      const mu = 0.01 + rng() * 0.4;
+      const key = rng() * 200 - 50;
+      expect(wobble(along, ph, mu, 0.05, key)).toBeCloseTo(wobble(along, ph, mu, 0.1, key), 9);
+    }
+  });
+
+  it('wobble fades', () => {
+    const rng = mulberry32(1381);
+    for (let n = 0; n < 40; n++) {
+      const along = rng() * 200 - 50;
+      const ph = rng() * 6.2832;
+      const mu = 0.01 + rng() * 0.4;
+      const key = rng() * 200 - 50;
+      expect(wobble(along, ph, mu, 5, key)).toBe(0);
+      expect(wobble(along, ph, mu, 1.2, key)).toBeCloseTo(
+        mu * 0.4 * (2 * vnoise1(along / 14 + 3 * ph, key + 22) - 1),
+        6,
+      );
+    }
+  });
+});
+
+describe('lifted', () => {
+  it('lifted', () => {
+    const rng = mulberry32(1382);
+    for (let n = 0; n < 200; n++) {
+      const key = rng() * 200;
+      const along = rng() * 1000;
+      expect(lifted(key, along, 10)).toBe(false);
+    }
+    const key = 8;
+    let nLift = 0;
+    const n = 1000;
+    for (let along = 0; along < n; along++) {
+      if (lifted(key, along, 0.05)) nLift++;
+    }
+    const frac = nLift / n;
+    expect(frac, `lifted fraction ${frac}`).toBeGreaterThan(0.05);
+    expect(frac, `lifted fraction ${frac}`).toBeLessThan(0.25);
+  });
+});
+
+describe('hairInk', () => {
+  it('hairInk([x, y], 0) → 0 on a 64 × 64 grid at 1-cell steps', () => {
+    for (let x = 0; x < 64; x++) {
+      for (let y = 0; y < 64; y++) {
+        expect(hairInk([x, y], 0)).toBe(0);
       }
     }
   });
 
-  it('coverage strictly grows with density', () => {
-    const densities = [0, 0.25, 0.55, 1.0];
-    const pts: { u: number; along: number }[] = [];
-    for (let px = 0; px < 64; px++) {
-      for (let py = 0; py < 64; py++) pts.push({ u: px, along: py });
+  it('every value at density 1 lies in [0, 1]', () => {
+    for (let x = 0; x < 64; x++) {
+      for (let y = 0; y < 64; y++) {
+        const ink = hairInk([x, y], 1);
+        expect(ink, `hairInk([${x}, ${y}], 1) in [0, 1]`).toBeGreaterThanOrEqual(0);
+        expect(ink, `hairInk([${x}, ${y}], 1) in [0, 1]`).toBeLessThanOrEqual(1);
+      }
     }
-    const means = densities.map((d) =>
-      mean(pts, (px, py) => tangleInk(px, py, d)),
-    );
+  });
+
+  it('grid mean is strictly increasing across densities [0, 0.45, 0.75, 1]', () => {
+    const densities = [0, 0.45, 0.75, 1];
+    const pts: { u: number; along: number }[] = [];
+    for (let x = 0; x < 64; x++) {
+      for (let y = 0; y < 64; y++) pts.push({ u: x, along: y });
+    }
+    const means = densities.map((d) => mean(pts, (x, y) => hairInk([x, y], d)));
     for (let i = 1; i < means.length; i++) {
-      expect(means[i], `mean at density ${densities[i]}`).toBeGreaterThan(means[i - 1]);
+      expect(means[i], `mean at density ${densities[i]} > ${densities[i - 1]}`).toBeGreaterThan(
+        means[i - 1],
+      );
+    }
+    expect(means[2], `mean at density 0.75 is ${means[2]}`).toBeGreaterThan(0.05);
+    expect(means[2], `mean at density 0.75 is ${means[2]}`).toBeLessThan(0.3);
+  });
+
+  it('hair points up', () => {
+    const rng = mulberry32(1383);
+    let n = 0;
+    while (n < 200) {
+      const x = (rng() - 0.5) * 400;
+      const y = (rng() - 0.5) * 400;
+      const mag = Math.hypot(x, y);
+      if (mag <= 20) continue;
+      const c: [number, number] = [Math.floor(x / 8), Math.floor(y / 8)];
+      const dir = hairDir(c, 0);
+      const nx = -x / mag;
+      const ny = -y / mag;
+      const d = dir[0] * nx + dir[1] * ny;
+      expect(d, `dot at ps=[${x}, ${y}] dir=[${dir[0]}, ${dir[1]}]`).toBeGreaterThan(0.8);
+      n++;
     }
   });
 });

@@ -1,26 +1,26 @@
 /**
  * `scribble` render style (docs/architecture.md §4.11, wave 17 T-0134, v2
- * T-0136, v3 T-0137): a coloured-ink scribble sketch on white paper — tone
- * carried by stroke *density*, long wobbly pen strokes that follow the
- * surface (vertical world-lines on walls, constant-depth on the ground, a
- * loose tangle on the sky dome), ink coloured by the object under it,
- * one-sided pencil outlines, far buildings sketched lighter. Cell 3×3, sub
- * 1×1, `needsDepth: true`, `groundGrid: false`. Strokes are drawn
- * **analytically per canvas pixel** from the world position
- * (`P = viewPos(vUv, dC, …)`, `W = viewToWorld · P`) so they stick to the
+ * T-0136, v3 T-0137, v4 T-0138): a coloured-ink scribble sketch on white
+ * paper — tone carried by stroke *density*, long wobbly pen strokes that
+ * follow the surface (vertical world-lines on walls, constant-depth on the
+ * ground, short hair strokes on the sky dome), ink coloured by the object
+ * under it, one-sided pencil outlines, far buildings sketched lighter.
+ * Cell 3×3, sub 1×1, `needsDepth: true`, `groundGrid: false`. Strokes are
+ * drawn **analytically per canvas pixel** from the world position
+ * (`P = viewPos(vUv, dPix, …)`, `W = viewToWorld · P`) so they stick to the
  * world; a nested power-of-two LOD keeps on-screen spacing constant. Only
  * the scene sample, the depth taps, the class and the outline are per cell
  * (`cell = floor(vUv · grid)`). Pure helpers (`SCRIBBLE_LAYERS`, `UP_K`,
  * `PAPER`, `INK`, `SKY_INK`, `hash2`, `viewPos`, `viewNormal`,
  * `surfaceClass`, `skyDensity`, `depthFade`, `strokeCoords`, `strokeScale`,
- * `lodOf`, `nestedStrokeInk`, `skyCoords`, `tangleInk`, `surfaceOutline`,
- * `inkColour`, `washColour`) mirror the shader term for term and are
- * unit-tested in node. v3 (T-0137) replaces the screen-space `strokeInk`
- * overlay with world-anchored nested LOD and sticks the sky tangle to the
- * dome; the v3.1 rework scales strokes from the screen gradient of `u`
- * (`strokeScale`) and maps the sky stereographically from the nadir.
- * Colour, outline, tone, thresholds, half-widths, lifts and the ground/wall
- * class rule stay as v2.
+ * `lodOf`, `nestedStrokeInk`, `wobble`, `vnoise1`, `lifted`, `skyCoords`,
+ * `hairInk`, `hairDir`, `surfaceOutline`, `inkColour`, `washColour`) mirror
+ * the shader term for term and are unit-tested in node. v4 (T-0138) feeds
+ * per-pixel depth into the wall position, puts wobble and lifts in world
+ * metres with screen-size fades (hand tremor is per-line value noise, not
+ * a sine), soft-switches layers, widens the stroke core, and replaces the
+ * sky tangle with short hair strokes. Stroke core is
+ * `hw = mu·(0.30 + 0.20·tone)` with AA ±0.15·mu; sky mix is 0.85.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -70,7 +70,7 @@ export const PAPER: readonly [number, number, number] = [0.98, 0.97, 0.94];
 /** The neutral pen ink (§4.11); surfaces mix toward this for grey things. */
 export const INK: readonly [number, number, number] = [0.12, 0.1, 0.12];
 
-/** The loose sky tangle ink (§4.11), a dim violet-grey. */
+/** The sky hair-stroke ink (§4.11), a dim violet-grey. */
 export const SKY_INK: readonly [number, number, number] = [0.15, 0.14, 0.18];
 
 /** Ground/wall cut on `up = |dot(n, viewUp)|` (§4.11 v2): ground if `up > UP_K`. */
@@ -78,7 +78,8 @@ export const UP_K = 0.6;
 
 /**
  * The three surface stroke layers, coarse to fine (§4.11):
- * `{ spacing, threshold }` — a layer only draws where `tone > threshold`.
+ * `{ spacing, threshold }` — a layer only draws where `tone` crosses
+ * `threshold` (v4: soft `smoothstep(t−0.08, t+0.08, tone)`).
  * v3 derives world spacing from the nested LOD (`S = 2^(L−k)`); the
  * `spacing` field is the v1/v2 screen-space leftover and is unused.
  */
@@ -87,6 +88,15 @@ export const SCRIBBLE_LAYERS: readonly { spacing: number; threshold: number }[] 
   { spacing: 4, threshold: 0.4 },
   { spacing: 2, threshold: 0.7 },
 ];
+
+/** Wobble octave periods in metres (§4.11 v4). */
+const WOBBLE_P: readonly [number, number, number] = [0.9, 3.5, 14];
+/** Wobble octave amplitudes (§4.11 v4, value-noise tremor). */
+const WOBBLE_A: readonly [number, number, number] = [0.6, 0.4, 0.4];
+/** Pen-lift gap lengths in metres (§4.11 v4). */
+const LIFT_G: readonly [number, number, number] = [1.5, 6, 24];
+/** Sky-hair cell size in cells (§4.11 v4). */
+const HAIR_H = 8;
 
 /**
  * View-space position of a texel (§4.11 v2 `viewPos`):
@@ -150,9 +160,9 @@ export function surfaceClass(dC: number, far: number, up: number): 0 | 1 | 2 {
   return up > UP_K ? 1 : 2;
 }
 
-/** Sky-tangle density (§4.11 v2 `skyDensity`): `mix(0.60, 0.30, daylight)`. */
+/** Sky-hair density (§4.11 v4 `skyDensity`): `mix(0.75, 0.45, daylight)`. */
 export function skyDensity(daylight: number): number {
-  return mix(0.6, 0.3, daylight);
+  return mix(0.75, 0.45, daylight);
 }
 
 /**
@@ -216,14 +226,70 @@ export function lodOf(mu: number): { L: number; f: number } {
 }
 
 /**
- * World-anchored nested-LOD stroke coverage in `[0, 1]` (§4.11 v3
+ * Screen-size visibility of a world-metre period (§4.11 v4 `vis`): an
+ * octave shows once its period spans ≥ 3 cells, fully by 8 cells.
+ */
+function vis(period: number, ma: number): number {
+  return smoothstep(3, 8, period / ma);
+}
+
+/**
+ * 1-D value noise in `[0, 1]` (§4.11 v4 `vnoise1`): interpolates
+ * `hash2(floor(x), key)` → `hash2(floor(x)+1, key)` with a Hermite
+ * `smoothstep` on `fract(x)`. The hand-tremor wobble is this, not a sine.
+ */
+export function vnoise1(x: number, key: number): number {
+  const i = Math.floor(x);
+  return mix(hash2(i, key), hash2(i + 1, key), smoothstep(0, 1, fract(x)));
+}
+
+/**
+ * World-metre stroke wobble (§4.11 v4 `wobble`): three octaves at 0.9 /
+ * 3.5 / 14 m of per-line value noise, faded by screen size so `ma` never
+ * enters a phase. `key` is the line's world coordinate (the same `i·S`
+ * nested LOD uses) so adjacent strokes do not corrugate in step.
+ */
+export function wobble(
+  along: number,
+  ph: number,
+  mu: number,
+  ma: number,
+  key: number,
+): number {
+  let sum = 0;
+  for (let k = 0; k < 3; k++) {
+    const P = WOBBLE_P[k];
+    const n = vnoise1(along / P + 3 * ph, key + 11 * k);
+    sum += WOBBLE_A[k] * (2 * n - 1) * vis(P, ma);
+  }
+  return mu * sum;
+}
+
+/**
+ * Pen-lift gate (§4.11 v4 `lifted`): true when any visible gap octave
+ * (1.5 / 6 / 24 m) hashes below 0.06. `ma` never enters a segment index.
+ */
+export function lifted(key: number, along: number, ma: number): boolean {
+  for (let k = 0; k < 3; k++) {
+    const G = LIFT_G[k];
+    if (vis(G, ma) > 0.5 && hash2(key, Math.floor(along / G) + 40 + k) < 0.06) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * World-anchored nested-LOD stroke coverage in `[0, 1]` (§4.11 v3/v4
  * `nestedStrokeInk`). Level `j = L − k` has lines at `u = i·2^j` m; odd
  * lines fade with `1 − f` so the family never pops across a LOD boundary.
  * Each level takes the max over the nearest line and its neighbours
  * (`i0 ± 2`): stroke width + wobble can cover more than the nearest, and
  * a faded odd line must fall back to the even neighbour or the LOD
- * transition pops. `mu` / `ma` are metres of `u` / `along` per screen cell
- * from {@link strokeScale}; they replace a single facing-camera `m`.
+ * transition pops. v4: wobble/lifts in world metres ({@link wobble},
+ * {@link lifted}), soft layer switching, wider stroke core with a tight
+ * edge (`hw = mu·(0.30 + 0.20·tone)`, AA ±0.15·mu). `mu` / `ma` are
+ * metres of `u` / `along` per screen cell from {@link strokeScale}.
  */
 export function nestedStrokeInk(
   u: number,
@@ -235,24 +301,22 @@ export function nestedStrokeInk(
   const { L, f } = lodOf(mu);
   let ink = 0;
   for (let k = 0; k < SCRIBBLE_LAYERS.length; k++) {
-    if (tone <= SCRIBBLE_LAYERS[k].threshold) continue;
+    const tK = SCRIBBLE_LAYERS[k].threshold;
+    const layerW = smoothstep(tK - 0.08, tK + 0.08, tone);
+    if (layerW <= 0) continue;
     const j = L - k;
     const S = 2 ** j;
     const i0 = Math.floor(u / S + 0.5);
-    const hw = mu * (0.28 + 0.22 * tone);
+    const hw = mu * (0.30 + 0.20 * tone);
     for (let di = -2; di <= 2; di++) {
       const i = i0 + di;
       const key = i * S;
       const ph = hash2(key, 0) * 6.2832;
-      const wob =
-        mu *
-        (0.5 * Math.sin((along / ma) * 0.16 + ph) +
-          0.25 * Math.sin((along / ma) * 0.043 + 2 * ph));
-      const lift = hash2(key, Math.floor(along / (24 * ma)) + 40) < 0.12;
-      if (lift) continue;
+      if (lifted(key, along, ma)) continue;
+      const wob = wobble(along, ph, mu, ma, key);
       const cov = 1 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, Math.abs(u - key - wob));
       const weight = mod(i, 2) === 1 ? 1 - f : 1;
-      ink = Math.max(ink, cov * weight);
+      ink = Math.max(ink, cov * weight * layerW);
     }
   }
   return ink;
@@ -269,26 +333,78 @@ export function skyCoords(dirW: readonly [number, number, number], K: number): [
 }
 
 /**
- * Ink coverage of the loose sky tangle at sky pixel position `(px, py)`
- * (§4.11 `tangleInk`). Three wavy families at fixed angles, each line
- * present with probability `density`; the near-vertical one is dominant
- * (family 0 spacing 2.5 cells, v2). Returns coverage in `[0, 1]`.
+ * Hair-stroke parameters for cell `c` and stroke index `s` (§4.11 v4).
  */
-export function tangleInk(px: number, py: number, density: number): number {
-  const ANGLES: readonly number[] = [0.12, 1.25, 2.3];
-  const SPACINGS: readonly number[] = [2.5, 9, 7];
+function hairParams(
+  c: readonly [number, number],
+  s: number,
+): {
+  r1: number;
+  centre: [number, number];
+  dir: [number, number];
+  r5: number;
+  r6: number;
+} {
+  const cid = c[0] * 7 + c[1] * 131 + s * 17;
+  const r1 = hash2(cid, 1);
+  const r2 = hash2(cid, 2);
+  const r3 = hash2(cid, 3);
+  const r4 = hash2(cid, 4);
+  const r5 = hash2(cid, 5);
+  const r6 = hash2(cid, 6);
+  const centre: [number, number] = [(c[0] + r2) * HAIR_H, (c[1] + r3) * HAIR_H];
+  const clen = Math.hypot(centre[0], centre[1]);
+  const rx = clen < 1 ? 0 : -centre[0] / clen;
+  const ry = clen < 1 ? 1 : -centre[1] / clen;
+  const ang = (r4 - 0.5) * 0.6;
+  const ca = Math.cos(ang);
+  const sa = Math.sin(ang);
+  return {
+    r1,
+    centre,
+    dir: [rx * ca - ry * sa, rx * sa + ry * ca],
+    r5,
+    r6,
+  };
+}
+
+/**
+ * Direction of sky-hair stroke `s` in cell `c` (§4.11 v4), a unit vector
+ * pointing toward the zenith (±17°). Used by the "hair points up" test.
+ */
+export function hairDir(c: readonly [number, number], s: number): [number, number] {
+  return hairParams(c, s).dir;
+}
+
+/**
+ * Ink coverage of the short sky-hair strokes at dome position `ps`
+ * (§4.11 v4 `hairInk`). 3 × 3 cells of size 8 around `floor(ps / H)`, 3
+ * strokes each (27 segment evaluations). Length is
+ * `H·(0.9 + 2.0·r_5)` (7–23 cells); coverage is thinner
+ * (`smoothstep(0.15, 0.40, |s⊥ − bend|)`). Returns coverage in `[0, 1]`.
+ */
+export function hairInk(ps: readonly [number, number], density: number): number {
+  const c0x = Math.floor(ps[0] / HAIR_H);
+  const c0y = Math.floor(ps[1] / HAIR_H);
   let ink = 0;
-  for (let j = 0; j < 3; j++) {
-    const th = ANGLES[j];
-    const S = SPACINGS[j];
-    const u = px * Math.cos(th) + py * Math.sin(th);
-    const along = -px * Math.sin(th) + py * Math.cos(th);
-    const idx = Math.floor(u / S);
-    if (hash2(idx, 20 + j) > density) continue;
-    const ph = hash2(idx, 30 + j) * 6.2832;
-    const wob = 2.0 * Math.sin(along * 0.09 + ph) + 1.2 * Math.sin(along * 0.31 + 2 * ph);
-    const cov = 1 - smoothstep(0.15, 0.45, Math.abs(u - (idx + 0.5) * S - wob));
-    ink = Math.max(ink, cov);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const c: [number, number] = [c0x + dx, c0y + dy];
+      for (let s = 0; s < 3; s++) {
+        const h = hairParams(c, s);
+        if (h.r1 > density) continue;
+        const len = HAIR_H * (0.9 + 2.0 * h.r5);
+        const qx = ps[0] - h.centre[0];
+        const qy = ps[1] - h.centre[1];
+        const t = qx * h.dir[0] + qy * h.dir[1];
+        const sPerp = qx * -h.dir[1] + qy * h.dir[0];
+        const tt = Math.min(0.5, Math.max(-0.5, t / len));
+        const bend = (h.r6 - 0.5) * 0.25 * HAIR_H * Math.sin(Math.PI * (tt + 0.5));
+        const endF = 1 - smoothstep(len / 2 - 2, len / 2, Math.abs(t));
+        const cov = (1 - smoothstep(0.15, 0.4, Math.abs(sPerp - bend))) * endF;
+        ink = Math.max(ink, cov);
+      }
+    }
   }
   return ink;
 }
@@ -347,17 +463,18 @@ export function washColour(
 }
 
 /**
- * §4.11 "scribble" v3 fragment. Scene sample, depth taps, class and outline
+ * §4.11 "scribble" v4 fragment. Scene sample, depth taps, class and outline
  * are per cell (`cell = floor(vUv · grid)`). Strokes are per pixel: world
- * position `W` from `viewPos(vUv, dC)` (continuous `vUv`, cell depth) via
- * `viewToWorld`, nested-LOD ink in metres scaled by the screen gradient of
- * `u` (`mu`/`ma` from the four neighbour taps). Sky tangle uses
- * stereographic-from-nadir dome coordinates so it pans with the camera
- * without a zenith pole. Ground/wall is classified from the view-space
- * normal (`up = |dot(n, viewUp)| > UP_K`). `daylight` is the only style
- * uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude
- * and are never redeclared. GLSL ES 1.0: the three nested layers are an
- * `if` ladder; `exp2`/`log2`/`mod` are ES 1.0.
+ * position `W` from `viewPos(vUv, dPix)` (continuous `vUv`, reconstructed
+ * per-pixel depth) via `viewToWorld`, nested-LOD ink in metres scaled by
+ * the screen gradient of `u` (`mu`/`ma` from the four neighbour taps).
+ * Wobble and lifts live in world metres with screen-size fades. Sky hair
+ * uses stereographic-from-nadir dome coordinates. Ground/wall is classified
+ * from the view-space normal (`up = |dot(n, viewUp)| > UP_K`). `daylight`
+ * is the only style uniform; `viewUp`, `tanHalfFov` and `viewToWorld` come
+ * from the prelude and are never redeclared. GLSL ES 1.0: the three nested
+ * layers are an `if` ladder; the hair loop is 3 × 3 × 3 constant-bound;
+ * `exp2`/`log2`/`mod` are ES 1.0.
  */
 const SCRIBBLE_FRAGMENT = `
 uniform float daylight;
@@ -399,17 +516,41 @@ vec2 strokeScale(vec2 scL, vec2 scR, vec2 scU, vec2 scD, float up) {
   return vec2(max(abs(scR.x - scL.x) * 0.5, 1e-4), max(abs(scU.y - scD.y) * 0.5, 1e-4));
 }
 
+float vis(float P, float ma) {
+  return smoothstep(3.0, 8.0, P / ma);
+}
+
+float vnoise1(float x, float key) {
+  float i = floor(x);
+  float f = fract(x);
+  return mix(hash2(i, key), hash2(i + 1.0, key), smoothstep(0.0, 1.0, f));
+}
+
+float wobble(float along, float ph, float mu, float ma, float key) {
+  float s = 0.0;
+  s += 0.60 * (2.0 * vnoise1(along / 0.9 + 3.0 * ph, key + 0.0) - 1.0) * vis(0.9, ma);
+  s += 0.40 * (2.0 * vnoise1(along / 3.5 + 3.0 * ph, key + 11.0) - 1.0) * vis(3.5, ma);
+  s += 0.40 * (2.0 * vnoise1(along / 14.0 + 3.0 * ph, key + 22.0) - 1.0) * vis(14.0, ma);
+  return mu * s;
+}
+
+bool lifted(float key, float along, float ma) {
+  return (vis(1.5, ma) > 0.5 && hash2(key, floor(along / 1.5) + 40.0) < 0.06)
+      || (vis(6.0, ma) > 0.5 && hash2(key, floor(along / 6.0) + 41.0) < 0.06)
+      || (vis(24.0, ma) > 0.5 && hash2(key, floor(along / 24.0) + 42.0) < 0.06);
+}
+
 float strokeLayer(float u, float along, float tone, float mu, float ma, float j, float f) {
   float S = exp2(j);
   float i0 = floor(u / S + 0.5);
-  float hw = mu * (0.28 + 0.22 * tone);
+  float hw = mu * (0.30 + 0.20 * tone);
   float ink = 0.0;
   for (int di = -2; di <= 2; di++) {
     float i = i0 + float(di);
     float key = i * S;
     float ph = hash2(key, 0.0) * 6.2832;
-    float wob = mu * (0.50 * sin(along / ma * 0.16 + ph) + 0.25 * sin(along / ma * 0.043 + 2.0 * ph));
-    if (hash2(key, floor(along / (24.0 * ma)) + 40.0) >= 0.12) {
+    if (!lifted(key, along, ma)) {
+      float wob = wobble(along, ph, mu, ma, key);
       float cov = 1.0 - smoothstep(hw - 0.15 * mu, hw + 0.15 * mu, abs(u - key - wob));
       float weight = (mod(abs(i), 2.0) > 0.5) ? (1.0 - f) : 1.0;
       ink = max(ink, cov * weight);
@@ -423,51 +564,51 @@ float nestedStrokeInk(float u, float along, float tone, float mu, float ma) {
   float lod = log2(8.0 * mu);
   float L = floor(lod);
   float f = fract(lod);
-  if (tone > 0.10) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 0.0, f));
-  if (tone > 0.40) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 1.0, f));
-  if (tone > 0.70) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 2.0, f));
+  float w0 = smoothstep(0.02, 0.18, tone);
+  float w1 = smoothstep(0.32, 0.48, tone);
+  float w2 = smoothstep(0.62, 0.78, tone);
+  if (w0 > 0.0) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 0.0, f) * w0);
+  if (w1 > 0.0) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 1.0, f) * w1);
+  if (w2 > 0.0) ink = max(ink, strokeLayer(u, along, tone, mu, ma, L - 2.0, f) * w2);
   return ink;
 }
 
-float tangleInk(float px, float py, float density) {
+float hairInk(vec2 ps, float density) {
+  float H = 8.0;
+  vec2 c0 = floor(ps / H);
   float ink = 0.0;
-  {
-    float th = 0.12;
-    float S = 2.5;
-    float u = px * cos(th) + py * sin(th);
-    float along = -px * sin(th) + py * cos(th);
-    float idx = floor(u / S);
-    if (hash2(idx, 20.0) <= density) {
-      float ph = hash2(idx, 30.0) * 6.2832;
-      float wob = 2.0 * sin(along * 0.09 + ph) + 1.2 * sin(along * 0.31 + 2.0 * ph);
-      float cov = 1.0 - smoothstep(0.15, 0.45, abs(u - (idx + 0.5) * S - wob));
-      ink = max(ink, cov);
-    }
-  }
-  {
-    float th = 1.25;
-    float S = 9.0;
-    float u = px * cos(th) + py * sin(th);
-    float along = -px * sin(th) + py * cos(th);
-    float idx = floor(u / S);
-    if (hash2(idx, 21.0) <= density) {
-      float ph = hash2(idx, 31.0) * 6.2832;
-      float wob = 2.0 * sin(along * 0.09 + ph) + 1.2 * sin(along * 0.31 + 2.0 * ph);
-      float cov = 1.0 - smoothstep(0.15, 0.45, abs(u - (idx + 0.5) * S - wob));
-      ink = max(ink, cov);
-    }
-  }
-  {
-    float th = 2.30;
-    float S = 7.0;
-    float u = px * cos(th) + py * sin(th);
-    float along = -px * sin(th) + py * cos(th);
-    float idx = floor(u / S);
-    if (hash2(idx, 22.0) <= density) {
-      float ph = hash2(idx, 32.0) * 6.2832;
-      float wob = 2.0 * sin(along * 0.09 + ph) + 1.2 * sin(along * 0.31 + 2.0 * ph);
-      float cov = 1.0 - smoothstep(0.15, 0.45, abs(u - (idx + 0.5) * S - wob));
-      ink = max(ink, cov);
+  for (int dy = -1; dy <= 1; dy++) {
+    for (int dx = -1; dx <= 1; dx++) {
+      vec2 c = c0 + vec2(float(dx), float(dy));
+      for (int s = 0; s < 3; s++) {
+        float cid = c.x * 7.0 + c.y * 131.0 + float(s) * 17.0;
+        float r1 = hash2(cid, 1.0);
+        if (r1 <= density) {
+          float r2 = hash2(cid, 2.0);
+          float r3 = hash2(cid, 3.0);
+          float r4 = hash2(cid, 4.0);
+          float r5 = hash2(cid, 5.0);
+          float r6 = hash2(cid, 6.0);
+          vec2 centre = (c + vec2(r2, r3)) * H;
+          vec2 radial;
+          float clen = length(centre);
+          if (clen < 1.0) radial = vec2(0.0, 1.0);
+          else radial = normalize(-centre);
+          float ang = (r4 - 0.5) * 0.6;
+          float ca = cos(ang);
+          float sa = sin(ang);
+          vec2 dir = vec2(radial.x * ca - radial.y * sa, radial.x * sa + radial.y * ca);
+          float len = H * (0.9 + 2.0 * r5);
+          vec2 q = ps - centre;
+          float t = dot(q, dir);
+          float sperp = dot(q, vec2(-dir.y, dir.x));
+          float tt = clamp(t / len, -0.5, 0.5);
+          float bend = (r6 - 0.5) * 0.25 * H * sin(3.14159265 * (tt + 0.5));
+          float endF = 1.0 - smoothstep(len * 0.5 - 2.0, len * 0.5, abs(t));
+          float cov = (1.0 - smoothstep(0.15, 0.40, abs(sperp - bend))) * endF;
+          ink = max(ink, cov);
+        }
+      }
     }
   }
   return ink;
@@ -505,14 +646,14 @@ void main() {
   float skyThr = 0.98 * cameraFar;
   float aspect = sceneSize.x / sceneSize.y;
 
-  // Sky: a loose ink tangle on the dome (v3) whose density falls with daylight.
+  // Sky: short hair strokes on the dome (v4) whose density falls with daylight.
   if (dC >= skyThr) {
-    float density = mix(0.60, 0.30, daylight);
+    float density = mix(0.75, 0.45, daylight);
     vec3 dirW = normalize(mat3(viewToWorld) * viewPos(vUv, 1.0, tanHalfFov, aspect));
     float K = sceneSize.y / (2.0 * atan(tanHalfFov));
     vec2 ps = K * vec2(dirW.x, dirW.z) / (1.0 + dirW.y);
-    float tang = tangleInk(ps.x, ps.y, density);
-    gl_FragColor = vec4(mix(PAPER, SKY_INK, tang * 0.85), 1.0);
+    float hair = hairInk(ps, density);
+    gl_FragColor = vec4(mix(PAPER, SKY_INK, hair * 0.85), 1.0);
     return;
   }
 
@@ -523,22 +664,20 @@ void main() {
 
   float tone2 = tone * depthFade(dC);
 
-  // World-anchored strokes (v3): per-pixel viewPos at the cell depth, then
-  // viewToWorld. Stroke scale is the screen gradient of u (mu/ma from the
-  // four neighbour taps) so oblique facades and the ground keep ~8/4/2
-  // cells of on-screen spacing.
-  vec3 P = viewPos(vUv, dC, tanHalfFov, aspect);
-  vec3 W = (viewToWorld * vec4(P, 1.0)).xyz;
-  vec3 nW = normalize(mat3(viewToWorld) * n);
-  // Reconstruct a per-pixel depth from the one-cell taps so ground u
-  // (metres of depth) varies inside the cell. The depth target is 1 sample
-  // per cell, so linearDepth(vUv) equals dC everywhere inside it.
+  // World-anchored strokes (v4): per-pixel viewPos at reconstructed dPix
+  // (walls and ground), then viewToWorld. Stroke scale is the screen
+  // gradient of u (mu/ma from the four neighbour taps) so oblique facades
+  // and the ground keep ~8/4/2 cells of on-screen spacing. Wobble/lifts
+  // live in world metres with screen-size fades.
   vec2 o = p - (cell + 0.5);
   float gX = 0.5 * (dR - dL);
   float gY = 0.5 * (dU - dD);
   if (abs(dR - dC) > 0.35 * dC || abs(dL - dC) > 0.35 * dC) gX = 0.0;
   if (abs(dU - dC) > 0.35 * dC || abs(dD - dC) > 0.35 * dC) gY = 0.0;
   float dPix = dC + gX * o.x + gY * o.y;
+  vec3 P = viewPos(vUv, dPix, tanHalfFov, aspect);
+  vec3 W = (viewToWorld * vec4(P, 1.0)).xyz;
+  vec3 nW = normalize(mat3(viewToWorld) * n);
   vec2 sc = strokeCoords(W, nW, dPix, up);
   float u = sc.x;
   float along = sc.y;
@@ -579,7 +718,8 @@ void main() {
  * Coloured-ink scribble sketch on white paper — tone by stroke density,
  * world-anchored nested-LOD pen strokes (v3) scaled by the screen gradient
  * of `u`, following the surface (classed by view-space normal, v2),
- * stereographic sky-dome tangle, one-sided pencil outlines, far buildings
+ * per-pixel wall depth and world-metre value-noise wobble/lifts (v4),
+ * stereographic sky-dome hair, one-sided pencil outlines, far buildings
  * sketched lighter. Cell 3×3, sub 1×1, depth. `R` cycles, `?render=scribble`.
  */
 export const STYLES: readonly RenderStyle[] = [
