@@ -1,14 +1,22 @@
 /**
  * Unit tests for the pure parts of the `pencil` render style
  * (docs/architecture.md §4.11, wave 18 "sketch family"): the smudged
- * tone wash and the 45° cross-hatch stroke-space rotation. The shared
+ * tone wash, the 45° cross-hatch stroke-space rotation, and the
+ * ground-tune mirrors `groundTone` / `crossGate`. The shared
  * stroke machinery (hash, viewPos/viewNormal, depthFade, stroke
  * coordinates/scale/LOD, wobble/lifts, nestedStrokeInk, sky coordinates,
  * hair) is unit-tested in `tests/styles/strokes.test.ts`. Runs in node;
  * no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
-import { G, PAPER_P, crossCoords, pencilWash } from '../../src/render/styles/pencil';
+import {
+  G,
+  PAPER_P,
+  crossCoords,
+  crossGate,
+  groundTone,
+  pencilWash,
+} from '../../src/render/styles/pencil';
 
 describe('pencilWash', () => {
   it('paper at tone 0 — wash 0 leaves base = PAPER_P (3 tooth values)', () => {
@@ -35,6 +43,28 @@ describe('pencilWash', () => {
     expect(pencilWash(1, 1)).toBeCloseTo(0.55, 6);
     expect(pencilWash(0.5, 1.0)).toBeCloseTo(0.275, 6);
     expect(pencilWash(0.25, 1.1)).toBeCloseTo(0.15125, 6);
+  });
+});
+
+describe('groundTone', () => {
+  it('groundTone(1) → 0.55', () => {
+    expect(groundTone(1)).toBeCloseTo(0.55, 6);
+  });
+});
+
+describe('crossGate', () => {
+  it('0 at 0.5, 1 at 0.7, monotone', () => {
+    expect(crossGate(0.5)).toBe(0);
+    expect(crossGate(0.7)).toBe(1);
+    const a = crossGate(0.55);
+    const b = crossGate(0.6);
+    const c = crossGate(0.65);
+    const d = crossGate(0.7);
+    expect(a).toBe(0);
+    expect(b).toBeGreaterThan(a);
+    expect(c).toBeGreaterThan(b);
+    expect(d).toBeGreaterThan(c);
+    expect(d).toBe(1);
   });
 });
 
