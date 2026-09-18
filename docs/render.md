@@ -57,7 +57,7 @@ Read `src/render/style.ts` before writing a style. A `RenderStyle` is:
 | `cellW` / `cellH` | Screen pixels per cell (default; `?cell=WxH` overrides). |
 | `subX` / `subY` | Scene samples per cell; target is `cols·subX × rows·subY`. |
 | `needsDepth` | Attach a `THREE.DepthTexture`; prelude then provides `linearDepth()`. |
-| `groundGrid?` | Whether the world's perspective floor grid is drawn under this style. Absent = `true`; painterly styles (`quest`, `lowpoly`, `scribble`) set `false`. `main.ts` swaps the map on both the flat ground plane and the terrain heightfield mesh on every style change, and exposes `window.__asciicity.groundGrid` (wave 16b, T-0132). |
+| `groundGrid?` | Whether the world's perspective floor grid is drawn under this style. Absent = `true`; painterly styles (`quest`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor`) set `false`. `main.ts` swaps the map on both the flat ground plane and the terrain heightfield mesh on every style change, and exposes `window.__asciicity.groundGrid` (wave 16b, T-0132). |
 | `fragment` | GLSL ES 1.0 body appended to `STYLE_PRELUDE`. Must define `void main()`. |
 | `makeUniforms(ctx)` | Style-specific uniforms (atlases, palettes). `{}` is fine. |
 | `update?` | Optional per-frame hook (`timeS` seconds since start). |
@@ -102,6 +102,10 @@ See the comment on `STYLE_PRELUDE` in `style.ts`.
 | `lowpoly` | `styles/lowpoly.ts` | 6×6 | 2×2 | yes | '80s CGI flat facets + ink outlines (T-0120; e2e T-0121). |
 | `quest` | `styles/quest.ts` | 3×3 | 1×1 | yes | SVGA-era fantasy: 12 painter's ramps × 20 shades, one-step dither, soft outlines, painted sky. Stub until T-0124. |
 | `scribble` | `styles/scribble.ts` | 3×3 | 1×1 | yes | Coloured-ink scribble sketch on white paper: surface-following wobbly strokes, sky tangle, one-sided outlines (§4.11 wave 17). Stub until T-0134. |
+| `pencil` | `styles/pencil.ts` | 3×3 | 1×1 | yes | Graphite pencil sketch: smudged tone wash + soft world-anchored hatching (§4.11 wave 18). Stub until T-0140. |
+| `crayon` | `styles/crayon.ts` | 3×3 | 1×1 | yes | Coloured pencil: the pencil look in each object's hue (§4.11 wave 18). Stub until T-0141. |
+| `pastel` | `styles/pastel.ts` | 3×3 | 1×1 | yes | Soft chalk pastel: grainy colour blocks, no strokes (§4.11 wave 18). Stub until T-0142. |
+| `watercolor` | `styles/watercolor.ts` | 3×3 | 1×1 | yes | Watercolour washes with granulation and pooled edges (§4.11 wave 18). Stub until T-0143. |
 | `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
 | `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
 | `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |
