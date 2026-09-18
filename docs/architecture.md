@@ -995,8 +995,12 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
     2. Wobble and lifts live in WORLD metres, with screen-size fades — `ma` never
        enters a phase or a segment index (`wobble(along, ph, mu, ma)`, `lifted(key, along, ma)`):
          vis(P) = smoothstep(3, 8, P / ma)                      // an octave shows once its period spans ≥ 3 cells
-         wob    = mu · Σ_{k=0..2} A_k · sin(2π · along / P_k + (k + 1)·ph) · vis(P_k)
-                  P = [0.9, 3.5, 14] m,  A = [0.5, 0.3, 0.3]
+         hand tremor = per-line VALUE NOISE, not a sine (revised after grok's attempt 2 — sines at a
+         fixed world period corrugate every stroke identically and adjacent ground lines wave in
+         step, which prints moiré ribbons on the far road):
+           vnoise1(x, key) = mix(hash2(floor(x), key), hash2(floor(x) + 1, key), smoothstep(0, 1, fract(x)))
+           wob    = mu · Σ_{k=0..2} A_k · (2 · vnoise1(along / P_k + 3·ph, key + 11·k) − 1) · vis(P_k)
+                    P = [0.9, 3.5, 14] m,  A = [0.35, 0.30, 0.30]
          lifted = any k = 0..2 with vis(G_k) > 0.5 and hash2(key, floor(along / G_k) + 40 + k) < 0.06
                   G = [1.5, 6, 24] m
        Property (unit-tested): for fixed (along, ph, mu), `wobble` is identical for every
@@ -1008,8 +1012,8 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
     4. Wider stroke CORE, tight edge (revised after grok's attempt-1 measurements: an edge
        of ± 0.35·mu on a 0.4-cell half-width left no pixel fully dark — the strokes went
        grey and the e2e ink share halved):
-         hw = mu · (0.45 + 0.25 · tone);
-         cov = 1 − smoothstep(hw − 0.25·mu, hw + 0.25·mu, |u − key − wob|)
+         hw = mu · (0.38 + 0.15 · tone);          // (0.45 + 0.25·tone made the 2-cell layer near-solid)
+         cov = 1 − smoothstep(hw − 0.22·mu, hw + 0.22·mu, |u − key − wob|)
 
     5. Sky: short HAIR strokes instead of the tangle (`hairInk(ps, density)`; `tangleInk` is
        deleted). Dome coordinates `ps` as v3 (stereographic from the nadir, in cells).
@@ -1020,18 +1024,22 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
          centre  = (c + (r_2, r_3)) · H
          radial  = |centre| < 1 ? (0, 1) : normalize(−centre)          // toward the zenith = "up" everywhere
          dir     = radial rotated by (r_4 − 0.5) · 0.6 rad             // ±17° off vertical
-         len     = H · (0.6 + 1.4 · r_5)                                // 5–16 cells
+         len     = H · (0.9 + 2.0 · r_5)                                // 7–23 cells (revised: v4.0 hairs read as fur)
          q       = ps − centre;  t = dot(q, dir);  s⊥ = dot(q, perp(dir)), perp(dir) = (−dir.y, dir.x)
          bend    = (r_6 − 0.5) · 0.25 · H · sin(π · (clamp(t / len, −0.5, 0.5) + 0.5))
          endF    = 1 − smoothstep(len / 2 − 2, len / 2, |t|)
-         cov     = (1 − smoothstep(0.2, 0.55, |s⊥ − bend|)) · endF
+         cov     = (1 − smoothstep(0.15, 0.40, |s⊥ − bend|)) · endF        // thinner than v4.0
          ink     = max over the 27 strokes
        sky colour: mix(PAPER, SKY_INK, ink · 0.85) (0.7 left no sky pixel below the e2e ink
        threshold). Expect ≈ 10–15 % stroke coverage in open sky.
 
 Everything else (class rule, nested LOD with `mu`, ±2 neighbours, colours,
 outline, depth fade) is unchanged from v3. Pure: `wobble`, `lifted`,
-`hairInk`, `skyDensity` (new values). e2e (T-0135) unchanged and green.
+`hairInk`, `skyDensity` (new values), `vnoise1`. e2e (T-0135): two
+thresholds follow the look — assertion 5 (ground horizontal vs vertical
+runs) factor 1.5 → 1.1 (the vertical count is the fixed building-base
+lattice; v4 strokes tremble, so 6-px straight runs are rarer) and the
+paper floor 0.20 → 0.15 (wider cores); everything else unchanged.
 
 **Sketch family (wave 18, user 2026-09-18: "smudged pencil would look
 great"; "both greys and colours as separate renderers"; "bonus: pastels /
