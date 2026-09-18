@@ -371,6 +371,14 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   per-pixel bilinear blend of the 3×3 means, chalk-smudge jitter from
   anchoredNoise, soft 2-cell edge ramp via a new chunk `outlineAt`.
   T-0145 boarded (grok) behind T-0144.
+- T-0144 ACCEPTED 2026-09-18 (grok-1, attempt 1, 36 min, $1.33):
+  anchoredNoise/vnoiseA/toothOf/blotchA/bloomA in strokes.ts, four styles
+  switched, local copies gone, 179 unit tests green. PM host review
+  (`pm-pastel-v2-*`, `pm-watercolor-v3-london`): pastel clouds pan with
+  the camera, grain rides the surfaces on a 1 m walk, watercolor
+  granulation intact. Grok's warning: the 20-style smoke loop is close to
+  its 120 s cap under SwiftShader (first full gate timed out once, retry
+  green) — raise the smoke timeout or split the loop if it flakes again.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
