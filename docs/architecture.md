@@ -1095,7 +1095,7 @@ scribble, `tone2 = tone · depthFade(s.dC)`):
     sky:      wash = daylight ≥ 0.5 ? mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45   // day: darker toward the zenith like a pencilled sky; night: even grey
               out = mix(PAPER_P, G, wash · g);  then hair: out = mix(out, G, hairInk(s.ps, 0.5) · 0.35)
     (the pencil `hw`/AA are parameters of `strokeLayer` after T-0139: `nestedStrokeInk(u, along, tone, mu, ma, wBase, wTone, aa)` —
-     scribble passes (0.30, 0.20, 0.35), pencil (0.45, 0.25, 0.60))
+     scribble passes (0.30, 0.20, 0.15) — its accepted v4 values, corrected 2026-09-18 after T-0139 flagged the mismatch — pencil (0.45, 0.25, 0.60))
 
 **`crayon` (T-0141) — coloured pencil (the `pencil` shader with colour).**
 Same strokes, widths and grain as `pencil`; only the colours differ:
