@@ -1000,7 +1000,7 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
          step, which prints moiré ribbons on the far road):
            vnoise1(x, key) = mix(hash2(floor(x), key), hash2(floor(x) + 1, key), smoothstep(0, 1, fract(x)))
            wob    = mu · Σ_{k=0..2} A_k · (2 · vnoise1(along / P_k + 3·ph, key + 11·k) − 1) · vis(P_k)
-                    P = [0.9, 3.5, 14] m,  A = [0.35, 0.30, 0.30]
+                    P = [0.9, 3.5, 14] m,  A = [0.60, 0.40, 0.40]   // (0.35/0.30 was sub-pixel: ruler lines)
          lifted = any k = 0..2 with vis(G_k) > 0.5 and hash2(key, floor(along / G_k) + 40 + k) < 0.06
                   G = [1.5, 6, 24] m
        Property (unit-tested): for fixed (along, ph, mu), `wobble` is identical for every
@@ -1012,8 +1012,9 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
     4. Wider stroke CORE, tight edge (revised after grok's attempt-1 measurements: an edge
        of ± 0.35·mu on a 0.4-cell half-width left no pixel fully dark — the strokes went
        grey and the e2e ink share halved):
-         hw = mu · (0.38 + 0.15 · tone);          // (0.45 + 0.25·tone made the 2-cell layer near-solid)
-         cov = 1 − smoothstep(hw − 0.22·mu, hw + 0.22·mu, |u − key − wob|)
+         hw = mu · (0.30 + 0.20 · tone);          // the v3 core after all: 0.45/0.25 made the 2-cell
+         cov = 1 − smoothstep(hw − 0.15·mu, hw + 0.15·mu, |u − key − wob|)   // layer near-solid, wider
+                                                  // edges left every core grey (PM-tuned on the host, attempt 4)
 
     5. Sky: short HAIR strokes instead of the tangle (`hairInk(ps, density)`; `tangleInk` is
        deleted). Dome coordinates `ps` as v3 (stereographic from the nadir, in cells).
@@ -1036,10 +1037,11 @@ strokes also use one depth per cell, so they jump at cell borders. v4:
 Everything else (class rule, nested LOD with `mu`, ±2 neighbours, colours,
 outline, depth fade) is unchanged from v3. Pure: `wobble`, `lifted`,
 `hairInk`, `skyDensity` (new values), `vnoise1`. e2e (T-0135): two
-thresholds follow the look — assertion 5 (ground horizontal vs vertical
-runs) factor 1.5 → 1.1 (the vertical count is the fixed building-base
-lattice; v4 strokes tremble, so 6-px straight runs are rarer) and the
-paper floor 0.20 → 0.15 (wider cores); everything else unchanged.
+thresholds follow the look — assertion 5 (ground orientation) now counts
+runs of ≥ 4 px at a "stroke" threshold of max channel < 0.55 (trembling
+antialiased lines are grey between pixel rows, so 6-px fully-dark runs
+undercount them) with factor 1.5 kept, and the paper floor 0.20 → 0.15;
+everything else unchanged.
 
 **Sketch family (wave 18, user 2026-09-18: "smudged pencil would look
 great"; "both greys and colours as separate renderers"; "bonus: pastels /
