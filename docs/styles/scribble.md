@@ -96,8 +96,8 @@ of sitting as a screen-space grid.
    `ph = hash2(key, 0)·6.2832`,
    `wob = wobble(along, ph, mu, ma)`,
    skip the line when `lifted(key, along, ma)`,
-   `hw = mu·(0.30 + 0.20·tone)` (v4 wider anti-aliasing),
-   `cov = 1 − smoothstep(hw − 0.35·mu, hw + 0.35·mu, |u − key − wob|)`,
+   `hw = mu·(0.45 + 0.25·tone)` (v4 wider stroke core),
+   `cov = 1 − smoothstep(hw − 0.25·mu, hw + 0.25·mu, |u − key − wob|)`,
    `weight = (mod(i, 2) == 1) ? (1 − f) : 1` (odd lines fade out as the LOD
    climbs; at `f → 1` they are gone and the even lines become the next
    level — no pop),
@@ -127,9 +127,9 @@ of sitting as a screen-space grid.
    `endF = 1 − smoothstep(len/2 − 2, len/2, |t|)`;
    `cov = (1 − smoothstep(0.2, 0.55, |s⊥ − bend|)) · endF`;
    `ink = max` over the 27 strokes.
-   Sky ink = `SKY_INK` at `coverage · 0.7`; sky wash = paper. Expect ≈
-   10–15 % ink in open sky. The hair sticks to the sky dome and pans with
-   the camera without reading as a wire cage.
+   Sky ink = `SKY_INK` at `coverage · 0.85`; sky wash = paper. Expect ≈
+   10–15 % stroke coverage in open sky. The hair sticks to the sky dome
+   and pans with the camera without reading as a wire cage.
 9. **Outline** (one-sided, with the one-CELL-apart samples, still screen
    space / per cell): the cell is fully inked (`ink = 1`, `surfaceOutline`)
    when `isEdge(dC, [dL, dR, dU, dD], far)` (imported from `edges.ts`, term
@@ -140,7 +140,7 @@ of sitting as a screen-space grid.
     `inkCol = mix(INK, tint·0.50, 0.85·satF)` (darker ink, v2);
     `washCol = mix(PAPER, tint, 0.14·satF·min(1, tone·1.5))` (lighter
     wash, v2); `out = mix(washCol, inkCol, ink)`; sky = `mix(PAPER,
-    SKY_INK, hair·0.7)`.
+    SKY_INK, hair·0.85)`.
 
 Lit windows and neon read as bare paper with a coloured wash (tone ≈ 0),
 which is the reference's look; the day-time window texture shows through as

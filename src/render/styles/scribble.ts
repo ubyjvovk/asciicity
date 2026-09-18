@@ -18,7 +18,8 @@
  * term for term and are unit-tested in node. v4 (T-0138) feeds per-pixel
  * depth into the wall position, puts wobble and lifts in world metres with
  * screen-size fades, soft-switches layers, widens anti-aliasing, and
- * replaces the sky tangle with short hair strokes.
+ * replaces the sky tangle with short hair strokes. Stroke core is
+ * `hw = mu·(0.45 + 0.25·tone)` with AA ±0.25·mu; sky mix is 0.85.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -266,8 +267,9 @@ export function lifted(key: number, along: number, ma: number): boolean {
  * (`i0 ± 2`): stroke width + wobble can cover more than the nearest, and
  * a faded odd line must fall back to the even neighbour or the LOD
  * transition pops. v4: wobble/lifts in world metres ({@link wobble},
- * {@link lifted}), soft layer switching, wider anti-aliasing. `mu` / `ma`
- * are metres of `u` / `along` per screen cell from {@link strokeScale}.
+ * {@link lifted}), soft layer switching, wider stroke core with a tight
+ * edge (`hw = mu·(0.45 + 0.25·tone)`, AA ±0.25·mu). `mu` / `ma` are
+ * metres of `u` / `along` per screen cell from {@link strokeScale}.
  */
 export function nestedStrokeInk(
   u: number,
@@ -285,14 +287,14 @@ export function nestedStrokeInk(
     const j = L - k;
     const S = 2 ** j;
     const i0 = Math.floor(u / S + 0.5);
-    const hw = mu * (0.3 + 0.2 * tone);
+    const hw = mu * (0.45 + 0.25 * tone);
     for (let di = -2; di <= 2; di++) {
       const i = i0 + di;
       const key = i * S;
       const ph = hash2(key, 0) * 6.2832;
       if (lifted(key, along, ma)) continue;
       const wob = wobble(along, ph, mu, ma);
-      const cov = 1 - smoothstep(hw - 0.35 * mu, hw + 0.35 * mu, Math.abs(u - key - wob));
+      const cov = 1 - smoothstep(hw - 0.25 * mu, hw + 0.25 * mu, Math.abs(u - key - wob));
       const weight = mod(i, 2) === 1 ? 1 - f : 1;
       ink = Math.max(ink, cov * weight * layerW);
     }
@@ -513,7 +515,7 @@ bool lifted(float key, float along, float ma) {
 float strokeLayer(float u, float along, float tone, float mu, float ma, float j, float f) {
   float S = exp2(j);
   float i0 = floor(u / S + 0.5);
-  float hw = mu * (0.30 + 0.20 * tone);
+  float hw = mu * (0.45 + 0.25 * tone);
   float ink = 0.0;
   for (int di = -2; di <= 2; di++) {
     float i = i0 + float(di);
@@ -521,7 +523,7 @@ float strokeLayer(float u, float along, float tone, float mu, float ma, float j,
     float ph = hash2(key, 0.0) * 6.2832;
     if (!lifted(key, along, ma)) {
       float wob = wobble(along, ph, mu, ma);
-      float cov = 1.0 - smoothstep(hw - 0.35 * mu, hw + 0.35 * mu, abs(u - key - wob));
+      float cov = 1.0 - smoothstep(hw - 0.25 * mu, hw + 0.25 * mu, abs(u - key - wob));
       float weight = (mod(abs(i), 2.0) > 0.5) ? (1.0 - f) : 1.0;
       ink = max(ink, cov * weight);
     }
@@ -623,7 +625,7 @@ void main() {
     float K = sceneSize.y / (2.0 * atan(tanHalfFov));
     vec2 ps = K * vec2(dirW.x, dirW.z) / (1.0 + dirW.y);
     float hair = hairInk(ps, density);
-    gl_FragColor = vec4(mix(PAPER, SKY_INK, hair * 0.7), 1.0);
+    gl_FragColor = vec4(mix(PAPER, SKY_INK, hair * 0.85), 1.0);
     return;
   }
 
