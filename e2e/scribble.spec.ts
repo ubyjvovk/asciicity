@@ -25,7 +25,7 @@
  *   5. ground strokes are horizontal — over the bottom 20 % of rows, the
  *      horizontal-run count exceeds the vertical-run count by a factor
  *      ≥ 1.5;
- *   6. sky tangle — (URL A, aimed north / pitch 0.9) the top 30 % of rows
+ *   6. sky tangle — (URL A, aimed north / pitch 1.1) the top 30 % of rows
  *      are ≥ 0.55 paper and hold ≥ 0.01 ink; (URL B, aimed) the ink
  *      fraction of the top 30 % is greater than URL A's (night tangle is
  *      denser);
@@ -359,7 +359,7 @@ test('scribble: paper, ink, coloured ink, stroke orientation, sky, no full-width
   // 7. No full-width inked row below the horizon.
   expect(unAimed.worstRowFrac).toBeLessThan(0.98);
 
-  await aim(page, 0, 0.9); // face north, tilted up, for the sky assertions
+  await aim(page, 0, 1.1); // face north, tilted up, for the sky assertions
   const aimed = await scribblePixelStats(page);
   noonAimedSkyInk = aimed.skyInk;
   console.log(
@@ -379,7 +379,7 @@ test('scribble: night sky tangle is denser than noon', async ({ page }) => {
   await waitReady(page);
   await doubleRaf(page);
   await doubleRaf(page);
-  await aim(page, 0, 0.9); // same aim as the noon sky sample
+  await aim(page, 0, 1.1); // same aim as the noon sky sample
 
   const aimed = await scribblePixelStats(page);
   console.log(
