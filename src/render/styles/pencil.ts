@@ -14,12 +14,11 @@
  * `Surf s = surfaceAt(vUv);`, then `tone` as scribble and
  * `tone2 = tone · depthFade(s.dC)` (the common block's `tint`/`satF` are
  * unused — pencil is graphite, the one ink of the style, and GLSL ES 1.0
- * has no `void` expression to keep them). The paper grain `g` (screen
- * space — the paper does not move with the world) is defined in this
- * fragment; `vnoise`/`blotch` are not needed for `pencil` (only its
- * coloured siblings use washes) and are not defined here. `daylight` is
- * the only style uniform, seeded in `makeUniforms` and refreshed in
- * `update`; prelude uniforms are never redeclared.
+ * has no `void` expression to keep them). The paper grain is the
+ * chunk's world/dome-anchored `toothOf(s)` (§4.11 "anchored tooth");
+ * colour formulas are unchanged. `daylight` is the only style uniform,
+ * seeded in `makeUniforms` and refreshed in `update`; prelude uniforms
+ * are never redeclared.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -65,9 +64,9 @@ export function crossCoords(
  * §4.11 wave-18 "pencil" fragment (the half after the shared `STROKE_GLSL`
  * chunk, docs/styles/strokes.md). The scene sample is per cell
  * (`cell = floor(vUv · grid)`); everything about the surface comes from
- * `Surf s = surfaceAt(vUv)`. The paper grain
- * `g = 0.80 + 0.40·hash2(floor(p.x/2), floor(p.y/2))` is SCREEN space —
- * the paper is the screen and does not move with the world. Sky cells
+ * `Surf s = surfaceAt(vUv)`. The paper grain `g = toothOf(s)` is the
+ * chunk's world-anchored (surfaces) / dome-anchored (sky) tooth
+ * (§4.11 "anchored tooth"). Sky cells
  * paint `mix(PAPER_P, G, wash·g)` with `wash = daylight ≥ 0.5 ?
  * mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45` plus
  * `hairInk(s.ps, 0.5)·0.35` hair. Surface cells paint
@@ -99,9 +98,9 @@ void main() {
 
   float tone2 = tone * depthFade(s.dC);
 
-  // Paper grain: the paper is the SCREEN — it does not move with the
-  // world. Per 2×2-px tooth, in [0.80, 1.20].
-  float g = 0.80 + 0.40 * hash2(floor(p.x / 2.0), floor(p.y / 2.0));
+  // Paper grain: world-anchored on surfaces, dome-anchored on sky,
+  // ≈ 2 px (§4.11 "anchored tooth").
+  float g = toothOf(s);
 
   // Sky: pencilled sky — darker toward the zenith by day, an even grey
   // by night, with sparse hair strokes.
@@ -145,7 +144,7 @@ void main() {
 
 /**
  * Graphite pencil sketch on warm paper — smudged tone wash modulated by
- * the screen-space paper tooth, world-anchored nested-LOD strokes with
+ * the world/dome-anchored paper tooth, world-anchored nested-LOD strokes with
  * wider softer pencil widths, a 45° cross-hatch family in the shade,
  * soft graphite outlines and a zenith-darkened (day) / even grey (night)
  * pencilled sky with sparse hair. Cell 3×3, sub 1×1, depth.

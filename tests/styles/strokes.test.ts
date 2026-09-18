@@ -5,11 +5,15 @@
  * v4 T-0138): the view-space position/normal machinery, far-depth fade,
  * world-anchored nested-LOD strokes (screen-gradient scale, world-metre
  * value-noise wobble/lifts), stereographic sky-dome coordinates, hair
- * coverage, and the v3 precision-safe hash.
+ * coverage, the v3 precision-safe hash, and the wave-18b anchored tooth
+ * (`anchoredNoise`, `vnoiseA`, `toothOf`, `blotchA`, `bloomA`).
  * Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
+  anchoredNoise,
+  blotchA,
+  bloomA,
   depthFade,
   hairDir,
   hairInk,
@@ -20,9 +24,11 @@ import {
   skyCoords,
   strokeCoords,
   strokeScale,
+  toothOf,
   viewNormal,
   viewPos,
   vnoise1,
+  vnoiseA,
   wobble,
 } from '../../src/render/styles/strokes';
 
@@ -378,6 +384,102 @@ describe('hairInk', () => {
       const d = dir[0] * nx + dir[1] * ny;
       expect(d, `dot at ps=[${x}, ${y}] dir=[${dir[0]}, ${dir[1]}]`).toBeGreaterThan(0.8);
       n++;
+    }
+  });
+});
+
+describe('anchoredNoise', () => {
+  it('no-pop across a power-of-two boundary', () => {
+    // 200 seeded (x, y); at mx = my = 2^j · (1 ∓ 1e−4) for j ∈ {−4, −2}
+    // the two LOD levels mix so |Δ| < 0.05 (cells = 1 so 2^j is the
+    // exact log2 boundary).
+    const rng = mulberry32(144);
+    for (let n = 0; n < 200; n++) {
+      const x = rng() * 8;
+      const y = rng() * 8;
+      for (const j of [-4, -2]) {
+        const mLo = 2 ** j * (1 - 1e-4);
+        const mHi = 2 ** j * (1 + 1e-4);
+        const a = anchoredNoise(x, y, mLo, mLo, 1, 1);
+        const b = anchoredNoise(x, y, mHi, mHi, 1, 1);
+        expect(
+          Math.abs(a - b),
+          `no pop at (${x}, ${y}) j=${j}: ${a} vs ${b}`,
+        ).toBeLessThan(0.05);
+      }
+    }
+  });
+
+  it('mean 0.5 ± 0.1 at three scales', () => {
+    const pts = grid64(1);
+    for (const m of [0.01, 0.05, 0.3]) {
+      const avg = mean(pts, (x, y) => anchoredNoise(x, y, m, m, 1, 1));
+      expect(avg, `mean at mx=my=${m} is ${avg}`).toBeGreaterThanOrEqual(0.4);
+      expect(avg, `mean at mx=my=${m} is ${avg}`).toBeLessThanOrEqual(0.6);
+    }
+  });
+});
+
+describe('vnoiseA', () => {
+  it('vnoiseA continuity', () => {
+    // |Δ| < 0.02 for a 1e−3-cell step (cell = cells · mx world units).
+    const rng = mulberry32(1441);
+    for (let n = 0; n < 200; n++) {
+      const x = rng() * 40 - 10;
+      const y = rng() * 40 - 10;
+      const mx = 0.01 + rng() * 0.4;
+      const my = 0.01 + rng() * 0.4;
+      const cells = 0.5 + rng() * 20;
+      const key = 1 + Math.floor(rng() * 5);
+      const step = 1e-3 * cells * mx;
+      expect(
+        Math.abs(vnoiseA(x + step, y, mx, my, cells, key) - vnoiseA(x, y, mx, my, cells, key)),
+      ).toBeLessThan(0.02);
+    }
+  });
+});
+
+describe('toothOf', () => {
+  it('toothOf in [0.8, 1.2]', () => {
+    const rng = mulberry32(1442);
+    for (let n = 0; n < 200; n++) {
+      const u = rng() * 80 - 20;
+      const along = rng() * 80 - 20;
+      const mu = 0.01 + rng() * 0.4;
+      const ma = 0.01 + rng() * 0.4;
+      const g = toothOf(u, along, mu, ma);
+      expect(g, `toothOf(${u}, ${along}, ${mu}, ${ma})`).toBeGreaterThanOrEqual(0.8);
+      expect(g, `toothOf(${u}, ${along}, ${mu}, ${ma})`).toBeLessThanOrEqual(1.2);
+    }
+  });
+});
+
+describe('blotchA', () => {
+  it('blotchA in [0, 1]', () => {
+    const rng = mulberry32(1443);
+    for (let n = 0; n < 200; n++) {
+      const u = rng() * 80 - 20;
+      const along = rng() * 80 - 20;
+      const mu = 0.01 + rng() * 0.4;
+      const ma = 0.01 + rng() * 0.4;
+      const b = blotchA(u, along, mu, ma);
+      expect(b, `blotchA(${u}, ${along}, ${mu}, ${ma})`).toBeGreaterThanOrEqual(0);
+      expect(b, `blotchA(${u}, ${along}, ${mu}, ${ma})`).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('bloomA', () => {
+  it('bloomA in [0, 1]', () => {
+    const rng = mulberry32(1444);
+    for (let n = 0; n < 200; n++) {
+      const u = rng() * 80 - 20;
+      const along = rng() * 80 - 20;
+      const mu = 0.01 + rng() * 0.4;
+      const ma = 0.01 + rng() * 0.4;
+      const b = bloomA(u, along, mu, ma);
+      expect(b, `bloomA(${u}, ${along}, ${mu}, ${ma})`).toBeGreaterThanOrEqual(0);
+      expect(b, `bloomA(${u}, ${along}, ${mu}, ${ma})`).toBeLessThanOrEqual(1);
     }
   });
 });

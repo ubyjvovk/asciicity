@@ -6,8 +6,8 @@ Cell **3×3**, sub **1×1**, depth texture (`needsDepth: true`),
 **coloured pencil — the `pencil` shader with colour**. The graphite
 pencil strokes (soft, wide, world-anchored) carry tone by *density* and
 take the hue of the object under them; the paper takes a per-tone
-coloured wash under a screen-space grain; the sky is a faint blue wash
-by day and a faint violet at night, with pencil hair strokes.
+coloured wash under the world/dome-anchored tooth; the sky is a faint
+blue wash by day and a faint violet at night, with pencil hair strokes.
 
 **The stroke machinery is shared** — the GLSL helpers (`hash2`,
 `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `wobble`,
@@ -28,11 +28,12 @@ per-pixel depth `dPix`, the world position `W`, the stroke coordinates
 and scale, the one-sided outline — is computed once per pixel by the
 shared chunk's `Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`).
 
-1. `p = vUv · grid`; **paper grain** `g = 0.80 + 0.40 · hash2(floor(p.x
-   / 2), floor(p.y / 2))` — per 2×2-px tooth, in **screen space** (the
-   paper is the screen; it does not move with the world).
-2. `Surf s = surfaceAt(vUv)` — taps, sky test, class, `dPix`, `W`/`nW`,
-   stroke coordinates + scale, one-sided outline.
+1. `p = vUv · grid`; `Surf s = surfaceAt(vUv)` — taps, sky test, class,
+   `dPix`, `W`/`nW`, stroke coordinates + scale, one-sided outline.
+2. **Paper grain** `g = toothOf(s)` from the shared chunk
+   (`docs/styles/strokes.md`, §4.11 "anchored tooth"): world-anchored on
+   surfaces, dome-anchored on sky, ≈ 2 px, in `[0.80, 1.20]`. Colour
+   formulas are unchanged; only the noise source moved.
 3. `c = sampleSub(cell, 0, 0)`; `v = shaped(bright(c))`;
    `tone = 1 − v`; `tint = tintOf(c)`; `sat = max(tint) − min(tint)`;
    `satF = smoothstep(0.10, 0.45, sat)` — exactly as scribble.
@@ -79,10 +80,8 @@ shade reads as dense coloured strokes and cross-hatch.
   (`0.45, 0.25, 0.60`), the 45° cross-hatch rotation in stroke space and
   the `0.65 + 0.30·tone2` darkening are exactly the `pencil` spec; only
   `strokeCol`, `wash`, `base` and the sky colours carry the hue.
-- **Grain only** — the wave-18 common block also defines
-  `vnoise`/`blotch` (screen-space value-noise wash), but crayon uses
-  neither; only the 2×2-px `hash2` tooth enters, and it is
-  screen-anchored, so the paper never scrolls with the world.
+- **Grain only** — crayon uses the chunk's `toothOf(s)`, not
+  `blotchA`/`vnoiseA`. The tooth rides the surfaces and the sky dome.
 - **Cross-hatch gate** — the secondary family is evaluated only when
   `tone2 > 0.45` (the `smoothstep(0.45, 0.6, tone2)` soft gate then fades
   it in, so there is no pop at the threshold).
@@ -130,9 +129,9 @@ them and never redeclares them. No textures are created, so there is no
 
 ## What the shader does per pixel
 
-1. `p = vUv · grid`; the screen-space paper grain `g`;
-   `Surf s = surfaceAt(vUv)` (taps, class, `dPix`, `W`, stroke
-   coordinates/scale, outline).
+1. `p = vUv · grid`; `Surf s = surfaceAt(vUv)` (taps, class, `dPix`,
+   `W`, stroke coordinates/scale, outline); world/dome-anchored paper
+   grain `g = toothOf(s)`.
 2. Sample, `tone`, `tint`, `satF` (per cell).
 3. Sky cells paint the faint blue/violet wash with pencil hair (step 4).
 4. Surface cells: depth-fade `tone2`, pencil strokes + 45° cross-hatch

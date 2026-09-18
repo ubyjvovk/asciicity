@@ -2,20 +2,16 @@
  * Unit tests for the pure parts of the `watercolor` render style
  * (docs/architecture.md §4.11, wave 18 "sketch family", "watercolor",
  * v2 formula): the transparent pigment, the wash density / mix strength,
- * the backruns bloom, the 2-D value noise and the granulation blotches,
- * and the full surface wash colour. The world-anchored surface machinery
- * (sky test, outline) is the shared `strokes.ts` chunk — its tests live
- * in `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
+ * and the full surface wash colour.
+ * Granulation (`blotchA` / `bloomA` / `vnoiseA`) lives in the shared
+ * `strokes.ts` chunk — its tests live in `tests/styles/strokes.test.ts`.
+ * Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
-import { hash2 } from '../../src/render/styles/strokes';
 import {
   GREY_WASH,
   PAPER_W,
-  bloom,
-  blotch,
   pigmentOf,
-  vnoise,
   watercolorWash,
   washDensity,
   washStrength,
@@ -92,75 +88,6 @@ describe('washDensity', () => {
     }
     // dens(1) = 0.8, gran 1.3, satF 1 → 0.8·1.3 = 1.04 → clamped 0.9.
     expect(washStrength(1, 1, 1.3)).toBeCloseTo(0.9, 6);
-  });
-});
-
-describe('vnoise', () => {
-  it('in [0, 1] at 3 points and equal to the hash2 corner at lattice points', () => {
-    // On the integer lattice the smoothstep fade is 0/1, so vnoise is
-    // exactly the corner hash2 value.
-    expect(vnoise(0, 0)).toBeCloseTo(hash2(0, 0), 6);
-    expect(vnoise(7, -3)).toBeCloseTo(hash2(7, -3), 6);
-    // Bilinear blend of corner values in [0, 1] stays in [0, 1].
-    for (const [x, y] of [
-      [1.5, 2.5],
-      [12.25, 0.75],
-      [-2.5, 9.5],
-    ] as const) {
-      const n = vnoise(x, y);
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(n).toBeLessThanOrEqual(1);
-    }
-  });
-});
-
-describe('blotch', () => {
-  it('in [0, 1] at 3 points: 0.5·vnoise(q/6) + 0.5·vnoise(q/17)', () => {
-    // Both octaves sit on hash2 corners at the origin, so
-    // blotch(0, 0) = the corner value itself (each octave = hash2(0, 0)).
-    expect(blotch(0, 0)).toBeCloseTo(hash2(0, 0), 6);
-    for (const [x, y] of [
-      [6.5, 17.5],
-      [31.3, 5.7],
-      [1.1, 99.9],
-    ] as const) {
-      const b = blotch(x, y);
-      expect(b).toBeCloseTo(0.5 * vnoise(x / 6, y / 6) + 0.5 * vnoise(x / 17, y / 17), 6);
-      // 0.5·v1 + 0.5·v2 with v1, v2 in [0, 1] sits in [0, 1]; the
-      // spec's gran = 0.70 + 0.60·blotch sits in [0.70, 1.30].
-      expect(b).toBeGreaterThanOrEqual(0);
-      expect(b).toBeLessThanOrEqual(1);
-    }
-  });
-});
-
-describe('bloom', () => {
-  it('formula at 3 points: 0.25·smoothstep(0.60, 0.90, vnoise(q/40)), in [0, 0.25]', () => {
-    // smoothstep reference (mirrors the fragment / TS smoothstep).
-    const smooth = (e0: number, e1: number, x: number): number => {
-      const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
-      return t * t * (3 - 2 * t);
-    };
-    for (const [x, y] of [
-      [12.5, 37.25],
-      [81.7, 4.1],
-      [0.3, 143.9],
-    ] as const) {
-      const b = bloom(x, y);
-      expect(b).toBeCloseTo(0.25 * smooth(0.6, 0.9, vnoise(x / 40, y / 40)), 6);
-      expect(b).toBeGreaterThanOrEqual(0);
-      expect(b).toBeLessThanOrEqual(0.25);
-    }
-    // Off the smoothstep window the factor is exactly 0.
-    for (const [x, y] of [
-      [40, 40], // vnoise(1,1) = hash2(1,1): below 0.60 or above 0.90
-      [80, 0], // vnoise(2,0) = hash2(2,0)
-    ] as const) {
-      const n = vnoise(x / 40, y / 40);
-      if (n <= 0.6 || n >= 0.9) {
-        expect(bloom(x, y)).toBeCloseTo(0, 6);
-      }
-    }
   });
 });
 

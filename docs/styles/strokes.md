@@ -40,8 +40,14 @@ What the chunk provides:
   cells long, thinner than the surface core).
 - `skyCoords(dirW, K)` — stereographic-from-nadir dome coordinates in
   cells: `K·(dirW.x, dirW.z) / (1 + dirW.y)`.
+- `anchoredNoise(x, y, mx, my, cells, key)` / `vnoiseA(...)` — world-
+  (surfaces) / dome- (sky) anchored grain, blended across two
+  power-of-two LODs. See **Anchored tooth** below.
 - The `Surf` struct and `Surf surfaceAt(vec2 uv)` — everything a sketch
   `main()` computed before colouring.
+- `toothOf(s)` / `blotchA(s)` / `bloomA(s)` — paper tooth, granulation
+  blotches and backruns/cloud gaps; GLSL takes a `Surf` (sky branch
+  uses `s.ps` with `mx = my = 1`).
 
 ## `Surf` and `surfaceAt`
 
@@ -77,13 +83,49 @@ float ink = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25, 0.60);
 if (s.outline) ink = 1.0;
 ```
 
+## Anchored tooth (wave 18b, T-0144)
+
+The paper grain and blotch noise of the sketch family (`pencil`,
+`crayon`, `pastel`, `watercolor`) are world-anchored on surfaces
+(`s.u`, `s.along` with scale `s.mu`, `s.ma`) and dome-anchored on sky
+(`s.ps` with scale 1), at a constant on-screen size via a blended
+power-of-two LOD — no screen-space shower-door, no pop. Colour formulas
+do not change; only the noise sources.
+
+- **`anchoredNoise(x, y, mx, my, cells, key)`** — hash grain of `cells`
+  on-screen cells, in world units:
+  `lx = log2(cells · mx)`, `Lx = floor(lx)`, `fx = fract(lx)` (same for
+  `y`); `n(L) = hash2(floor(x / 2^Lx) + 7·key, floor(y / 2^Ly) + 13·key)`;
+  result `mix(n(Lx, Ly), n(Lx+1, Ly+1), max(fx, fy))` in `[0, 1]`. Sky
+  pass uses `mx = my = 1` (`ps` is already in cells).
+- **`vnoiseA(x, y, mx, my, cells, key)`** — bilinear value noise on the
+  same lattice (corner hashes of `n(L)` at the four floor/ceil corners
+  of the level-`Lx`/`Ly` cell, smoothstep weights, blended across the
+  two levels like `anchoredNoise`).
+- **`toothOf`** — `g = 0.80 + 0.40 · anchoredNoise(u, along, mu, ma,
+  0.67, 1)` (≈ 2 px tooth, in `[0.80, 1.20]`). GLSL takes a `Surf`;
+  sky uses `s.ps` with scale 1. TS mirror: `toothOf(u, along, mu, ma)`.
+- **`blotchA`** — `0.5 · vnoiseA(..., 6, 2) + 0.5 · vnoiseA(..., 17, 3)`.
+  GLSL takes a `Surf`; sky uses `s.ps` with scale 1. TS:
+  `blotchA(u, along, mu, ma)`.
+- **`bloomA`** — surface `smoothstep(0.60, 0.90, vnoiseA(..., 40, 4))`;
+  sky clouds `smoothstep(0.55, 0.80, vnoiseA(ps.x, ps.y, 1, 1, 30, 5))`.
+  GLSL takes a `Surf`. TS: `bloomA(u, along, mu, ma)` (surface form).
+
+Styles: `pencil` / `crayon` use `g = toothOf(s)` on surface and sky;
+`pastel` uses `toothOf(s)` and sky streaks `blotchA(s)`; `watercolor`
+uses `gran = 0.70 + 0.60·blotchA(s)`, surface bloom `0.25·bloomA(s)`,
+sky cloud gaps `0.6·bloomA(s)`.
+
 ## Pure TS mirrors (unit-tested in node)
 
 `UP_K`, `SCRIBBLE_LAYERS`, `hash2`, `viewPos`, `viewNormal`,
 `strokeCoords`, `strokeScale`, `lodOf`, `vnoise1`, `wobble`, `lifted`,
 `nestedStrokeInk` (same eight arguments as the GLSL), `skyCoords`,
-`hairInk`, `hairDir` — each mirrors the shader term for term;
-`tests/styles/strokes.test.ts` covers them. `scribble.ts` keeps its own
-colours (`PAPER`, `INK`, `SKY_INK`), `skyDensity`, `surfaceClass`,
-`surfaceOutline`, `inkColour`, `washColour` and its fragment `main()` —
-see `docs/styles/scribble.md`.
+`hairInk`, `hairDir`, `anchoredNoise`, `vnoiseA`, `toothOf(u, along,
+mu, ma)`, `blotchA(u, along, mu, ma)`, `bloomA(u, along, mu, ma)` —
+each mirrors the shader term for term; `tests/styles/strokes.test.ts`
+covers them. `scribble.ts` keeps its own colours (`PAPER`, `INK`,
+`SKY_INK`), `skyDensity`, `surfaceClass`, `surfaceOutline`,
+`inkColour`, `washColour` and its fragment `main()` — see
+`docs/styles/scribble.md`.

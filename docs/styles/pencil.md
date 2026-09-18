@@ -31,14 +31,11 @@ outline — is computed once per pixel by the shared chunk's
 `Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`), and
 `tone2 = tone · depthFade(s.dC)` as in the common block.
 
-**Paper grain (screen space).** The paper is the SCREEN — it does not
-move with the world. Per 2×2-px tooth:
-
-    g = 0.80 + 0.40 · hash2(floor(p.x / 2), floor(p.y / 2))      // p = vUv · grid, g ∈ [0.80, 1.20]
-
-(`vnoise`/`blotch` from the family's common block are not needed for
-`pencil` — only its coloured siblings use washes — and are not defined
-in this fragment.)
+**Paper grain (anchored tooth).** `g = toothOf(s)` from the shared
+chunk (`docs/styles/strokes.md`, §4.11 "anchored tooth"): world-anchored
+on surfaces (`s.u`, `s.along`, `s.mu`, `s.ma`) and dome-anchored on sky
+(`s.ps`, scale 1), ≈ 2 px, in `[0.80, 1.20]`. Colour formulas are
+unchanged; only the noise source moved.
 
 **Sky** (`s.cls == 0`):
 
@@ -110,15 +107,15 @@ redeclares them. No textures are created, so there is no `dispose`.
 1. `p = vUv · grid`, `cell = floor(p)`; sample, tone, tint.
 2. `Surf s = surfaceAt(vUv)` — clamped depth taps one cell apart;
    classify sky / ground / wall; `tone2 = tone · depthFade(s.dC)`;
-   screen-space paper grain `g`.
+   world/dome-anchored paper grain `g = toothOf(s)`.
 3. Sky cells paint the pencilled sky (`wash·g` toward graphite, zenith-
    darkened by day, even grey by night) plus sparse hair; return.
 4. Surface cells paint the smudged wash `base`, the wider softer
    world-anchored strokes with the 45° cross-hatch family in the shade,
    and the soft graphite outline; write `mix(base, G, ink)`.
 
-Because the wash and every stroke family are anchored in world metres
-with the shared nested LOD, and the tooth `g` modulates everything in
-screen space, the result reads as a graphite sketch: tone carried by a
-smudge and by stroke density, cross-hatched in the shade, on paper that
-stays still while the city walks past.
+Because the wash, the tooth and every stroke family are anchored in
+world metres (sky: the dome) with the shared nested LOD, the result
+reads as a graphite sketch: tone carried by a smudge and by stroke
+density, cross-hatched in the shade, on paper whose grain rides the
+surfaces and the sky rather than sitting as a screen-space mask.

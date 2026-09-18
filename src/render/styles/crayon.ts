@@ -12,10 +12,10 @@
  *
  * The world-anchored stroke machinery is the shared chunk `./strokes.ts`:
  * `fragment: STROKE_GLSL + CRAYON_FRAGMENT`, and `main()` starts with
- * `Surf s = surfaceAt(vUv);`. The paper grain
- * `g = 0.80 + 0.40·hash2(floor(p/2), …)` (screen space, per 2×2-px tooth,
- * the paper is the screen — it does not move with the world) is the only
- * new term; `blotch` is not used by crayon. `pencil` strokes per spec:
+ * `Surf s = surfaceAt(vUv);`. The paper grain `g = toothOf(s)` is the
+ * chunk's world-anchored (surfaces) / dome-anchored (sky) tooth
+ * (§4.11 "anchored tooth"); colour formulas are unchanged. `pencil`
+ * strokes per spec:
  * primary `nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25,
  * 0.60)`, secondary the same family rotated 45° in stroke space
  * (`u2 = (u + along)/√2`, `along2 = (along − u)/√2`, `mu2 = ma2 =
@@ -93,13 +93,13 @@ const vec3 G = vec3(0.22, 0.22, 0.25);
 void main() {
   vec2 p = vUv * grid;
 
-  // Paper grain: the paper is the SCREEN — it does not move with the
-  // world. Per 2×2-px tooth, in cells.
-  float g = 0.80 + 0.40 * hash2(floor(p.x / 2.0), floor(p.y / 2.0));
-
   // Everything before colouring: clamped taps, sky test, class, dPix,
   // W / nW, stroke coordinates + scale, one-sided outline.
   Surf s = surfaceAt(vUv);
+
+  // Paper grain: world-anchored on surfaces, dome-anchored on sky,
+  // ≈ 2 px (§4.11 "anchored tooth").
+  float g = toothOf(s);
 
   vec2 cell = floor(p);
   vec3 c = sampleSub(cell, 0.0, 0.0);
@@ -158,7 +158,7 @@ void main() {
 /**
  * Coloured pencil — the pencil's graphite strokes and cross-hatch in
  * each object's own hue, paper that takes a per-tone coloured wash under
- * a 2×2-px screen-space grain, soft blue day sky / violet night sky with
+ * the world/dome-anchored tooth, soft blue day sky / violet night sky with
  * pencil hair, one-sided graphite outlines. Cell 3×3, sub 1×1, depth. `R`
  * cycles, `?render=crayon`.
  */
