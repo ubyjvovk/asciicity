@@ -1247,6 +1247,51 @@ Pure: `groundTone(tone2)` = tone2 · 0.55, `crossGate(tone2)` = smoothstep(0.55,
 (in pencil.ts; crayon imports them). Unit: `groundTone(1)` → 0.55;
 `crossGate(0.5)` → 0, `crossGate(0.7)` → 1, monotone.
 
+**Pencil / crayon v2 — "quick drawing" (wave 18c, T-0147; user
+2026-09-19: "sky is like a dome covered with hairs, every horizontal
+surface has these lines which cover even buses — both can just be
+removed; a good sketch has a lot of white space, contrasting edges, soft
+shading here and there, not the uniform thatch; one area has a single
+stroke direction").** Rules, `pencil` and `crayon` alike (crayon keeps
+its colour lines; the stroke/shading logic below is byte-identical):
+
+    1. SKY = paper.  No hair, no wash: out = PAPER_P (crayon: PAPER_P too — the blue
+       pencil sky is gone; the paper is the sky).
+    2. HORIZONTAL SURFACES (s.cls == 1: ground, roofs, bus tops) = paper + smudge only.
+       No strokes at all.  smudge = 0.30 · g · smoothstep(0.55, 0.95, toneS)     // shadow pools only
+       out = mix(PAPER_P, G, smudge)
+    3. SMOOTHED TONE.  toneS = 1 − shaped(bright(mean of sampleSub over the 3×3 cell
+       neighbourhood)) · depthFade(dC)  — the window-grid noise is averaged away; the
+       per-cell tone is used nowhere else.
+    4. WALLS = white + smudge + hatch only in the dark.
+         wash  = 0.35 · g · smoothstep(0.20, 0.90, toneS)                      // soft shading
+         hatch = nestedStrokeInk(u1, along1, toneS, mu, ma, 0.45, 0.25, 0.60)
+                 · smoothstep(0.50, 0.75, toneS)                                // strokes only where dark
+                 · (1 − smoothstep(150, 400, dC))                               // far walls: outline only
+         ONE direction per facade: sel = hash2(floor(nW.x·4) + floor(nW.z·4)·9, floor((W.x + W.z) / 40))
+           sel < 0.5 → vertical family (u1, along1) = (s.u, s.along)
+           else      → 45° family     (u1, along1) = crossCoords(s.u, s.along) with mu, ma → (mu+ma)/2
+         no second family anywhere (cross-hatch deleted)
+         ink = hatch · (0.60 + 0.30 · toneS)
+         out = mix(mix(PAPER_P, G, wash), G, ink)
+    5. CONTRASTING EDGES.  e = max of outlineAt over the cell and its 4 neighbours (2-cell
+       line); silhouette against sky (any neighbour is sky) → strength 1.0, crease → 0.7:
+         out = mix(out, G, strength · e)
+       Ground cells also draw their outline (building bases, kerbs) — outlines are the one
+       thing horizontal surfaces keep.
+    6. Everything else (grain `g` = toothOf(s), depthFade, colours for crayon: strokeCol,
+       wash colour `mix(G, tint, satF)`, outline G) unchanged.
+
+Expected frame: mostly white paper; buildings as dark contour drawings
+with soft grey shading and hatching in the shadowed facades, one stroke
+direction per facade; roads and roofs blank with a little shadow pooling
+at building feet; a blank sky. Pure (pencil.ts): `smudgeOf(toneS, g)`,
+`wallWash(toneS, g)`, `hatchGate(toneS, dC)`, `facadeDir(nW, W): 0 | 1`.
+`groundTone`/`crossGate` of T-0146 are deleted (superseded). Unit:
+`smudgeOf(0.5, 1)` → 0; `smudgeOf(1, 1)` → 0.30; `hatchGate(1, 0)` → 1,
+`hatchGate(1, 400)` → 0, `hatchGate(0.5, 0)` → 0; `facadeDir` is
+deterministic and takes both values over 100 random inputs.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
