@@ -1,21 +1,21 @@
 /**
  * Unit tests for the pure parts of the `pencil` render style
- * (docs/architecture.md §4.11, wave 18 "sketch family"): the smudged
- * tone wash, the 45° cross-hatch stroke-space rotation, and the
- * ground-tune mirrors `groundTone` / `crossGate`. The shared
- * stroke machinery (hash, viewPos/viewNormal, depthFade, stroke
- * coordinates/scale/LOD, wobble/lifts, nestedStrokeInk, sky coordinates,
- * hair) is unit-tested in `tests/styles/strokes.test.ts`. Runs in node;
- * no WebGL is touched.
+ * (docs/architecture.md §4.11, wave 18c "Pencil / crayon v2"): the
+ * smudge / wall-wash / hatch-gate / facade-direction mirrors, plus the
+ * kept `pencilWash` and `crossCoords`. The shared stroke machinery is
+ * unit-tested in `tests/styles/strokes.test.ts`. Runs in node; no
+ * WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
   G,
   PAPER_P,
   crossCoords,
-  crossGate,
-  groundTone,
+  facadeDir,
+  hatchGate,
   pencilWash,
+  smudgeOf,
+  wallWash,
 } from '../../src/render/styles/pencil';
 
 describe('pencilWash', () => {
@@ -46,25 +46,54 @@ describe('pencilWash', () => {
   });
 });
 
-describe('groundTone', () => {
-  it('groundTone(1) → 0.55', () => {
-    expect(groundTone(1)).toBeCloseTo(0.55, 6);
+describe('smudgeOf', () => {
+  it('smudgeOf(0.5, 1) → 0', () => {
+    expect(smudgeOf(0.5, 1)).toBe(0);
+  });
+
+  it('smudgeOf(1, 1) → 0.30', () => {
+    expect(smudgeOf(1, 1)).toBeCloseTo(0.3, 6);
   });
 });
 
-describe('crossGate', () => {
-  it('0 at 0.5, 1 at 0.7, monotone', () => {
-    expect(crossGate(0.5)).toBe(0);
-    expect(crossGate(0.7)).toBe(1);
-    const a = crossGate(0.55);
-    const b = crossGate(0.6);
-    const c = crossGate(0.65);
-    const d = crossGate(0.7);
-    expect(a).toBe(0);
-    expect(b).toBeGreaterThan(a);
-    expect(c).toBeGreaterThan(b);
-    expect(d).toBeGreaterThan(c);
-    expect(d).toBe(1);
+describe('wallWash', () => {
+  it('0 at toneS 0.20, 0.35 at toneS 0.90 with g = 1', () => {
+    expect(wallWash(0.2, 1)).toBe(0);
+    expect(wallWash(0.9, 1)).toBeCloseTo(0.35, 6);
+  });
+});
+
+describe('hatchGate', () => {
+  it('hatchGate(1, 0) → 1', () => {
+    expect(hatchGate(1, 0)).toBe(1);
+  });
+
+  it('hatchGate(1, 400) → 0', () => {
+    expect(hatchGate(1, 400)).toBe(0);
+  });
+
+  it('hatchGate(0.5, 0) → 0', () => {
+    expect(hatchGate(0.5, 0)).toBe(0);
+  });
+});
+
+describe('facadeDir', () => {
+  it('facadeDir is deterministic and takes both values over 100 random inputs', () => {
+    const seen = new Set<0 | 1>();
+    for (let i = 0; i < 100; i++) {
+      const nW: readonly [number, number, number] = [
+        Math.sin(i * 0.37),
+        0,
+        Math.cos(i * 0.53),
+      ];
+      const W: readonly [number, number, number] = [i * 17.3 - 40, 12, i * -11.9];
+      const a = facadeDir(nW, W);
+      expect(a === 0 || a === 1).toBe(true);
+      expect(facadeDir(nW, W)).toBe(a);
+      seen.add(a);
+    }
+    expect(seen.has(0)).toBe(true);
+    expect(seen.has(1)).toBe(true);
   });
 });
 

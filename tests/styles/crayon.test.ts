@@ -1,10 +1,9 @@
 /**
  * Unit tests for the pure parts of the `crayon` render style
- * (docs/architecture.md §4.11, wave 18 "sketch family", "crayon"): the
+ * (docs/architecture.md §4.11, wave 18c "Pencil / crayon v2"): the
  * coloured-pencil stroke colour, the paper wash strength, and the
- * ground-tune re-exports (`groundTone` / `crossGate` identity with
- * `pencil`). The shared
- * stroke machinery (pencil widths, wobble, lifts, sky hair) is the
+ * re-export identity of `smudgeOf` / `wallWash` / `hatchGate` /
+ * `facadeDir` with `pencil`. The shared stroke machinery is the
  * `strokes.ts` chunk — its tests live in `tests/styles/strokes.test.ts`.
  * Runs in node; no WebGL is touched.
  */
@@ -14,18 +13,24 @@ import {
   PAPER_P,
   crayonStroke,
   crayonWash,
-  crossGate,
-  groundTone,
+  facadeDir,
+  hatchGate,
+  smudgeOf,
+  wallWash,
 } from '../../src/render/styles/crayon';
 import {
-  crossGate as pencilCrossGate,
-  groundTone as pencilGroundTone,
+  facadeDir as pencilFacadeDir,
+  hatchGate as pencilHatchGate,
+  smudgeOf as pencilSmudgeOf,
+  wallWash as pencilWallWash,
 } from '../../src/render/styles/pencil';
 
-describe('groundTone / crossGate', () => {
+describe('smudgeOf / wallWash / hatchGate / facadeDir', () => {
   it('re-exports the same functions (`toBe` identity)', () => {
-    expect(groundTone).toBe(pencilGroundTone);
-    expect(crossGate).toBe(pencilCrossGate);
+    expect(smudgeOf).toBe(pencilSmudgeOf);
+    expect(wallWash).toBe(pencilWallWash);
+    expect(hatchGate).toBe(pencilHatchGate);
+    expect(facadeDir).toBe(pencilFacadeDir);
   });
 });
 

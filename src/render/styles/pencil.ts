@@ -1,30 +1,20 @@
 /**
- * `pencil` render style (docs/architecture.md §4.11, wave 18 "sketch
- * family"): a graphite pencil sketch on warm paper — a smudged tone
- * *wash* whose strength follows the 2×2-px paper tooth `g`, world-anchored
- * strokes from the shared chunk with pencil's wider, softer widths
- * (`hw = mu·(0.45 + 0.25·tone)`, edge `± 0.60·mu`), a 45°-rotated
- * cross-hatch family on *walls* that fades in for `tone2 > 0.55` at
- * 0.75 weight (ground: no cross-hatch, `tone2 · 0.55`, `ink · 0.85`),
- * soft one-sided
- * graphite outlines (never solid black) and a pencilled sky — darker
- * toward the zenith by day, an even grey by night, with sparse hair
- * strokes. Cell 2×2, sub 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
+ * `pencil` render style (docs/architecture.md §4.11, wave 18c T-0147
+ * "Pencil / crayon v2 — quick drawing"): a graphite sketch on warm
+ * paper — blank sky, blank horizontals with a shadow-pool smudge,
+ * smoothed 3×3 tone, hatch only in dark wall facets (one stroke
+ * direction per facade), strong silhouettes. Cell 2×2, sub 1×1,
+ * `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
  *
- * Built on the shared chunk (`./strokes.ts`, T-0139): the fragment is
- * `STROKE_GLSL + PENCIL_FRAGMENT` and `main()` starts with
- * `Surf s = surfaceAt(vUv);`, then `tone` as scribble and
- * `tone2 = tone · depthFade(s.dC)` (the common block's `tint`/`satF` are
- * unused — pencil is graphite, the one ink of the style, and GLSL ES 1.0
- * has no `void` expression to keep them). The paper grain is the
- * chunk's world/dome-anchored `toothOf(s)` (§4.11 "anchored tooth");
- * colour formulas are unchanged. `daylight` is the only style uniform,
- * seeded in `makeUniforms` and refreshed in `update`; prelude uniforms
- * are never redeclared.
+ * Built on the shared chunk (`./strokes.ts`): `fragment: STROKE_GLSL +
+ * PENCIL_FRAGMENT`. The stroke / shading GLSL block (wrapped in the
+ * RULES markers) is byte-identical in `crayon.ts` — only the colour
+ * lines after it differ. `daylight` is the only style uniform; prelude
+ * uniforms are never redeclared.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
-import { STROKE_GLSL } from './strokes';
+import { STROKE_GLSL, hash2 } from './strokes';
 
 /** The warm white paper the graphite sits on (§4.11 `PAPER_P`). `[r, g, b]` in `[0, 1]`. */
 export const PAPER_P: readonly [number, number, number] = [0.97, 0.96, 0.93];
@@ -42,7 +32,7 @@ export function pencilWash(tone: number, g: number): number {
 }
 
 /**
- * 45°-rotated cross-hatch stroke space (§4.11 `crossCoords`): the same
+ * 45°-rotated stroke space (§4.11 `crossCoords`): the same
  * world-anchored family turned 45° in stroke space,
  * `u2 = (u + along)/√2`, `along2 = (along − u)/√2`, with one shared scale
  * `mu2 = ma2 = (mu + ma)/2`. Orthogonal: `u2² + along2² = u² + along²`.
@@ -68,43 +58,43 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/**
- * Ground-tone scale (§4.11 "Pencil / crayon ground tune"): `tone2 · 0.55`
- * — a road is lightly shaded, not hatched solid. Applied in the fragment
- * when `s.cls == 1` (before wash, primary strokes and the ink mix).
- */
-export function groundTone(tone2: number): number {
-  return tone2 * 0.55;
+/** Horizontal-surface shadow pool (§4.11 v2 `smudgeOf`): `0.30 · g · smoothstep(0.55, 0.95, toneS)`. */
+export function smudgeOf(toneS: number, g: number): number {
+  return 0.3 * g * smoothstep(0.55, 0.95, toneS);
+}
+
+/** Wall tone wash (§4.11 v2 `wallWash`): `0.35 · g · smoothstep(0.20, 0.90, toneS)`. */
+export function wallWash(toneS: number, g: number): number {
+  return 0.35 * g * smoothstep(0.2, 0.9, toneS);
+}
+
+/** Hatch-in-shadow × distance gate (§4.11 v2 `hatchGate`): `smoothstep(0.50, 0.75, toneS) · (1 − smoothstep(150, 400, dC))`. */
+export function hatchGate(toneS: number, dC: number): number {
+  return smoothstep(0.5, 0.75, toneS) * (1 - smoothstep(150, 400, dC));
+}
+
+/** One stroke direction per facade (§4.11 v2 `facadeDir`): `0` vertical family, `1` 45° family. */
+export function facadeDir(
+  nW: readonly [number, number, number],
+  W: readonly [number, number, number],
+): 0 | 1 {
+  const sel = hash2(
+    Math.floor(nW[0] * 4) + Math.floor(nW[2] * 4) * 9,
+    Math.floor((W[0] + W[2]) / 40),
+  );
+  return sel < 0.5 ? 0 : 1;
 }
 
 /**
- * Wall cross-hatch gate (§4.11 "Pencil / crayon ground tune"):
- * `smoothstep(0.55, 0.70, tone2)` — the cross family fades in later than
- * v1's `smoothstep(0.45, 0.60, tone2)`, and the fragment then scales it
- * by 0.75 so it sits lighter than the primary.
- */
-export function crossGate(tone2: number): number {
-  return smoothstep(0.55, 0.70, tone2);
-}
-
-/**
- * §4.11 wave-18 "pencil" fragment (the half after the shared `STROKE_GLSL`
- * chunk, docs/styles/strokes.md). The scene sample is per cell
- * (`cell = floor(vUv · grid)`); everything about the surface comes from
- * `Surf s = surfaceAt(vUv)`. The paper grain `g = toothOf(s)` is the
- * chunk's world-anchored (surfaces) / dome-anchored (sky) tooth
- * (§4.11 "anchored tooth"). Sky cells
- * paint `mix(PAPER_P, G, wash·g)` with `wash = daylight ≥ 0.5 ?
- * mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45` plus
- * `hairInk(s.ps, 0.5)·0.35` hair. Surface cells paint
- * `mix(mix(PAPER_P, G, pencilWash(tone2, g)), G, ink)` with
- * `ink = max(primary, secondary)·(0.65 + 0.30·tone2)`. Ground (`s.cls
- * == 1`) scales `tone2 ·= 0.55`, drops the cross family (`secondary =
- * 0`) and `ink ·= 0.85`; walls (`s.cls == 2`) gate the cross-hatch on
- * `smoothstep(0.55, 0.70, tone2)` and `secondary ·= 0.75` (§4.11
- * "Pencil / crayon ground tune"). Outlines mix to graphite at 0.7 —
- * soft, never solid black. `daylight` is the only style uniform;
- * `viewUp`, `tanHalfFov` and `viewToWorld` come from the prelude.
+ * §4.11 wave-18c "Pencil / crayon v2 — quick drawing" fragment (the
+ * half after the shared `STROKE_GLSL` chunk). `main()` starts with
+ * `Surf s = surfaceAt(vUv)` and `g = toothOf(s)`. The six rules live
+ * in the marked RULES GLSL block (byte-identical in `crayon.ts`): sky
+ * is paper; horizontals are paper + smudge; tone is the 3×3-smoothed
+ * `toneS`; walls wash + one-direction hatch in shadow; contrasting
+ * 2-cell outlines (silhouette 1.0 / crease 0.7). Pencil then mixes
+ * toward graphite `G`. `daylight` is the only style uniform; prelude
+ * uniforms are never redeclared.
  */
 const PENCIL_FRAGMENT = `
 uniform float daylight;
@@ -115,77 +105,86 @@ void main() {
   vec2 p = vUv * grid;
   vec2 cell = floor(p);
 
-  vec3 c = sampleSub(cell, 0.0, 0.0);
-  float v = shaped(bright(c));
-  float tone = 1.0 - v;
-  // (The common block's tint / satF are computed exactly as scribble but
-  // unused here — pencil is graphite, the one ink of the style; GLSL ES
-  // 1.0 has no way to mark them used, so they are not declared.)
-
-  // Everything before colouring: clamped taps, sky test, class, dPix,
-  // W / nW, stroke coordinates + scale, one-sided outline.
+  // RULES BEGIN
   Surf s = surfaceAt(vUv);
-
-  float tone2 = tone * depthFade(s.dC);
-
-  // Paper grain: world-anchored on surfaces, dome-anchored on sky,
-  // ≈ 2 px (§4.11 "anchored tooth").
   float g = toothOf(s);
 
-  // Sky: pencilled sky — darker toward the zenith by day, an even grey
-  // by night, with sparse hair strokes.
+  // 1. SKY = paper. No hair, no wash.
   if (s.cls == 0) {
-    float wash = (daylight >= 0.5)
-        ? mix(0.04, 0.28, clamp(s.dirW.y, 0.0, 1.0))
-        : 0.45;
-    vec3 outc = mix(PAPER_P, G, wash * g);
-    outc = mix(outc, G, hairInk(s.ps, 0.5) * 0.35);
-    gl_FragColor = vec4(outc, 1.0);
+    gl_FragColor = vec4(PAPER_P, 1.0);
     return;
   }
 
-  // Ground tune (wave 18b, T-0146): a road is lightly shaded, not
-  // hatched solid; walls keep the cross family, lighter than the primary.
-  if (s.cls == 1) tone2 *= 0.55;
-
-  // Primary strokes: the shared world-anchored family with pencil's
-  // wider, softer widths — hw = mu·(0.45 + 0.25·tone), edge ± 0.60·mu.
-  // LOD base spacing stays 8 cells (unchanged).
-  float primary = nestedStrokeInk(s.u, s.along, tone2, s.mu, s.ma, 0.45, 0.25, 0.60);
-  float secondary = 0.0;
-  if (s.cls == 2) {
-    // Cross-hatch on walls: the same family rotated 45° in stroke
-    // space (u2 = (u+along)/√2, along2 = (along−u)/√2, mu2 = ma2 = (mu+ma)/2),
-    // fading in past tone2 = 0.55, at 0.75 the primary's weight.
-    float u2 = (s.u + s.along) * 0.70710678;
-    float along2 = (s.along - s.u) * 0.70710678;
-    float mu2 = 0.5 * (s.mu + s.ma);
-    secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25, 0.60)
-        * smoothstep(0.55, 0.70, tone2) * 0.75;
+  // 3. SMOOTHED TONE: 3×3 mean of sampleSub (9 taps).
+  vec3 acc = vec3(0.0);
+  for (int oy = -1; oy <= 1; oy++) {
+    for (int ox = -1; ox <= 1; ox++) {
+      acc += sampleSub(cell + vec2(float(ox), float(oy)), 0.0, 0.0);
+    }
   }
-  float ink = max(primary, secondary) * (0.65 + 0.30 * tone2);
-  if (s.cls == 1) ink *= 0.85;
+  vec3 meanC = acc / 9.0;
+  float toneS = (1.0 - shaped(bright(meanC))) * depthFade(s.dC);
 
-  // Smudged tone wash under the strokes, modulated by the tooth.
-  float washS = tone2 * 0.55 * g;
-  vec3 base = mix(PAPER_P, G, washS);
+  // 2. HORIZONTAL SURFACES: paper + smudge only (no strokes).
+  float smudge = 0.30 * g * smoothstep(0.55, 0.95, toneS);
 
-  vec3 outc = mix(base, G, ink);
+  // 4. WALLS: white + wash + hatch only in the dark; one direction per facade.
+  float wash = 0.35 * g * smoothstep(0.20, 0.90, toneS);
+  float ink = 0.0;
+  if (s.cls == 2) {
+    float sel = hash2(floor(s.nW.x * 4.0) + floor(s.nW.z * 4.0) * 9.0,
+                      floor((s.W.x + s.W.z) / 40.0));
+    float u1 = s.u;
+    float along1 = s.along;
+    float mu1 = s.mu;
+    float ma1 = s.ma;
+    if (sel >= 0.5) {
+      u1 = (s.u + s.along) * 0.70710678;
+      along1 = (s.along - s.u) * 0.70710678;
+      mu1 = 0.5 * (s.mu + s.ma);
+      ma1 = mu1;
+    }
+    float hatch = nestedStrokeInk(u1, along1, toneS, mu1, ma1, 0.45, 0.25, 0.60)
+        * smoothstep(0.50, 0.75, toneS)
+        * (1.0 - smoothstep(150.0, 400.0, s.dC));
+    ink = hatch * (0.60 + 0.30 * toneS);
+  }
 
-  // Soft one-sided graphite outline — never solid black.
-  if (s.outline) outc = mix(outc, G, 0.7);
+  // 5. CONTRASTING EDGES: max of outlineAt over the cell and its 4 neighbours
+  // (2-cell line). Silhouette against sky (any neighbour is sky) → 1.0, crease → 0.7.
+  float e = outlineAt(vUv);
+  e = max(e, outlineAt(vUv + vec2(-1.0, 0.0) / grid));
+  e = max(e, outlineAt(vUv + vec2( 1.0, 0.0) / grid));
+  e = max(e, outlineAt(vUv + vec2(0.0,  1.0) / grid));
+  e = max(e, outlineAt(vUv + vec2(0.0, -1.0) / grid));
+  vec2 texel = 1.0 / sceneSize;
+  vec2 centreUv = (cell * sub + 0.5) * texel;
+  vec2 stepUv = sub * texel;
+  vec2 lo = 0.5 * texel;
+  vec2 hi = 1.0 - 0.5 * texel;
+  float skyThr = 0.98 * cameraFar;
+  bool sil =
+      linearDepth(clamp(centreUv - vec2(stepUv.x, 0.0), lo, hi)) >= skyThr ||
+      linearDepth(clamp(centreUv + vec2(stepUv.x, 0.0), lo, hi)) >= skyThr ||
+      linearDepth(clamp(centreUv + vec2(0.0, stepUv.y), lo, hi)) >= skyThr ||
+      linearDepth(clamp(centreUv - vec2(0.0, stepUv.y), lo, hi)) >= skyThr;
+  float strength = sil ? 1.0 : 0.7;
+  // RULES END
 
+  vec3 washCol = G;
+  vec3 strokeCol = G;
+  vec3 outc = mix(PAPER_P, washCol, s.cls == 1 ? smudge : wash);
+  if (s.cls == 2) outc = mix(outc, strokeCol, ink);
+  outc = mix(outc, G, strength * e);
   gl_FragColor = vec4(outc, 1.0);
 }
 `;
 
 /**
- * Graphite pencil sketch on warm paper — smudged tone wash modulated by
- * the world/dome-anchored paper tooth, world-anchored nested-LOD strokes with
- * wider softer pencil widths, a 45° cross-hatch family on walls (lighter,
- * later-gated; none on the ground), soft graphite outlines and a
- * zenith-darkened (day) / even grey (night) pencilled sky with sparse hair.
- * Cell 2×2, sub 1×1, `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
+ * Graphite quick-drawing on warm paper — blank sky, blank horizontals
+ * with a shadow-pool smudge, smoothed tone, one-direction hatch in
+ * shadowed facades, strong silhouettes. Cell 2×2, sub 1×1,
+ * `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
