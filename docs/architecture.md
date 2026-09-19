@@ -1300,16 +1300,16 @@ of even thatch").** Replaces rule 2 of v2 and roughens rule 4's wash.
 satF)` — water smudges blue).
 
     2'. HORIZONTALS (s.cls == 1) = paper + rough smudge (no hatch):
-          sm   = smoothstep(0.12, 0.85, toneS)                              // how much shade at all
+          sm   = smoothstep(0.35, 0.95, toneS)                              // how much shade at all (PM tune: 0.12–0.85 greyed the whole road)
           n1   = vnoiseA(u, along, mu, ma, 14, 8)                           // big uneven patches (14 cells)
           n2   = vnoiseA(u, along / 7, mu, ma / 7, 5, 9)                    // smear: 5 cells across, 35 along
                                                                             // — rubbed sideways (constant-depth direction)
-          skip = smoothstep(0.72, 0.85, n1)                                  // patches the thumb missed
-          smudge = sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
+          skip = smoothstep(0.55, 0.75, n1)                                  // patches the thumb missed (more paper)
+          smudge = 0.60 · sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
           smear  = nestedStrokeInk(s.u, s.along, toneS · 0.8, mu, ma, 1.0, 0.5, 1.5)   // very wide, very soft lines
-                   · 0.30 · n1                                               // faint, patchy — smudged pencil strokes
+                   · 0.12 · smoothstep(0.5, 0.8, n1)                         // faint, patchy — (0.30·n1 printed stripes at night)
           grain  = 0.12 · sm · anchoredNoise(u, along, mu, ma, 1.0, 10)      // graphite tooth in the dark
-          shade  = clamp(smudge + smear + grain, 0, 0.75)                    // never solid
+          shade  = clamp(smudge + smear + grain, 0, 0.55)                    // never solid
           out    = mix(PAPER_P, groundCol, shade)                            // groundCol = G (pencil) | mix(G, tint, satF) (crayon)
         (outlines as v2 rule 5 on top)
     4'. WALL WASH, roughened:  wash = 0.35 · g · smoothstep(0.20, 0.90, toneS) · (0.55 + 0.45 · n1w),
@@ -1323,10 +1323,10 @@ satF)` — water smudges blue).
           out = mix(PAPER_P, skyCol, skyShade)     // skyCol = G (pencil) | SKY_PENCIL = (0.40, 0.46, 0.62) (crayon)
 
 Pure (pencil.ts): `roughSmudge(toneS, n1, n2, g)`, `smearGate(n1)`
-(= 0.30·n1), `wallWashRough(toneS, g, n1w)`; `smudgeOf` and `wallWash` of
+(= 0.12·smoothstep(0.5, 0.8, n1)), `wallWashRough(toneS, g, n1w)`; `smudgeOf` and `wallWash` of
 v2 are deleted. Unit: `roughSmudge(0, ·, ·, 1)` → 0; monotone in toneS;
 `roughSmudge(1, 0.9, 1, 1)` → 0 (skip); `roughSmudge(1, 0.5, 0.5, 1)` →
-`1·(0.525)·(0.775)·1` = 0.407 (toBeCloseTo 3); `wallWashRough(1, 1, 0)` →
+`0.6·(0.525)·(0.775)` = 0.244 (toBeCloseTo 3); `wallWashRough(1, 1, 0)` →
 0.1925, `(1, 1, 1)` → 0.35.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
