@@ -43,6 +43,9 @@ export function isWaterColour(rgb: readonly [number, number, number]): boolean {
   return b > 0.04 && b > 1.6 * r && b > 1.25 * g;
 }
 
+/** Shoreline gate: the colour test runs only where `|dot(n, viewUp)|` exceeds this (floors, water). */
+export const SHORE_UP = 0.8;
+
 /**
  * True when the cell is lit as a line: the depth edge test (`isEdge`,
  * imported — sky rule + inverse-depth second difference) OR a shoreline,
@@ -50,18 +53,25 @@ export function isWaterColour(rgb: readonly [number, number, number]): boolean {
  * neighbours. `depths` is `[dC, dL, dR, dU, dD]` and `colours` the matching
  * exposed scene colours in the same order. The shoreline is skipped when
  * the centre is sky (`dC ≥ 0.98·far`) because water and land are coplanar
- * and only the colour test can see the coast — but sky has no coast.
+ * and only the colour test can see the coast — but sky has no coast — and
+ * when `up` (`|dot(viewNormal, viewUp)|`, default 1) is ≤ {@link SHORE_UP}:
+ * water is flat, blue window-lit facades are not.
  */
 export function retroEdge(
   depths: readonly number[],
   colours: readonly (readonly [number, number, number])[],
   far: number,
+  up = 1,
 ): boolean {
   const [dC, dL, dR, dU, dD] = depths;
   const [cC, cL, cR, cU, cD] = colours;
   if (isEdge(dC, [dL, dR, dU, dD], far)) return true;
   // Shoreline — skipped when the centre is sky.
   if (dC >= 0.98 * far) return false;
+  // … and on anything but a horizontal surface: water is always flat, while a
+  // blue facade with lit windows alternates water/not-water per texel (PM
+  // GPU review 2026-09-19: stippled towers). `up` = |dot(viewNormal, viewUp)|.
+  if (up <= SHORE_UP) return false;
   const wC = isWaterColour(cC);
   return (
     wC !== isWaterColour(cL) ||
@@ -131,6 +141,12 @@ const float FADE_MIN = 0.35;
 const float FLICKER = 0.04;
 const float SKY_FRAC = 0.98;
 const float EDGE_K = 0.02;
+const float SHORE_UP = 0.8;
+
+vec3 retroViewPos(vec2 uv, float d) {
+  float asp = sceneSize.x / sceneSize.y;
+  return vec3((uv.x * 2.0 - 1.0) * tanHalfFov * asp * d, (uv.y * 2.0 - 1.0) * tanHalfFov * d, -d);
+}
 
 bool isWater(vec3 rgb) {
   return rgb.b > 0.04 && rgb.b > 1.6 * rgb.r && rgb.b > 1.25 * rgb.g;
@@ -161,6 +177,11 @@ bool edgeAt(vec2 uv) {
   }
   // Shoreline — skipped when the centre is sky.
   if (dC >= skyThr) return depthEdge;
+  if (depthEdge) return true;
+  // Horizontal surfaces only (no depth edge here, so the four neighbours span one plane).
+  vec3 ta = retroViewPos(uv + vec2(stepUv.x, 0.0), dR) - retroViewPos(uv - vec2(stepUv.x, 0.0), dL);
+  vec3 tb = retroViewPos(uv + vec2(0.0, stepUv.y), dU) - retroViewPos(uv - vec2(0.0, stepUv.y), dD);
+  if (abs(dot(normalize(cross(ta, tb)), viewUp)) <= SHORE_UP) return false;
   vec3 cC = texture2D(tScene, uv).rgb * exposure;
   vec3 cL = texture2D(tScene, uv + vec2(-stepUv.x, 0.0)).rgb * exposure;
   vec3 cR = texture2D(tScene, uv + vec2( stepUv.x, 0.0)).rgb * exposure;

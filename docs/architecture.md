@@ -1361,6 +1361,11 @@ only to find water.
                                                                      // the shoreline: water and land are
                                                                      //   coplanar, depth cannot see it.
                                                                      //   Skipped when uv is sky (dC ≥ 0.98·far).
+                                                                     //   Skipped unless the surface is horizontal:
+                                                                     //   |dot(viewNormal, viewUp)| > SHORE_UP = 0.8
+                                                                     //   (PM GPU tune 2026-09-19: blue facades with
+                                                                     //   lit windows stippled; water is always flat).
+                                                                     //   `retroEdge(…, far, up = 1)` carries the gate.
     main:
       c      = cell centre uv
       e0     = edgeAt(c)

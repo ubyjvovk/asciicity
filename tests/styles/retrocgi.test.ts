@@ -15,6 +15,7 @@ import {
   HALO_GAIN,
   RETRO_BG,
   RETRO_LINE,
+  SHORE_UP,
   STYLES,
   isWaterColour,
   retroColour,
@@ -183,5 +184,16 @@ describe('STYLES', () => {
       makeCanvas: () => ({}) as HTMLCanvasElement,
     });
     expect(Object.keys(u)).toHaveLength(0);
+  });
+
+  it('11. retroEdge: shoreline is gated to horizontal surfaces (PM tune)', () => {
+    const land: [number, number, number] = [0.4, 0.4, 0.4];
+    const water: [number, number, number] = [22 / 255, 58 / 255, 107 / 255];
+    const depths = [50, 50, 50, 50, 50];
+    const colours = [land, water, land, land, land];
+    expect(retroEdge(depths, colours, 2000, 1)).toBe(true);
+    expect(retroEdge(depths, colours, 2000, SHORE_UP + 0.01)).toBe(true);
+    expect(retroEdge(depths, colours, 2000, SHORE_UP)).toBe(false);
+    expect(retroEdge(depths, colours, 2000, 0)).toBe(false); // a wall
   });
 });

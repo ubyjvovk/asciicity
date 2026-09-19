@@ -108,7 +108,7 @@ See the comment on `STYLE_PRELUDE` in `style.ts`.
 | `pastel` | `styles/pastel.ts` | 2×2 | 1×1 | yes | Soft chalk pastel: grainy colour blocks, no strokes, bilinear-smoothed sample + chalk smudge + soft outline (§4.11 wave 18b). `targetCap` 960×540 (T-0145). |
 | `watercolor` | `styles/watercolor.ts` | 2×2 | 1×1 | yes | Watercolour washes with granulation and pooled edges (§4.11 wave 18). `targetCap` 960×540 (wave 18b, T-0145). |
 | `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
-| `retrocgi` | `styles/retrocgi.ts` | 2×2 | 1×1 | yes | 1981 wireframe glider display: green outlines + shoreline on black, NOSEVIEW HUD skin (§4.11 wave 19). `targetCap` 960×540. Stub (the `edges` shader) until T-0149. |
+| `retrocgi` | `styles/retrocgi.ts` | 2×2 | 1×1 | yes | 1981 wireframe glider display: green outlines + shoreline on black, NOSEVIEW HUD skin (§4.11 wave 19). `targetCap` 960×540. (T-0149; HUD skin T-0150). |
 | `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
 | `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |
 
