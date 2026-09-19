@@ -56,6 +56,7 @@ cell is `RETRO_BG` plus green line light.
 | `FADE_FAR` | `900 m` | fade bottoms out at/ past here |
 | `FADE_MIN` | `0.35` | smallest fade factor at distance |
 | `FLICKER` | `0.04` | ± share of line intensity from the `time` flicker |
+| `SHORE_UP` | `0.8` | shoreline gate: the colour test runs only where `\|dot(viewNormal, viewUp)\|` exceeds this — water is flat; blue window-lit facades stippled without it (PM GPU tune 2026-09-19). `retroEdge(depths, colours, far, up = 1)` carries it. |
 | water test | `b > 0.04 && b > 1.6·r && b > 1.25·g` | `WATER_HEX` 0x163a6b = (22,58,107) → ratios 4.9/1.8; fog is black, lighting grey, so both survive day, night and distance |
 
 ## Exports
