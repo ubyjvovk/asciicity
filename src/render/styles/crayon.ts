@@ -128,15 +128,15 @@ void main() {
   // 2. HORIZONTALS: paper + rough smudge (no hatch).
   float shade = 0.0;
   if (s.cls == 1) {
-    float sm = smoothstep(0.12, 0.85, toneS);
+    float sm = smoothstep(0.35, 0.95, toneS);
     float n1 = vnoiseA(s.u, s.along, s.mu, s.ma, 14.0, 8.0);
     float n2 = vnoiseA(s.u, s.along / 7.0, s.mu, s.ma / 7.0, 5.0, 9.0);
-    float skip = smoothstep(0.72, 0.85, n1);
-    float smudge = sm * (0.20 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1.0 - skip) * g;
+    float skip = smoothstep(0.55, 0.75, n1);
+    float smudge = 0.60 * sm * (0.20 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1.0 - skip) * g;
     float smear = nestedStrokeInk(s.u, s.along, toneS * 0.8, s.mu, s.ma, 1.0, 0.5, 1.5)
-        * 0.30 * n1;
+        * 0.12 * smoothstep(0.5, 0.8, n1);
     float grain = 0.12 * sm * anchoredNoise(s.u, s.along, s.mu, s.ma, 1.0, 10.0);
-    shade = clamp(smudge + smear + grain, 0.0, 0.75);
+    shade = clamp(smudge + smear + grain, 0.0, 0.55);
   }
 
   // 4. WALLS: white + rough wash + hatch only in the dark; one direction per facade.

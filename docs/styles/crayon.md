@@ -47,14 +47,14 @@ hatch). Same `sm` / `n1` / `n2` / `skip` / `smudge` / `smear` /
 `grain` / `shade` as pencil; mixed toward `groundCol` instead of
 graphite, so water smudges blue.
 
-    sm     = smoothstep(0.12, 0.85, toneS)
+    sm     = smoothstep(0.35, 0.95, toneS)
     n1     = vnoiseA(u, along, mu, ma, 14, 8)
     n2     = vnoiseA(u, along / 7, mu, ma / 7, 5, 9)
-    skip   = smoothstep(0.72, 0.85, n1)
-    smudge = sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
-    smear  = nestedStrokeInk(s.u, s.along, toneS · 0.8, mu, ma, 1.0, 0.5, 1.5) · 0.30 · n1
+    skip   = smoothstep(0.55, 0.75, n1)
+    smudge = 0.60 · sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
+    smear  = nestedStrokeInk(s.u, s.along, toneS · 0.8, mu, ma, 1.0, 0.5, 1.5) · 0.12 · smoothstep(0.5, 0.8, n1)
     grain  = 0.12 · sm · anchoredNoise(u, along, mu, ma, 1.0, 10)
-    shade  = clamp(smudge + smear + grain, 0, 0.75)
+    shade  = clamp(smudge + smear + grain, 0, 0.55)
     out    = mix(PAPER_P, groundCol, shade)
 
 **3. Smoothed tone.** `toneS = (1 − shaped(bright(mean of sampleSub over

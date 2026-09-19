@@ -62,14 +62,14 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 
 /** Rough horizontal smudge (§4.11 v3 `roughSmudge`): `sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g`. */
 export function roughSmudge(toneS: number, n1: number, n2: number, g: number): number {
-  const sm = smoothstep(0.12, 0.85, toneS);
-  const skip = smoothstep(0.72, 0.85, n1);
-  return sm * (0.2 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1 - skip) * g;
+  const sm = smoothstep(0.35, 0.95, toneS);
+  const skip = smoothstep(0.55, 0.75, n1);
+  return 0.6 * sm * (0.2 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1 - skip) * g;
 }
 
-/** Faint patchy smear gate (§4.11 v3 `smearGate`): `0.30 · n1`. */
+/** Faint patchy smear gate (§4.11 v3 `smearGate`, PM tune): `0.12 · smoothstep(0.5, 0.8, n1)`. */
 export function smearGate(n1: number): number {
-  return 0.3 * n1;
+  return 0.12 * smoothstep(0.5, 0.8, n1);
 }
 
 /** Roughened wall wash (§4.11 v3 `wallWashRough`): `0.35 · g · smoothstep(0.20, 0.90, toneS) · (0.55 + 0.45 · n1w)`. */
@@ -155,15 +155,15 @@ void main() {
   // 2. HORIZONTALS: paper + rough smudge (no hatch).
   float shade = 0.0;
   if (s.cls == 1) {
-    float sm = smoothstep(0.12, 0.85, toneS);
+    float sm = smoothstep(0.35, 0.95, toneS);
     float n1 = vnoiseA(s.u, s.along, s.mu, s.ma, 14.0, 8.0);
     float n2 = vnoiseA(s.u, s.along / 7.0, s.mu, s.ma / 7.0, 5.0, 9.0);
-    float skip = smoothstep(0.72, 0.85, n1);
-    float smudge = sm * (0.20 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1.0 - skip) * g;
+    float skip = smoothstep(0.55, 0.75, n1);
+    float smudge = 0.60 * sm * (0.20 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1.0 - skip) * g;
     float smear = nestedStrokeInk(s.u, s.along, toneS * 0.8, s.mu, s.ma, 1.0, 0.5, 1.5)
-        * 0.30 * n1;
+        * 0.12 * smoothstep(0.5, 0.8, n1);
     float grain = 0.12 * sm * anchoredNoise(s.u, s.along, s.mu, s.ma, 1.0, 10.0);
-    shade = clamp(smudge + smear + grain, 0.0, 0.75);
+    shade = clamp(smudge + smear + grain, 0.0, 0.55);
   }
 
   // 4. WALLS: white + rough wash + hatch only in the dark; one direction per facade.

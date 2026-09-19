@@ -39,15 +39,15 @@ horizon). Dome-anchored on `s.ps` (scale 1); no hair:
 paper + rough smudge (no hatch). Uneven patches, a sideways smear,
 soft wide strokes, grain:
 
-    sm     = smoothstep(0.12, 0.85, toneS)
+    sm     = smoothstep(0.35, 0.95, toneS)
     n1     = vnoiseA(u, along, mu, ma, 14, 8)                 // big uneven patches (14 cells)
     n2     = vnoiseA(u, along / 7, mu, ma / 7, 5, 9)          // smear: 5 cells across, 35 along
-    skip   = smoothstep(0.72, 0.85, n1)                       // patches the thumb missed
-    smudge = sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
+    skip   = smoothstep(0.55, 0.75, n1)                       // patches the thumb missed
+    smudge = 0.60 · sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
     smear  = nestedStrokeInk(s.u, s.along, toneS · 0.8, mu, ma, 1.0, 0.5, 1.5)
-             · 0.30 · n1                                      // faint, patchy
+             · 0.12 · smoothstep(0.5, 0.8, n1)                                      // faint, patchy
     grain  = 0.12 · sm · anchoredNoise(u, along, mu, ma, 1.0, 10)
-    shade  = clamp(smudge + smear + grain, 0, 0.75)            // never solid
+    shade  = clamp(smudge + smear + grain, 0, 0.55)            // never solid
     out    = mix(PAPER_P, groundCol, shade)                   // groundCol = G
 
 **3. Smoothed tone.** The per-cell sample is used nowhere. `toneS` is
@@ -118,9 +118,9 @@ outline colour `G`. Pencil hatch widths stay `0.45, 0.25, 0.60`.
 - `crossCoords(u, along, mu, ma): { u, along, mu, ma }` — the 45°-rotated
   stroke space: `u2 = (u + along)/√2`, `along2 = (along − u)/√2`,
   `mu2 = ma2 = (mu + ma)/2`. Orthogonal, so `u2² + along2² = u² + along²`.
-- `roughSmudge(toneS, n1, n2, g): number` — `sm · (0.20 + 0.65 · n1) ·
+- `roughSmudge(toneS, n1, n2, g): number` — `0.60 · sm · (0.20 + 0.65 · n1) ·
   (0.55 + 0.45 · n2) · (1 − skip) · g` with `sm = smoothstep(0.12, 0.85,
-  toneS)` and `skip = smoothstep(0.72, 0.85, n1)` (`roughSmudge(0, ·, ·,
+  toneS)` and `skip = smoothstep(0.55, 0.75, n1)` (`roughSmudge(0, ·, ·,
   1) → 0`; monotone in toneS; `roughSmudge(1, 0.9, 1, 1) → 0` (skip);
   `roughSmudge(1, 0.5, 0.5, 1) → 0.407`).
 - `smearGate(n1): number` — `0.30 · n1`.

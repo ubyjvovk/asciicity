@@ -70,17 +70,17 @@ describe('roughSmudge', () => {
     expect(roughSmudge(1, 0.9, 1, 1)).toBe(0);
   });
 
-  it('roughSmudge(1, 0.5, 0.5, 1) → 0.407', () => {
+  it('roughSmudge(1, 0.5, 0.5, 1) → 0.244', () => {
     // 1 · (0.20 + 0.65·0.5) · (0.55 + 0.45·0.5) · 1 = 0.525 · 0.775 = 0.406875
-    expect(roughSmudge(1, 0.5, 0.5, 1)).toBeCloseTo(0.407, 3);
+    expect(roughSmudge(1, 0.5, 0.5, 1)).toBeCloseTo(0.244, 3);
   });
 });
 
 describe('smearGate', () => {
-  it('smearGate(n1) = 0.30 · n1', () => {
+  it('smearGate(n1) = 0.12 · smoothstep(0.5, 0.8, n1)', () => {
     expect(smearGate(0)).toBe(0);
-    expect(smearGate(1)).toBeCloseTo(0.3, 6);
-    expect(smearGate(0.5)).toBeCloseTo(0.15, 6);
+    expect(smearGate(0.5)).toBe(0);
+    expect(smearGate(1)).toBeCloseTo(0.12, 6);
   });
 });
 
