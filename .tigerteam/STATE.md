@@ -439,6 +439,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   constant-depth direction) × thumb-missed skips × tooth, plus very wide
   soft strokes gated by the patches and graphite grain in the dark, cap
   0.75), wall wash roughened by 10-cell patches. T-0148 boarded (grok).
+- User (mid-ticket): "the sky does NOT have to be completely blank
+  everywhere" → §4.11 v3 rule 1' (sparse 30-cell smudge patches on the
+  dome, heavier at the horizon, blue-grey pencil for crayon). T-0148
+  attempt 1 (grok, 69 min, $1.70) blocked: the Minas Tirith walk e2e
+  (90 s waitForFunction) times out because crayon v3 is slower under
+  SwiftShader and the walk depends on frame rate — PM answered: spec is
+  added to scope, timeouts 90 → 170 s / 180 → 300 s, plus the sky rule.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
