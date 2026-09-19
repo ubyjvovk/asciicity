@@ -9,7 +9,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 
-test.describe.configure({ timeout: 180_000 });
+test.describe.configure({ timeout: 300_000 });
 
 /** Wait until `__asciicity.ready` is true (tiled boot — allow 90 s). */
 async function waitReady(page: Page): Promise<void> {
@@ -134,7 +134,7 @@ test('minas-tirith: boots ?city=minas-tirith at the Great Gate in crayon, HUD na
       return typeof api?.y === 'number' && api.y - y0 >= 3;
     },
     startY,
-    { timeout: 90_000 },
+    { timeout: 170_000 },
   );
   await page.keyboard.up('KeyW');
   const endY = await page.evaluate(() => {

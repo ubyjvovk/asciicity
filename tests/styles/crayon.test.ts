@@ -1,11 +1,11 @@
 /**
  * Unit tests for the pure parts of the `crayon` render style
- * (docs/architecture.md §4.11, wave 18c "Pencil / crayon v2"): the
+ * (docs/architecture.md §4.11, wave 18d "Pencil / crayon v3"): the
  * coloured-pencil stroke colour, the paper wash strength, and the
- * re-export identity of `smudgeOf` / `wallWash` / `hatchGate` /
- * `facadeDir` with `pencil`. The shared stroke machinery is the
- * `strokes.ts` chunk — its tests live in `tests/styles/strokes.test.ts`.
- * Runs in node; no WebGL is touched.
+ * re-export identity of `roughSmudge` / `smearGate` / `wallWashRough`
+ * / `skyShadeOf` / `hatchGate` / `facadeDir` with `pencil`. The shared stroke
+ * machinery is the `strokes.ts` chunk — its tests live in
+ * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -15,20 +15,26 @@ import {
   crayonWash,
   facadeDir,
   hatchGate,
-  smudgeOf,
-  wallWash,
+  roughSmudge,
+  smearGate,
+  skyShadeOf,
+  wallWashRough,
 } from '../../src/render/styles/crayon';
 import {
   facadeDir as pencilFacadeDir,
   hatchGate as pencilHatchGate,
-  smudgeOf as pencilSmudgeOf,
-  wallWash as pencilWallWash,
+  roughSmudge as pencilRoughSmudge,
+  smearGate as pencilSmearGate,
+  skyShadeOf as pencilSkyShadeOf,
+  wallWashRough as pencilWallWashRough,
 } from '../../src/render/styles/pencil';
 
-describe('smudgeOf / wallWash / hatchGate / facadeDir', () => {
+describe('roughSmudge / smearGate / wallWashRough / skyShadeOf / hatchGate / facadeDir', () => {
   it('re-exports the same functions (`toBe` identity)', () => {
-    expect(smudgeOf).toBe(pencilSmudgeOf);
-    expect(wallWash).toBe(pencilWallWash);
+    expect(roughSmudge).toBe(pencilRoughSmudge);
+    expect(smearGate).toBe(pencilSmearGate);
+    expect(wallWashRough).toBe(pencilWallWashRough);
+    expect(skyShadeOf).toBe(pencilSkyShadeOf);
     expect(hatchGate).toBe(pencilHatchGate);
     expect(facadeDir).toBe(pencilFacadeDir);
   });

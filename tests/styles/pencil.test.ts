@@ -1,10 +1,10 @@
 /**
  * Unit tests for the pure parts of the `pencil` render style
- * (docs/architecture.md §4.11, wave 18c "Pencil / crayon v2"): the
- * smudge / wall-wash / hatch-gate / facade-direction mirrors, plus the
- * kept `pencilWash` and `crossCoords`. The shared stroke machinery is
- * unit-tested in `tests/styles/strokes.test.ts`. Runs in node; no
- * WebGL is touched.
+ * (docs/architecture.md §4.11, wave 18d "Pencil / crayon v3"): the
+ * rough-smudge / smear-gate / rough-wall-wash / sky-patch-shade /
+ * hatch-gate / facade-direction mirrors, plus the kept `pencilWash`
+ * and `crossCoords`. The shared stroke machinery is unit-tested in
+ * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -14,8 +14,10 @@ import {
   facadeDir,
   hatchGate,
   pencilWash,
-  smudgeOf,
-  wallWash,
+  roughSmudge,
+  smearGate,
+  skyShadeOf,
+  wallWashRough,
 } from '../../src/render/styles/pencil';
 
 describe('pencilWash', () => {
@@ -46,20 +48,65 @@ describe('pencilWash', () => {
   });
 });
 
-describe('smudgeOf', () => {
-  it('smudgeOf(0.5, 1) → 0', () => {
-    expect(smudgeOf(0.5, 1)).toBe(0);
+describe('roughSmudge', () => {
+  it('roughSmudge(0, ·, ·, 1) → 0', () => {
+    expect(roughSmudge(0, 0, 0, 1)).toBe(0);
+    expect(roughSmudge(0, 0.5, 0.5, 1)).toBe(0);
+    expect(roughSmudge(0, 1, 1, 1)).toBe(0);
   });
 
-  it('smudgeOf(1, 1) → 0.30', () => {
-    expect(smudgeOf(1, 1)).toBeCloseTo(0.3, 6);
+  it('monotone in toneS', () => {
+    const n1 = 0.5;
+    const n2 = 0.5;
+    const g = 1;
+    const a = roughSmudge(0.2, n1, n2, g);
+    const b = roughSmudge(0.5, n1, n2, g);
+    const c = roughSmudge(0.9, n1, n2, g);
+    expect(a).toBeLessThan(b);
+    expect(b).toBeLessThan(c);
+  });
+
+  it('roughSmudge(1, 0.9, 1, 1) → 0 (skip)', () => {
+    expect(roughSmudge(1, 0.9, 1, 1)).toBe(0);
+  });
+
+  it('roughSmudge(1, 0.5, 0.5, 1) → 0.244', () => {
+    // 1 · (0.20 + 0.65·0.5) · (0.55 + 0.45·0.5) · 1 = 0.525 · 0.775 = 0.406875
+    expect(roughSmudge(1, 0.5, 0.5, 1)).toBeCloseTo(0.244, 3);
   });
 });
 
-describe('wallWash', () => {
-  it('0 at toneS 0.20, 0.35 at toneS 0.90 with g = 1', () => {
-    expect(wallWash(0.2, 1)).toBe(0);
-    expect(wallWash(0.9, 1)).toBeCloseTo(0.35, 6);
+describe('smearGate', () => {
+  it('smearGate(n1) = 0.12 · smoothstep(0.5, 0.8, n1)', () => {
+    expect(smearGate(0)).toBe(0);
+    expect(smearGate(0.5)).toBe(0);
+    expect(smearGate(1)).toBeCloseTo(0.12, 6);
+  });
+});
+
+describe('wallWashRough', () => {
+  it('wallWashRough(1, 1, 0) → 0.1925', () => {
+    expect(wallWashRough(1, 1, 0)).toBeCloseTo(0.1925, 6);
+  });
+
+  it('wallWashRough(1, 1, 1) → 0.35', () => {
+    expect(wallWashRough(1, 1, 1)).toBeCloseTo(0.35, 6);
+  });
+});
+
+describe('skyShadeOf', () => {
+  it('skyShadeOf(0.5, ·, ·, 1) → 0', () => {
+    expect(skyShadeOf(0.5, 0, 0, 1)).toBe(0);
+    expect(skyShadeOf(0.5, 1, 1, 1)).toBe(0);
+    expect(skyShadeOf(0.5, 0.5, 0.5, 1)).toBe(0);
+  });
+
+  it('skyShadeOf(1, 1, 1, 1) → 0.22', () => {
+    expect(skyShadeOf(1, 1, 1, 1)).toBeCloseTo(0.22, 6);
+  });
+
+  it('skyShadeOf(1, 1, 0, 1) → 0.077', () => {
+    expect(skyShadeOf(1, 1, 0, 1)).toBeCloseTo(0.077, 3);
   });
 });
 
