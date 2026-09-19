@@ -103,6 +103,19 @@ shader's spec: the fragment runs the same shoreline test, the same
    fine), no dynamic loops — the four neighbours and four halo cells are
    unrolled.
 
+## E2E
+
+Pixel classes (shape, not exact values — line colour flickers ±`FLICKER` and fades to `FADE_MIN`, halo 0–30 %): `bg` = every channel ≤ 12/255; `green` = not bg, and `g ≥ 1.8·r` and `g ≥ 1.5·b` (phosphor shape, including 1-neighbour halo at g ≈ 23; a `g ≥ 40/255` floor would dump that halo into `other`); anything else = `other`.
+
+1. `body.dataset.render === 'retrocgi'` and `__asciicity.groundGrid === false`.
+2. `other` share ≤ 1 % (nothing but black and green — separates it from `edges`).
+3. `green` share between 3 % and 45 % (lines exist, screen not flooded).
+4. `bg` share ≥ 50 %.
+5. at least one pixel with `g ≥ 0.85·255·(1 − 2·FLICKER)` (a near, unfaded line).
+6. shoreline: a frame whose lower half is water still has `green` share ≥ 0.5 % in that half — skipped (`test.fixme`); the synthetic city has no `water` rings.
+
+`e2e/retrocgi.spec.ts` boots `/?synthetic=1&render=retrocgi&cell=2x2&crt=0&hud=0&minimap=0&tags=0` at 640×360 and samples `#view` the way `e2e/lowpoly.spec.ts` does. No screenshots.
+
 ## Notes
 
 - `needsDepth: true` means `StyleRenderer` attaches a `THREE.DepthTexture`
