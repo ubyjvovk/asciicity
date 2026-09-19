@@ -1,9 +1,119 @@
 /* NOSEVIEW HUD skin (architecture.md §4.11 "retrocgi"). Hidden unless the
-   retrocgi style is active; T-0150 adds the rest. */
+   retrocgi style is active. Every rule that styles something outside
+   `#noseview` is prefixed with `body[data-render='retrocgi']`. */
 #noseview {
   display: none;
 }
 
 body[data-render='retrocgi'] #noseview {
   display: block;
+}
+
+/* The NAVIGATION panel and minimap return on the next style. main.ts sets
+   inline `display` on them, so the override needs `!important`. */
+body[data-render='retrocgi'] #hud,
+body[data-render='retrocgi'] #mini {
+  display: none !important;
+}
+
+#noseview {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4; /* under the CRT overlay (z 5) */
+  font-family: monospace;
+  font-weight: bold;
+  font-style: italic;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #7fe9ff;
+  text-shadow: 0 0 6px rgba(127, 233, 255, 0.6);
+}
+
+#noseview .nv-title {
+  position: absolute;
+  top: 9%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: clamp(22px, 5.2vw, 64px);
+}
+
+#noseview .nv-alt {
+  position: absolute;
+  bottom: 9%;
+  right: 53%; /* right edge at 47 % of the width */
+  font-size: clamp(18px, 4.2vw, 52px);
+}
+
+#noseview .nv-air {
+  position: absolute;
+  bottom: 9%;
+  left: 57%; /* left edge at 57 % of the width */
+  font-size: clamp(18px, 4.2vw, 52px);
+}
+
+/* Vertical dashed reticle arm, x 52 %, from y 26 % to y 78 %. */
+#noseview .nv-v {
+  position: absolute;
+  left: 52%;
+  top: 26%;
+  height: 52%;
+  border-left: 2px dashed rgba(127, 233, 255, 0.7);
+}
+
+/* Horizontal dashed reticle arm, y 52 %, from x 14 % to x 90 %. */
+#noseview .nv-h {
+  position: absolute;
+  top: 52%;
+  left: 14%;
+  width: 76%;
+  border-top: 2px dashed #7fe9ff;
+}
+
+/* Open-bottom dashed bracket, 8 % wide × 9 % tall, centred on x 52 %, top y 24 %. */
+#noseview .nv-box {
+  position: absolute;
+  left: 48%;
+  top: 24%;
+  width: 8%;
+  height: 9%;
+  border-left: 2px dashed #7fe9ff;
+  border-right: 2px dashed #7fe9ff;
+  border-top: 2px dashed #7fe9ff;
+}
+
+/* 2 px solid ticks, 7 % tall, centred on the ends of `.nv-h` (x 14 % / 90 %). */
+#noseview .nv-tick-l,
+#noseview .nv-tick-r {
+  position: absolute;
+  top: 48.5%;
+  height: 7%;
+  border-left: 2px solid #7fe9ff;
+}
+
+#noseview .nv-tick-l {
+  left: 14%;
+}
+
+#noseview .nv-tick-r {
+  left: 90%;
+}
+
+/* Landmark tags become red target blips: cyan label, no background, a red
+   glowing dot left of the text. */
+body[data-render='retrocgi'] div.tag {
+  color: #7fe9ff;
+  background: transparent;
+}
+
+body[data-render='retrocgi'] div.tag::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  background: #ff3b30;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #ff3b30;
 }
