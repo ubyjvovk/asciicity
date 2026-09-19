@@ -1,16 +1,17 @@
 /**
- * `pencil` render style (docs/architecture.md §4.11, wave 18c T-0147
- * "Pencil / crayon v2 — quick drawing"): a graphite sketch on warm
- * paper — blank sky, blank horizontals with a shadow-pool smudge,
- * smoothed 3×3 tone, hatch only in dark wall facets (one stroke
- * direction per facade), strong silhouettes. Cell 2×2, sub 1×1,
- * `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
+ * `pencil` render style (docs/architecture.md §4.11, wave 18d T-0148
+ * "Pencil / crayon v3 — rough smudged shading"): a graphite sketch on
+ * warm paper — blank sky, rough uneven smudge on horizontals (uneven
+ * patches, sideways smear, soft wide strokes, grain), smoothed 3×3
+ * tone, hatch only in dark wall facets (one stroke direction per
+ * facade) with a roughened wash, strong silhouettes. Cell 2×2, sub
+ * 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
  *
  * Built on the shared chunk (`./strokes.ts`): `fragment: STROKE_GLSL +
  * PENCIL_FRAGMENT`. The stroke / shading GLSL block (wrapped in the
  * RULES markers) is byte-identical in `crayon.ts` — only the colour
- * lines after it differ. `daylight` is the only style uniform; prelude
- * uniforms are never redeclared.
+ * lines after it differ (`groundCol = G` here). `daylight` is the only
+ * style uniform; prelude uniforms are never redeclared.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -58,14 +59,21 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Horizontal-surface shadow pool (§4.11 v2 `smudgeOf`): `0.30 · g · smoothstep(0.55, 0.95, toneS)`. */
-export function smudgeOf(toneS: number, g: number): number {
-  return 0.3 * g * smoothstep(0.55, 0.95, toneS);
+/** Rough horizontal smudge (§4.11 v3 `roughSmudge`): `sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g`. */
+export function roughSmudge(toneS: number, n1: number, n2: number, g: number): number {
+  const sm = smoothstep(0.12, 0.85, toneS);
+  const skip = smoothstep(0.72, 0.85, n1);
+  return sm * (0.2 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1 - skip) * g;
 }
 
-/** Wall tone wash (§4.11 v2 `wallWash`): `0.35 · g · smoothstep(0.20, 0.90, toneS)`. */
-export function wallWash(toneS: number, g: number): number {
-  return 0.35 * g * smoothstep(0.2, 0.9, toneS);
+/** Faint patchy smear gate (§4.11 v3 `smearGate`): `0.30 · n1`. */
+export function smearGate(n1: number): number {
+  return 0.3 * n1;
+}
+
+/** Roughened wall wash (§4.11 v3 `wallWashRough`): `0.35 · g · smoothstep(0.20, 0.90, toneS) · (0.55 + 0.45 · n1w)`. */
+export function wallWashRough(toneS: number, g: number, n1w: number): number {
+  return 0.35 * g * smoothstep(0.2, 0.9, toneS) * (0.55 + 0.45 * n1w);
 }
 
 /** Hatch-in-shadow × distance gate (§4.11 v2 `hatchGate`): `smoothstep(0.50, 0.75, toneS) · (1 − smoothstep(150, 400, dC))`. */
@@ -86,14 +94,15 @@ export function facadeDir(
 }
 
 /**
- * §4.11 wave-18c "Pencil / crayon v2 — quick drawing" fragment (the
- * half after the shared `STROKE_GLSL` chunk). `main()` starts with
+ * §4.11 wave-18d "Pencil / crayon v3 — rough smudged shading" fragment
+ * (the half after the shared `STROKE_GLSL` chunk). `main()` starts with
  * `Surf s = surfaceAt(vUv)` and `g = toothOf(s)`. The six rules live
  * in the marked RULES GLSL block (byte-identical in `crayon.ts`): sky
- * is paper; horizontals are paper + smudge; tone is the 3×3-smoothed
- * `toneS`; walls wash + one-direction hatch in shadow; contrasting
- * 2-cell outlines (silhouette 1.0 / crease 0.7). Pencil then mixes
- * toward graphite `G`. `daylight` is the only style uniform; prelude
+ * is paper; horizontals are paper + rough smudge (patches, smear,
+ * grain); tone is the 3×3-smoothed `toneS`; walls rough wash +
+ * one-direction hatch in shadow; contrasting 2-cell outlines
+ * (silhouette 1.0 / crease 0.7). Pencil then mixes toward graphite
+ * `G` (`groundCol = G`). `daylight` is the only style uniform; prelude
  * uniforms are never redeclared.
  */
 const PENCIL_FRAGMENT = `
@@ -125,13 +134,26 @@ void main() {
   vec3 meanC = acc / 9.0;
   float toneS = (1.0 - shaped(bright(meanC))) * depthFade(s.dC);
 
-  // 2. HORIZONTAL SURFACES: paper + smudge only (no strokes).
-  float smudge = 0.30 * g * smoothstep(0.55, 0.95, toneS);
+  // 2. HORIZONTALS: paper + rough smudge (no hatch).
+  float shade = 0.0;
+  if (s.cls == 1) {
+    float sm = smoothstep(0.12, 0.85, toneS);
+    float n1 = vnoiseA(s.u, s.along, s.mu, s.ma, 14.0, 8.0);
+    float n2 = vnoiseA(s.u, s.along / 7.0, s.mu, s.ma / 7.0, 5.0, 9.0);
+    float skip = smoothstep(0.72, 0.85, n1);
+    float smudge = sm * (0.20 + 0.65 * n1) * (0.55 + 0.45 * n2) * (1.0 - skip) * g;
+    float smear = nestedStrokeInk(s.u, s.along, toneS * 0.8, s.mu, s.ma, 1.0, 0.5, 1.5)
+        * 0.30 * n1;
+    float grain = 0.12 * sm * anchoredNoise(s.u, s.along, s.mu, s.ma, 1.0, 10.0);
+    shade = clamp(smudge + smear + grain, 0.0, 0.75);
+  }
 
-  // 4. WALLS: white + wash + hatch only in the dark; one direction per facade.
-  float wash = 0.35 * g * smoothstep(0.20, 0.90, toneS);
+  // 4. WALLS: white + rough wash + hatch only in the dark; one direction per facade.
+  float wash = 0.0;
   float ink = 0.0;
   if (s.cls == 2) {
+    float n1w = vnoiseA(s.u, s.along, s.mu, s.ma, 10.0, 11.0);
+    wash = 0.35 * g * smoothstep(0.20, 0.90, toneS) * (0.55 + 0.45 * n1w);
     float sel = hash2(floor(s.nW.x * 4.0) + floor(s.nW.z * 4.0) * 9.0,
                       floor((s.W.x + s.W.z) / 40.0));
     float u1 = s.u;
@@ -171,9 +193,10 @@ void main() {
   float strength = sil ? 1.0 : 0.7;
   // RULES END
 
+  vec3 groundCol = G;
   vec3 washCol = G;
   vec3 strokeCol = G;
-  vec3 outc = mix(PAPER_P, washCol, s.cls == 1 ? smudge : wash);
+  vec3 outc = mix(PAPER_P, s.cls == 1 ? groundCol : washCol, s.cls == 1 ? shade : wash);
   if (s.cls == 2) outc = mix(outc, strokeCol, ink);
   outc = mix(outc, G, strength * e);
   gl_FragColor = vec4(outc, 1.0);
@@ -181,9 +204,9 @@ void main() {
 `;
 
 /**
- * Graphite quick-drawing on warm paper — blank sky, blank horizontals
- * with a shadow-pool smudge, smoothed tone, one-direction hatch in
- * shadowed facades, strong silhouettes. Cell 2×2, sub 1×1,
+ * Graphite sketch on warm paper — blank sky, rough smudged horizontals,
+ * smoothed tone, one-direction hatch in shadowed facades with a
+ * roughened wash, strong silhouettes. Cell 2×2, sub 1×1,
  * `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
  */
 export const STYLES: readonly RenderStyle[] = [
