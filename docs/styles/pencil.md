@@ -1,89 +1,86 @@
 # pencil render style
 
 Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
-`groundGrid: false`. Implements the graphite-pencil-sketch look from
-`docs/architecture.md` §4.11 (wave 18 "sketch family", T-0140): warm
-paper, a smudged tone *wash* whose strength follows the paper tooth,
-world-anchored strokes with wider, softer pencil widths, a 45°
-cross-hatch family on walls (none on the ground), soft one-sided
-graphite outlines and a pencilled sky.
+`groundGrid: false`. Implements the graphite **quick-drawing** look from
+`docs/architecture.md` §4.11 (wave 18c, T-0147 "Pencil / crayon v2"):
+mostly white paper, contrasting edges, soft shading here and there, no
+uniform thatch, one stroke direction per facade. The hair sky and the
+lines on every horizontal surface are gone.
 
 **The stroke machinery is shared** — the GLSL helpers (`hash2`,
 `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `wobble`,
 `lifted`, `strokeLayer`, `nestedStrokeInk`, `hairInk`, `skyCoords`,
-`depthFade`), the `Surf` struct and `surfaceAt(vec2 uv)`, and their TS
-mirrors live in `src/render/styles/strokes.ts` (`STROKE_GLSL`); see
-**`docs/styles/strokes.md`**. This file documents only what is
-pencil-specific: the colours (`PAPER_P`, `G`), `pencilWash`,
-`crossCoords`, `groundTone`, `crossGate` and the fragment `main()`
-(which starts with `Surf s = surfaceAt(vUv);`).
+`depthFade`), the `Surf` struct and `surfaceAt(vec2 uv)`, `outlineAt`,
+`toothOf`, and their TS mirrors live in `src/render/styles/strokes.ts`
+(`STROKE_GLSL`); see **`docs/styles/strokes.md`**. This file documents
+only what is pencil-specific: the colours (`PAPER_P`, `G`), `pencilWash`,
+`crossCoords`, `smudgeOf`, `wallWash`, `hatchGate`, `facadeDir` and the
+fragment `main()`. The stroke / shading GLSL block (the RULES markers)
+is byte-identical in `crayon.ts`.
 
-## Algorithm (per pixel)
+## The six rules (per pixel)
 
-The scene sample is **per cell** (`cell = floor(vUv · grid)`):
-`c = sampleSub(cell, 0, 0)`; `v = shaped(bright(c))`; `tone = 1 − v`
-(0 = paper, 1 = solid ink). The common block's `tint = tintOf(c)` and
-`satF = smoothstep(0.10, 0.45, sat)` are unused here — pencil is
-graphite, the one ink of the style — and are not declared (GLSL ES 1.0
-has no `void` expression to keep them). Everything about the surface — the depth taps, the class, `dPix`,
-the world position `W`, the stroke coordinates and scale, the one-sided
-outline — is computed once per pixel by the shared chunk's
-`Surf s = surfaceAt(vUv)` (`docs/styles/strokes.md`), and
-`tone2 = tone · depthFade(s.dC)` as in the common block.
+`p = vUv · grid`; `cell = floor(p)`; `Surf s = surfaceAt(vUv)`;
+`g = toothOf(s)`.
 
-**Paper grain (anchored tooth).** `g = toothOf(s)` from the shared
-chunk (`docs/styles/strokes.md`, §4.11 "anchored tooth"): world-anchored
-on surfaces (`s.u`, `s.along`, `s.mu`, `s.ma`) and dome-anchored on sky
-(`s.ps`, scale 1), ≈ 2 px, in `[0.80, 1.20]`. Colour formulas are
-unchanged; only the noise source moved.
+**1. Sky = paper.** `s.cls == 0` → `out = PAPER_P`. No hair, no wash.
 
-**Sky** (`s.cls == 0`):
+**2. Horizontal surfaces** (`s.cls == 1`: ground, roofs, bus tops) =
+paper + smudge only. No strokes at all.
 
-    wash = daylight ≥ 0.5 ? mix(0.04, 0.28, clamp(s.dirW.y, 0, 1)) : 0.45   // day: darker toward the zenith; night: even grey
-    out  = mix(PAPER_P, G, wash · g)
-    out  = mix(out, G, hairInk(s.ps, 0.5) · 0.35)                      // sparse hair on the dome
-    gl_FragColor = vec4(out, 1)
+    smudge = 0.30 · g · smoothstep(0.55, 0.95, toneS)     // shadow pools only
+    out    = mix(PAPER_P, G, smudge)
 
-**Surface** (`s.cls == 1 | 2`), ground tune (wave 18b, T-0146):
+**3. Smoothed tone.** The per-cell sample is used nowhere. `toneS` is
+the 3×3 neighbourhood mean of `sampleSub` (9 taps), then:
 
-0. **Ground tone** — if `s.cls == 1`, `tone2 ·= 0.55` (`groundTone`) so
-   a road is lightly shaded, not hatched solid. Walls leave `tone2`
-   unchanged.
-1. **Smudged tone wash** — `pencilWash(tone2, g) = tone2 · 0.55 · g`;
-   `base = mix(PAPER_P, G, wash)`. Tone 0 is bare paper; the tooth lets
-   paper through the wash, so the smudge is never solid.
-2. **Primary strokes** — `nestedStrokeInk(s.u, s.along, tone2, s.mu,
-   s.ma, 0.45, 0.25, 0.60)`: the shared world-anchored nested-LOD family
-   with pencil's wider, softer widths — `hw = mu·(0.45 + 0.25·tone)`,
-   edge `± 0.60·mu` (scribble passes `0.30, 0.20, 0.15`). The primary's
-   LOD base spacing stays 8 cells (unchanged).
-3. **Cross-hatch on walls** (`s.cls == 2`) — the same family rotated
-   45° in stroke space (`crossCoords`): `u2 = (s.u + s.along)/√2`,
-   `along2 = (s.along − s.u)/√2`, `mu2 = ma2 = (s.mu + s.ma)/2`;
-   `secondary = nestedStrokeInk(u2, along2, tone2, mu2, mu2, 0.45, 0.25,
-   0.60) · crossGate(tone2) · 0.75` with
-   `crossGate = smoothstep(0.55, 0.70, tone2)` — the cross family fades
-   in past `tone2 = 0.55` and sits lighter than the primary. **Ground
-   (`s.cls == 1`): `secondary = 0`** — no cross-hatch on the road.
-4. **Ink** — `ink = max(primary, secondary) · (0.65 + 0.30 · tone2)`;
-   if `s.cls == 1`, `ink ·= 0.85`.
-5. **Colour** — `out = mix(base, G, ink)`; **outline**:
-   `out = mix(out, G, 0.7)` when `s.outline` (soft, never solid black).
-   `gl_FragColor = vec4(out, 1)`.
+    toneS = (1 − shaped(bright(meanC))) · depthFade(s.dC)
+
+Window-grid noise averages away.
+
+**4. Walls** (`s.cls == 2`) = white + wash + hatch only in the dark.
+
+    wash  = 0.35 · g · smoothstep(0.20, 0.90, toneS)                      // soft shading
+    hatch = nestedStrokeInk(u1, along1, toneS, mu1, ma1, 0.45, 0.25, 0.60)
+            · smoothstep(0.50, 0.75, toneS)                                // strokes only where dark
+            · (1 − smoothstep(150, 400, dC))                               // far walls: outline only
+    ONE direction per facade:
+      sel = hash2(floor(nW.x·4) + floor(nW.z·4)·9, floor((W.x + W.z) / 40))
+      sel < 0.5 → vertical family (u1, along1, mu1, ma1) = (s.u, s.along, s.mu, s.ma)
+      else      → 45° family     (u1, along1) = crossCoords(s.u, s.along)
+                                  mu1 = ma1 = (s.mu + s.ma) / 2
+    no second family anywhere (cross-hatch deleted)
+    ink = hatch · (0.60 + 0.30 · toneS)
+    out = mix(mix(PAPER_P, G, wash), G, ink)
+
+**5. Contrasting edges.** `e = max` of `outlineAt` over the cell and
+its 4 neighbours (2-cell line). Neighbour-is-sky is `linearDepth` at
+the four neighbour cell centres (one cell apart, as `surfaceAt` does)
+compared with `0.98 · cameraFar`. Silhouette against sky → strength
+1.0, crease → 0.7:
+
+    out = mix(out, G, strength · e)
+
+Ground cells also draw their outline (building bases, kerbs) —
+outlines are the one thing horizontal surfaces keep.
+
+**6. Everything else** unchanged: grain `g = toothOf(s)`, `depthFade`,
+outline colour `G`. Pencil widths stay `0.45, 0.25, 0.60`.
 
 ## Shader notes
 
 - **Shared chunk** — `fragment: STROKE_GLSL + PENCIL_FRAGMENT`: the
-  shared machinery (chunk, `docs/styles/strokes.md`) plus pencil's
-  constants (`PAPER_P`, `G`), the `daylight` uniform and `main()` (which
-  starts `Surf s = surfaceAt(vUv);`). Nothing in the fragment redeclares
-  a prelude uniform (`viewUp`, `tanHalfFov`, `viewToWorld`, …);
-  `hash2` comes from the chunk.
-- **Cross-hatch in GLSL** — `crossCoords` is inlined: `1/√2` is written
-  as the literal `0.70710678`. The family is evaluated only on walls
-  (`s.cls == 2`), gated by `smoothstep(0.55, 0.70, tone2) · 0.75`.
-- **Ground tune** — `s.cls == 1`: `tone2 ·= 0.55`, `secondary = 0`,
-  `ink ·= 0.85`. Same GLSL branch as `crayon` (colour lines excepted).
+  shared machinery plus pencil's constants (`PAPER_P`, `G`), the
+  `daylight` uniform and `main()`. Nothing in the fragment redeclares
+  a prelude uniform. The `daylight` uniform is kept (seeded /
+  refreshed) but unused in v2 — the sky is paper.
+- **RULES markers** — the stroke / shading GLSL between the RULES
+  markers is byte-identical in `crayon.ts`. Only the colour lines after
+  it differ (pencil: `washCol = G`, `strokeCol = G`).
+- **9-tap tone** — `meanC` is the mean of `sampleSub` over the 3×3 cell
+  neighbourhood (`ox, oy ∈ {−1, 0, 1}`).
+- **One direction** — `crossCoords` is inlined on the 45° branch:
+  `1/√2` is the literal `0.70710678`. There is no second family.
 - **One uniform** — `uniform float daylight` is the only style uniform,
   seeded from `ctx.daylight` in `makeUniforms` and refreshed every frame
   by the `update` hook. `makeUniforms` creates no textures; no `dispose`.
@@ -92,17 +89,21 @@ unchanged; only the noise source moved.
 
 - `PAPER_P` — `[0.97, 0.96, 0.93]`, the warm white paper.
 - `G` — `[0.22, 0.22, 0.25]`, the graphite.
-- `pencilWash(tone, g): number` — the smudged tone wash,
-  `tone · 0.55 · g` (0 at tone 0, monotone in tone, ≤ 0.66 at the
-  extreme).
+- `pencilWash(tone, g): number` — `tone · 0.55 · g` (kept; v1 wash).
 - `crossCoords(u, along, mu, ma): { u, along, mu, ma }` — the 45°-rotated
-  cross-hatch stroke space: `u2 = (u + along)/√2`,
-  `along2 = (along − u)/√2`, `mu2 = ma2 = (mu + ma)/2`. Orthogonal, so
-  `u2² + along2² = u² + along²`.
-- `groundTone(tone2): number` — `tone2 · 0.55` (the ground-tone scale;
-  `groundTone(1) → 0.55`).
-- `crossGate(tone2): number` — `smoothstep(0.55, 0.70, tone2)` (0 at
-  0.5, 1 at 0.7, monotone). Crayon re-exports both functions.
+  stroke space: `u2 = (u + along)/√2`, `along2 = (along − u)/√2`,
+  `mu2 = ma2 = (mu + ma)/2`. Orthogonal, so `u2² + along2² = u² + along²`.
+- `smudgeOf(toneS, g): number` — `0.30 · g · smoothstep(0.55, 0.95, toneS)`
+  (`smudgeOf(0.5, 1) → 0`, `smudgeOf(1, 1) → 0.30`).
+- `wallWash(toneS, g): number` — `0.35 · g · smoothstep(0.20, 0.90, toneS)`.
+- `hatchGate(toneS, dC): number` — `smoothstep(0.50, 0.75, toneS) ·
+  (1 − smoothstep(150, 400, dC))` (`hatchGate(1, 0) → 1`,
+  `hatchGate(1, 400) → 0`, `hatchGate(0.5, 0) → 0`).
+- `facadeDir(nW, W): 0 | 1` — `0` vertical, `1` 45°; deterministic;
+  takes both values over 100 random inputs.
+
+`groundTone` / `crossGate` of T-0146 are deleted (superseded). Crayon
+re-exports the four v2 pures (`toBe` identity).
 
 ## Uniforms owned by the style
 
@@ -118,20 +119,17 @@ redeclares them. No textures are created, so there is no `dispose`.
 
 ## What the shader does per pixel
 
-1. `p = vUv · grid`, `cell = floor(p)`; sample, tone, tint.
-2. `Surf s = surfaceAt(vUv)` — clamped depth taps one cell apart;
-   classify sky / ground / wall; `tone2 = tone · depthFade(s.dC)`;
-   world/dome-anchored paper grain `g = toothOf(s)`.
-3. Sky cells paint the pencilled sky (`wash·g` toward graphite, zenith-
-   darkened by day, even grey by night) plus sparse hair; return.
-4. Surface cells: ground scales `tone2` and drops the cross family;
-   walls keep a later-gated, 0.75-weight 45° cross-hatch. Paint the
-   smudged wash `base`, the wider softer world-anchored strokes, and
-   the soft graphite outline; write `mix(base, G, ink)`.
+1. `p = vUv · grid`, `cell = floor(p)`; `Surf s = surfaceAt(vUv)`;
+   world-anchored paper grain `g = toothOf(s)`.
+2. Sky cells write `PAPER_P` and return.
+3. `toneS` from the 3×3 `sampleSub` mean × `depthFade`.
+4. Horizontals mix paper toward graphite by `smudgeOf`; walls mix paper
+   toward graphite by `wallWash`, then hatch in one facade direction
+   gated by `hatchGate`.
+5. 2-cell `outlineAt` max, silhouette strength 1.0 / crease 0.7;
+   `out = mix(out, G, strength · e)`.
 
-Because the wash, the tooth and every stroke family are anchored in
-world metres (sky: the dome) with the shared nested LOD, the result
-reads as a graphite sketch: tone carried by a smudge and by stroke
-density, cross-hatched on walls (the road stays a light wash), on paper
-whose grain rides the surfaces and the sky rather than sitting as a
-screen-space mask.
+Expected frame: mostly white paper; buildings as dark contour drawings
+with soft grey shading and hatching in the shadowed facades, one stroke
+direction per facade; roads and roofs blank with a little shadow pooling
+at building feet; a blank sky.
