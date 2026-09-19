@@ -1314,6 +1314,13 @@ satF)` — water smudges blue).
         (outlines as v2 rule 5 on top)
     4'. WALL WASH, roughened:  wash = 0.35 · g · smoothstep(0.20, 0.90, toneS) · (0.55 + 0.45 · n1w),
           n1w = vnoiseA(u, along, mu, ma, 10, 11)     — the hatch and everything else of rule 4 unchanged.
+    1'. SKY = paper + a few smudged patches (user: "the sky does NOT have to be completely
+        blank everywhere"), on the dome (s.ps, scale 1), heavier toward the horizon:
+          n1s  = vnoiseA(ps.x, ps.y, 1, 1, 30, 12)                            // big patches, 30 cells
+          n2s  = vnoiseA(ps.x, ps.y / 6, 1, 1 / 6, 6, 13)                      // sideways smear
+          horiz = 1 − smoothstep(0.05, 0.45, clamp(s.dirW.y, 0, 1))            // 1 at the horizon, 0 high up
+          skyShade = 0.22 · smoothstep(0.58, 0.85, n1s) · (0.55 + 0.45 · n2s) · (0.35 + 0.65 · horiz) · g
+          out = mix(PAPER_P, skyCol, skyShade)     // skyCol = G (pencil) | SKY_PENCIL = (0.40, 0.46, 0.62) (crayon)
 
 Pure (pencil.ts): `roughSmudge(toneS, n1, n2, g)`, `smearGate(n1)`
 (= 0.30·n1), `wallWashRough(toneS, g, n1w)`; `smudgeOf` and `wallWash` of
