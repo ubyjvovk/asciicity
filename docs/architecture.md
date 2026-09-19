@@ -1292,6 +1292,36 @@ at building feet; a blank sky. Pure (pencil.ts): `smudgeOf(toneS, g)`,
 `hatchGate(1, 400)` → 0, `hatchGate(0.5, 0)` → 0; `facadeDir` is
 deterministic and takes both values over 100 random inputs.
 
+**Pencil / crayon v3 — rough smudged shading on horizontals (wave 18d,
+T-0148; user 2026-09-19: "now we can shade ground/water a bit — rough
+uneven shading, like the artist smudged the pencil lines; the opposite
+of even thatch").** Replaces rule 2 of v2 and roughens rule 4's wash.
+`pencil` and `crayon` alike (crayon's ground colour is `mix(G, tint,
+satF)` — water smudges blue).
+
+    2'. HORIZONTALS (s.cls == 1) = paper + rough smudge (no hatch):
+          sm   = smoothstep(0.12, 0.85, toneS)                              // how much shade at all
+          n1   = vnoiseA(u, along, mu, ma, 14, 8)                           // big uneven patches (14 cells)
+          n2   = vnoiseA(u, along / 7, mu, ma / 7, 5, 9)                    // smear: 5 cells across, 35 along
+                                                                            // — rubbed sideways (constant-depth direction)
+          skip = smoothstep(0.72, 0.85, n1)                                  // patches the thumb missed
+          smudge = sm · (0.20 + 0.65 · n1) · (0.55 + 0.45 · n2) · (1 − skip) · g
+          smear  = nestedStrokeInk(s.u, s.along, toneS · 0.8, mu, ma, 1.0, 0.5, 1.5)   // very wide, very soft lines
+                   · 0.30 · n1                                               // faint, patchy — smudged pencil strokes
+          grain  = 0.12 · sm · anchoredNoise(u, along, mu, ma, 1.0, 10)      // graphite tooth in the dark
+          shade  = clamp(smudge + smear + grain, 0, 0.75)                    // never solid
+          out    = mix(PAPER_P, groundCol, shade)                            // groundCol = G (pencil) | mix(G, tint, satF) (crayon)
+        (outlines as v2 rule 5 on top)
+    4'. WALL WASH, roughened:  wash = 0.35 · g · smoothstep(0.20, 0.90, toneS) · (0.55 + 0.45 · n1w),
+          n1w = vnoiseA(u, along, mu, ma, 10, 11)     — the hatch and everything else of rule 4 unchanged.
+
+Pure (pencil.ts): `roughSmudge(toneS, n1, n2, g)`, `smearGate(n1)`
+(= 0.30·n1), `wallWashRough(toneS, g, n1w)`; `smudgeOf` and `wallWash` of
+v2 are deleted. Unit: `roughSmudge(0, ·, ·, 1)` → 0; monotone in toneS;
+`roughSmudge(1, 0.9, 1, 1)` → 0 (skip); `roughSmudge(1, 0.5, 0.5, 1)` →
+`1·(0.525)·(0.775)·1` = 0.407 (toBeCloseTo 3); `wallWashRough(1, 1, 0)` →
+0.1925, `(1, 1, 1)` → 0.35.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
