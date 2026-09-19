@@ -11,6 +11,7 @@ import { STYLES as teletext } from './teletext';
 import { STYLES as dither } from './dither';
 import { STYLES as pico8 } from './pico8';
 import { STYLES as edges } from './edges';
+import { STYLES as retrocgi } from './retrocgi';
 import { STYLES as hatch } from './hatch';
 import { STYLES as matrix } from './matrix';
 import { STYLES as lowpoly } from './lowpoly';
@@ -28,6 +29,7 @@ const modules: readonly (readonly RenderStyle[])[] = [
   dither,
   pico8,
   edges,
+  retrocgi,
   hatch,
   matrix,
   lowpoly,

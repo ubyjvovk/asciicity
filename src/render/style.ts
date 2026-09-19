@@ -157,6 +157,7 @@ export const STYLE_ORDER = [
   'gameboy',
   'pico8',
   'edges',
+  'retrocgi',
   'hatch',
   'matrix',
   'lowpoly',

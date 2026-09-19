@@ -57,7 +57,7 @@ Read `src/render/style.ts` before writing a style. A `RenderStyle` is:
 | `cellW` / `cellH` | Screen pixels per cell (default; `?cell=WxH` overrides). |
 | `subX` / `subY` | Scene samples per cell; target is `cols·subX × rows·subY`. |
 | `needsDepth` | Attach a `THREE.DepthTexture`; prelude then provides `linearDepth()`. |
-| `groundGrid?` | Whether the world's perspective floor grid is drawn under this style. Absent = `true`; painterly styles (`quest`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor`) set `false`. `main.ts` swaps the map on both the flat ground plane and the terrain heightfield mesh on every style change, and exposes `window.__asciicity.groundGrid` (wave 16b, T-0132). |
+| `groundGrid?` | Whether the world's perspective floor grid is drawn under this style. Absent = `true`; painterly styles (`quest`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor`) and `retrocgi` set `false`. `main.ts` swaps the map on both the flat ground plane and the terrain heightfield mesh on every style change, and exposes `window.__asciicity.groundGrid` (wave 16b, T-0132). |
 | `targetCap?` | Scene-target cap `{ w, h }` for this style. Absent = 640×360; the sketch family and `scribble` set 960×540 so 2×2 cells stay 2×2 at 1080p (wave 18b, T-0145). Nothing may exceed 960×540 (`MAX_TARGET_CAP_W/H`; the budget unit test enforces it). |
 | `fragment` | GLSL ES 1.0 body appended to `STYLE_PRELUDE`. Must define `void main()`. |
 | `makeUniforms(ctx)` | Style-specific uniforms (atlases, palettes). `{}` is fine. |
@@ -108,6 +108,7 @@ See the comment on `STYLE_PRELUDE` in `style.ts`.
 | `pastel` | `styles/pastel.ts` | 2×2 | 1×1 | yes | Soft chalk pastel: grainy colour blocks, no strokes, bilinear-smoothed sample + chalk smudge + soft outline (§4.11 wave 18b). `targetCap` 960×540 (T-0145). |
 | `watercolor` | `styles/watercolor.ts` | 2×2 | 1×1 | yes | Watercolour washes with granulation and pooled edges (§4.11 wave 18). `targetCap` 960×540 (wave 18b, T-0145). |
 | `edges` | `styles/edges.ts` | 2×2 | 1×1 | yes | Stub until T-0056. |
+| `retrocgi` | `styles/retrocgi.ts` | 2×2 | 1×1 | yes | 1981 wireframe glider display: green outlines + shoreline on black, NOSEVIEW HUD skin (§4.11 wave 19). `targetCap` 960×540. Stub (the `edges` shader) until T-0149. |
 | `hatch` | `styles/hatch.ts` | 6×12 | 1×1 | no | Stub until T-0057. |
 | `matrix` | `styles/matrix.ts` | 6×12 | 1×1 | no | Stub until T-0058. |
 

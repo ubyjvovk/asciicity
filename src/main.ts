@@ -73,6 +73,7 @@ import {
   type Settings,
 } from './settings';
 import { Tags, landmarkAnchors, pickTags } from './hud/tags';
+import { Noseview, type NoseviewValues } from './hud/noseview';
 
 declare global {
   interface Window {
@@ -925,6 +926,14 @@ async function main(): Promise<void> {
   const minimap = new Minimap(miniCanvas, city);
   if (!settings.minimap) miniRoot.style.display = 'none';
 
+  // NOSEVIEW HUD skin (architecture.md §4.11 "retrocgi"): always mounted,
+  // shown by CSS only while `body[data-render="retrocgi"]`.
+  const noseRoot = document.createElement('div');
+  noseRoot.id = 'noseview';
+  document.body.append(noseRoot);
+  const noseview = new Noseview(noseRoot);
+  const noseValues: NoseviewValues = { altM: 0, x: 0, z: 0, timeS: 0 };
+
   const crtEl = mountCrt(document.body);
   setCrt(crtEl, settings.crt);
 
@@ -964,6 +973,8 @@ async function main(): Promise<void> {
   });
   const toast = mountToast();
   toast.show(`RENDER: ${post.style.label}`);
+  // Style-keyed CSS hook (HUD skins): `body[data-render]` === active style id.
+  document.body.dataset.render = post.style.id;
 
   // Ground grid per style (T-0132): painterly styles hide the perspective
   // floor grid; swap the ground AND terrain maps to match the boot style.
@@ -1170,6 +1181,7 @@ async function main(): Promise<void> {
   const applyStyleChange = (): void => {
     settings.render = post.style.id;
     api.render = post.style.id;
+    document.body.dataset.render = post.style.id;
     api.groundGrid = groundGridFor(post.style);
     applyGroundGrid();
     api.cols = post.cols;
@@ -1632,6 +1644,15 @@ async function main(): Promise<void> {
 
     frameCount++;
     if (frameCount % HUD_INTERVAL === 0) {
+      if (post.style.id === 'retrocgi') {
+        noseValues.altM = city.terrain
+          ? city.terrain.datum + state.y - EYE_HEIGHT
+          : agl;
+        noseValues.x = state.x;
+        noseValues.z = state.z;
+        noseValues.timeS = nowTs / 1000;
+        noseview.update(noseValues);
+      }
       if (settings.hud) {
         hudValues.sector = sectorOf(state.x, state.z);
         hudValues.world = formatWorld(state.x, state.z);

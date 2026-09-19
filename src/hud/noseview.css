@@ -1,0 +1,9 @@
+/* NOSEVIEW HUD skin (architecture.md §4.11 "retrocgi"). Hidden unless the
+   retrocgi style is active; T-0150 adds the rest. */
+#noseview {
+  display: none;
+}
+
+body[data-render='retrocgi'] #noseview {
+  display: block;
+}

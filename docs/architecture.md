@@ -460,7 +460,7 @@ read the file; it also holds `STYLE_PRELUDE`, the helper GLSL every style
 is compiled with, and `STYLE_ORDER`, the `R`-cycle order). Twelve styles
 ship: `ascii`, `gloom`, `solarized`, `amber` (the ascii family, one
 module), `braille`, `blocks`, `teletext`, `dither`, `gameboy`, `pico8`,
-`edges`, `hatch`, `matrix`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (nineteen: `quest` left the cycle 2026-09-18 when `crayon` replaced it as the Minas Tirith default; the module stays). Every style must keep ≥ 30 fps on an integrated GPU: the scene
+`edges`, `retrocgi`, `hatch`, `matrix`, `lowpoly`, `scribble`, `pencil`, `crayon`, `pastel`, `watercolor` (twenty — `retrocgi` joined in wave 19; `quest` left the cycle 2026-09-18 when `crayon` replaced it as the Minas Tirith default; the module stays). Every style must keep ≥ 30 fps on an integrated GPU: the scene
 target must stay ≤ 640×360 px (`cols·subX × rows·subY` at 1080p), or ≤ the
 style's `targetCap` (ceiling 960×540; wave 18b — the sketch family and `scribble`
 use it with 2×2 cells; they must still hold ≥ 30 fps on an integrated GPU).
@@ -1328,6 +1328,93 @@ v2 are deleted. Unit: `roughSmudge(0, ·, ·, 1)` → 0; monotone in toneS;
 `roughSmudge(1, 0.9, 1, 1)` → 0 (skip); `roughSmudge(1, 0.5, 0.5, 1)` →
 `0.6·(0.525)·(0.775)` = 0.244 (toBeCloseTo 3); `wallWashRough(1, 1, 0)` →
 0.1925, `(1, 1, 1)` → 0.35.
+
+**`retrocgi` (wave 19, 2026-09-19; T-0149 shader, T-0150 HUD skin)** — user
+brief: the glider display of *Escape from New York* (1981): phosphor-green
+outlines of a city on black "and not much else", plus a HUD overlay "like
+we're operating a retro-future drone". Reference frame: building tops and
+vertical corners as chunky glowing green lines, one bright shoreline, black
+water and black sky, cyan segmented captions (`NOSEVIEW`, `ALT.`, `AIR..`),
+a dashed cyan reticle, one red target blip.
+
+Geometry and flags (PM stub already carries them): id `retrocgi`, label
+`RETRO CGI`, cell 2×2, sub 1×1, `needsDepth: true`, `groundGrid: false`,
+`targetCap: { w: 960, h: 540 }`. It sits after `edges` in `STYLE_ORDER`.
+`edges` stays (dim scene + thin lines); `retrocgi` is the film look.
+
+Shader — every cell is `BG` plus green line light; the scene colour is used
+only to find water.
+
+    constants   RETRO_LINE = (0.30, 1.00, 0.45)     phosphor green
+                RETRO_BG   = (0.00, 0.02, 0.00)     never pure black: the tube glows
+                HALO_GAIN  = 0.30                    glow from neighbouring line cells
+                FADE_NEAR  = 150 m, FADE_FAR = 900 m, FADE_MIN = 0.35
+                FLICKER    = 0.04                    ± share of line intensity
+                water test: b > 0.04 and b > 1.6·r and b > 1.25·g on the exposed scene colour
+                            (WATER_HEX 0x163a6b = (22, 58, 107) → ratios 4.9 / 1.8; fog is black,
+                            lighting is grey, so both ratios survive day, night and distance)
+
+    edgeAt(uv)  = isEdge(dC, [dL, dR, dU, dD], cameraFar)            // edges.ts, imported — NOT copied:
+                                                                     //   sky rule + inverse-depth second difference,
+                                                                     //   neighbours ONE target texel away
+                  OR  isWater(colour at uv) ≠ isWater(colour at any of the same 4 neighbours)
+                                                                     // the shoreline: water and land are
+                                                                     //   coplanar, depth cannot see it.
+                                                                     //   Skipped when uv is sky (dC ≥ 0.98·far).
+    main:
+      c      = cell centre uv
+      e0     = edgeAt(c)
+      halo   = (number of the 4 cells TWO target texels away — left, right, up, down — with edgeAt true) / 4
+      dNear  = min over the centre's five depth samples of those that are not sky (sky-only → FADE_FAR)
+      fade   = mix(1, FADE_MIN, smoothstep(FADE_NEAR, FADE_FAR, dNear))
+      flick  = 1 − FLICKER + FLICKER · sin(time · 37.0)
+      I      = (e0 ? 1 : HALO_GAIN · halo) · fade · flick
+      out    = RETRO_BG + RETRO_LINE · I                              // clamp to 1
+
+25 depth taps + 25 colour taps per cell on a ≤ 960×540 target — below the
+sketch family's cost. No noise, no world anchoring: nothing here is a
+screen-space pattern, lines sit on geometry.
+
+Pure mirrors (retrocgi.ts, unit-tested in node, the shader mirrors them term
+for term): `isWaterColour(rgb)`, `retroEdge(depths5, colours5, far)`
+(centre first, then L, R, U, D), `retroFade(dNear)`,
+`retroIntensity(e0, haloCount, dNear, flick)`, `retroColour(I)`.
+
+HUD skin — `src/hud/noseview.ts` + `noseview.css` (T-0150). main.ts (PM
+wiring, done) keeps `document.body.dataset.render` equal to the active style
+id, mounts `#noseview` once, and calls `Noseview.update({ altM, x, z, timeS })`
+every HUD tick while `retrocgi` is active. Everything else is CSS keyed on
+`body[data-render="retrocgi"]`:
+
+  - `#hud` (NAVIGATION panel) and `#mini` hidden; they return on the next style.
+  - `#noseview`: `position: fixed; inset: 0; pointer-events: none; z-index: 4`
+    (under `.crt`, z 5). Colour `NV_CYAN = #7fe9ff`, glow
+    `text-shadow: 0 0 6px rgba(127, 233, 255, .6)`. Type: `monospace`, bold,
+    italic, `letter-spacing: .18em`, upper-case (no webfont — package.json and
+    `public/` are PM-owned; a segmented font is a later PM option).
+      `.nv-title`  "NOSEVIEW", top 9 %, centred, `font-size: clamp(22px, 5.2vw, 64px)`
+      `.nv-alt`    "ALT. 533"  bottom 9 %, right edge at 47 % of the width, `clamp(18px, 4.2vw, 52px)`
+      `.nv-air`    "AIR.. 70"  bottom 9 %, left edge at 57 %, same size
+      `.nv-v`      vertical dashed line (2 px, `NV_CYAN` at 70 % opacity) at x 52 %, from y 26 % to y 78 %
+      `.nv-h`      horizontal dashed line at y 52 %, from x 14 % to x 90 %
+      `.nv-box`    dashed open-bottom bracket 8 % wide × 9 % tall, centred on x 52 %, top at y 24 %
+      `.nv-tick-l`, `.nv-tick-r`  2 px solid verticals, 7 % tall, centred on the ends of `.nv-h`
+  - `ALT.` = `formatNvAlt(altM)`: `max(0, round(altM))`, no unit, no padding.
+    `AIR..` = `formatNvAir(speed)`: `round(speed · 1.944)` (knots), where
+    `speed = nvSpeed(prev, cur)`: horizontal metres per second between two
+    updates, `0` on the first update, when `dt ≤ 0`, or when `dt > 1 s`
+    (teleport / tab sleep); the displayed value is smoothed
+    `shown += (raw − shown) · 0.35` per update.
+  - Landmark tags become target blips: `div.tag` gets `color: NV_CYAN`,
+    transparent background, and a `::before` 7 px `#ff3b30` dot with a red
+    glow, left of the label. No projection code changes.
+
+Pure (noseview.ts): `formatNvAlt`, `formatNvAir`, `nvSpeed`.
+Unit: `formatNvAlt(533.4)` → `'533'`, `(−3)` → `'0'`; `formatNvAir(36)` →
+`'70'`; `nvSpeed` first call 0, 10 m in 0.5 s → 20, `dt = 0` → 0, `dt = 2` → 0.
+E2E (DOM only, no pixels): under `?render=retrocgi` `#noseview` is visible
+with the three captions and `#hud` is `display: none`; after one `R` press
+`#noseview` is hidden and `#hud` is back.
 
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
