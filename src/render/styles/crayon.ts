@@ -2,29 +2,36 @@
  * `crayon` render style (docs/architecture.md §4.11, wave 18d T-0148
  * "Pencil / crayon v3 — rough smudged shading"): the `pencil` shader
  * with colour. The six-rule stroke / shading block is byte-identical;
- * only the colour lines differ — `groundCol = mix(G, tint, satF)`,
- * `strokeCol` and wash colour `mix(G, tint, satF)`. Sky is paper.
- * Cell 2×2, sub 1×1, `targetCap` 960×540, `needsDepth: true`,
- * `groundGrid: false`.
+ * only the colour lines differ — `skyCol = SKY_PENCIL`,
+ * `groundCol = mix(G, tint, satF)`, `strokeCol` and wash colour
+ * `mix(G, tint, satF)`. Sky is paper + sparse blue patches. Cell 2×2,
+ * sub 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
  *
  * The world-anchored stroke machinery is the shared chunk `./strokes.ts`:
  * `fragment: STROKE_GLSL + CRAYON_FRAGMENT`. This file keeps the colours
- * (`PAPER_P`, `G`), the pure mirrors `crayonStroke` / `crayonWash`, the
- * re-exported `roughSmudge` / `smearGate` / `wallWashRough` /
- * `hatchGate` / `facadeDir` (from `pencil`), the fragment `main()` and
- * `STYLES`.
+ * (`PAPER_P`, `G`, `SKY_PENCIL`), the pure mirrors `crayonStroke` /
+ * `crayonWash`, the re-exported `roughSmudge` / `smearGate` /
+ * `wallWashRough` / `skyShadeOf` / `hatchGate` / `facadeDir` (from
+ * `pencil`), the fragment `main()` and `STYLES`.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
 import { STROKE_GLSL } from './strokes';
 
 /**
- * Rough smudge, smear gate, rough wall wash, hatch gate and facade
- * direction (§4.11 "Pencil / crayon v3"). Defined in `pencil.ts`;
- * crayon re-exports the same functions and applies the identical GLSL
- * block.
+ * Rough smudge, smear gate, rough wall wash, sky-patch shade, hatch
+ * gate and facade direction (§4.11 "Pencil / crayon v3"). Defined in
+ * `pencil.ts`; crayon re-exports the same functions and applies the
+ * identical GLSL block.
  */
-export { facadeDir, hatchGate, roughSmudge, smearGate, wallWashRough } from './pencil';
+export {
+  facadeDir,
+  hatchGate,
+  roughSmudge,
+  smearGate,
+  skyShadeOf,
+  wallWashRough,
+} from './pencil';
 
 /** GLSL `mix(a, b, t) = a + (b − a)·t`. */
 function mix(a: number, b: number, t: number): number {
@@ -42,6 +49,9 @@ export const PAPER_P: readonly [number, number, number] = [0.97, 0.96, 0.93];
  * (§4.11 `G`).
  */
 export const G: readonly [number, number, number] = [0.22, 0.22, 0.25];
+
+/** Crayon sky pigment (§4.11 `SKY_PENCIL`). `[r, g, b]` in `[0, 1]`. */
+export const SKY_PENCIL: readonly [number, number, number] = [0.40, 0.46, 0.62];
 
 /**
  * Coloured-pencil stroke colour for a full-brightness tint (§4.11
@@ -73,27 +83,35 @@ export function crayonWash(tone: number, satF: number): number {
 /**
  * §4.11 wave-18d "Pencil / crayon v3 — rough smudged shading" fragment
  * (the half after the shared `STROKE_GLSL` chunk). The marked RULES
- * GLSL block is byte-identical to `pencil.ts`. After it, crayon mixes
- * `strokeCol` over `groundCol` / wash colour `mix(G, tint, satF)`
- * (from the 3×3 mean). `daylight` is the only style uniform; prelude
- * uniforms are never redeclared.
+ * GLSL block is byte-identical to `pencil.ts`. Colour side: `skyCol =
+ * SKY_PENCIL`; after the block, crayon mixes `strokeCol` over
+ * `groundCol` / wash colour `mix(G, tint, satF)` (from the 3×3 mean).
+ * `daylight` is the only style uniform; prelude uniforms are never
+ * redeclared.
  */
 const CRAYON_FRAGMENT = `
 uniform float daylight;
 const vec3 PAPER_P = vec3(0.97, 0.96, 0.93);
 const vec3 G = vec3(0.22, 0.22, 0.25);
+const vec3 SKY_PENCIL = vec3(0.40, 0.46, 0.62);
 
 void main() {
   vec2 p = vUv * grid;
   vec2 cell = floor(p);
 
+  vec3 skyCol = SKY_PENCIL;
+
   // RULES BEGIN
   Surf s = surfaceAt(vUv);
   float g = toothOf(s);
 
-  // 1. SKY = paper. No hair, no wash.
+  // 1. SKY = paper + a few smudged patches (heavier toward the horizon).
   if (s.cls == 0) {
-    gl_FragColor = vec4(PAPER_P, 1.0);
+    float n1s = vnoiseA(s.ps.x, s.ps.y, 1.0, 1.0, 30.0, 12.0);
+    float n2s = vnoiseA(s.ps.x, s.ps.y / 6.0, 1.0, 1.0 / 6.0, 6.0, 13.0);
+    float horiz = 1.0 - smoothstep(0.05, 0.45, clamp(s.dirW.y, 0.0, 1.0));
+    float skyShade = 0.22 * smoothstep(0.58, 0.85, n1s) * (0.55 + 0.45 * n2s) * (0.35 + 0.65 * horiz) * g;
+    gl_FragColor = vec4(mix(PAPER_P, skyCol, skyShade), 1.0);
     return;
   }
 
@@ -182,10 +200,10 @@ void main() {
 /**
  * Coloured-pencil sketch — the pencil six-rule sketch in each object's
  * own hue (`groundCol` / wash colour `mix(G, tint, satF)`, `strokeCol`),
- * blank paper sky, rough smudged horizontals (water smudges blue),
- * one-direction hatch in shadowed facades with a roughened wash,
- * graphite silhouettes. Cell 2×2, sub 1×1, `targetCap` 960×540, depth.
- * `R` cycles, `?render=crayon`.
+ * paper sky with sparse `SKY_PENCIL` patches, rough smudged horizontals
+ * (water smudges blue), one-direction hatch in shadowed facades with a
+ * roughened wash, graphite silhouettes. Cell 2×2, sub 1×1, `targetCap`
+ * 960×540, depth. `R` cycles, `?render=crayon`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {

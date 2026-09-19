@@ -3,9 +3,10 @@
 Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
 `groundGrid: false`. Implements the graphite **rough-smudged sketch**
 look from `docs/architecture.md` §4.11 (wave 18d, T-0148 "Pencil /
-crayon v3"): mostly white paper, contrasting edges, rough uneven
-shading on horizontals (the opposite of even thatch), hatch only in
-dark facades, one stroke direction per facade.
+crayon v3"): mostly white paper, sparse smudged sky patches (heavier
+at the horizon), contrasting edges, rough uneven shading on
+horizontals (the opposite of even thatch), hatch only in dark facades,
+one stroke direction per facade.
 
 **The stroke machinery is shared** — the GLSL helpers (`hash2`,
 `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `wobble`,
@@ -16,8 +17,8 @@ dark facades, one stroke direction per facade.
 **`docs/styles/strokes.md`**. This file documents only what is
 pencil-specific: the colours (`PAPER_P`, `G`), `pencilWash`,
 `crossCoords`, `roughSmudge`, `smearGate`, `wallWashRough`,
-`hatchGate`, `facadeDir` and the fragment `main()`. The stroke /
-shading GLSL block (the RULES markers) is byte-identical in
+`skyShadeOf`, `hatchGate`, `facadeDir` and the fragment `main()`. The
+stroke / shading GLSL block (the RULES markers) is byte-identical in
 `crayon.ts`.
 
 ## The six rules (per pixel)
@@ -25,7 +26,14 @@ shading GLSL block (the RULES markers) is byte-identical in
 `p = vUv · grid`; `cell = floor(p)`; `Surf s = surfaceAt(vUv)`;
 `g = toothOf(s)`.
 
-**1. Sky = paper.** `s.cls == 0` → `out = PAPER_P`. No hair, no wash.
+**1. Sky = paper + a few smudged patches** (heavier toward the
+horizon). Dome-anchored on `s.ps` (scale 1); no hair:
+
+    n1s      = vnoiseA(ps.x, ps.y, 1, 1, 30, 12)                 // big patches, 30 cells
+    n2s      = vnoiseA(ps.x, ps.y / 6, 1, 1 / 6, 6, 13)           // sideways smear
+    horiz    = 1 − smoothstep(0.05, 0.45, clamp(s.dirW.y, 0, 1)) // 1 at the horizon, 0 high up
+    skyShade = 0.22 · smoothstep(0.58, 0.85, n1s) · (0.55 + 0.45 · n2s) · (0.35 + 0.65 · horiz) · g
+    out      = mix(PAPER_P, skyCol, skyShade)                    // skyCol = G
 
 **2. Horizontal surfaces** (`s.cls == 1`: ground, roofs, bus tops) =
 paper + rough smudge (no hatch). Uneven patches, a sideways smear,
@@ -87,10 +95,11 @@ outline colour `G`. Pencil hatch widths stay `0.45, 0.25, 0.60`.
   shared machinery plus pencil's constants (`PAPER_P`, `G`), the
   `daylight` uniform and `main()`. Nothing in the fragment redeclares
   a prelude uniform. The `daylight` uniform is kept (seeded /
-  refreshed) but unused in v3 — the sky is paper.
+  refreshed) but unused in v3 — the sky is paper + graphite patches.
 - **RULES markers** — the stroke / shading GLSL between the RULES
-  markers is byte-identical in `crayon.ts`. Only the colour lines after
-  it differ (pencil: `groundCol = G`, `washCol = G`, `strokeCol = G`).
+  markers is byte-identical in `crayon.ts`. Colour-side variables the
+  block reads: `skyCol = G` (before the markers). After it, pencil:
+  `groundCol = G`, `washCol = G`, `strokeCol = G`.
 - **9-tap tone** — `meanC` is the mean of `sampleSub` over the 3×3 cell
   neighbourhood (`ox, oy ∈ {−1, 0, 1}`).
 - **Anisotropic smear** — `n2` passes `along / 7` and `ma / 7` so the
@@ -118,6 +127,10 @@ outline colour `G`. Pencil hatch widths stay `0.45, 0.25, 0.60`.
 - `wallWashRough(toneS, g, n1w): number` — `0.35 · g · smoothstep(0.20,
   0.90, toneS) · (0.55 + 0.45 · n1w)` (`wallWashRough(1, 1, 0) → 0.1925`,
   `(1, 1, 1) → 0.35`).
+- `skyShadeOf(n1s, n2s, horiz, g): number` — `0.22 · smoothstep(0.58,
+  0.85, n1s) · (0.55 + 0.45 · n2s) · (0.35 + 0.65 · horiz) · g`
+  (`skyShadeOf(0.5, ·, ·, 1) → 0`; `skyShadeOf(1, 1, 1, 1) → 0.22`;
+  `skyShadeOf(1, 1, 0, 1) → 0.077`).
 - `hatchGate(toneS, dC): number` — `smoothstep(0.50, 0.75, toneS) ·
   (1 − smoothstep(150, 400, dC))` (`hatchGate(1, 0) → 1`,
   `hatchGate(1, 400) → 0`, `hatchGate(0.5, 0) → 0`).
@@ -143,7 +156,7 @@ redeclares them. No textures are created, so there is no `dispose`.
 
 1. `p = vUv · grid`, `cell = floor(p)`; `Surf s = surfaceAt(vUv)`;
    world-anchored paper grain `g = toothOf(s)`.
-2. Sky cells write `PAPER_P` and return.
+2. Sky cells mix paper toward `skyCol` (`G`) by `skyShadeOf` and return.
 3. `toneS` from the 3×3 `sampleSub` mean × `depthFade`.
 4. Horizontals mix paper toward `groundCol` (`G`) by `shade`
    (`roughSmudge` + smear + grain, clamped to 0.75); walls mix paper
@@ -155,4 +168,5 @@ redeclares them. No textures are created, so there is no `dispose`.
 Expected frame: mostly white paper; buildings as dark contour drawings
 with soft grey shading and hatching in the shadowed facades, one stroke
 direction per facade; roads, water and roofs with rough uneven smudged
-shading (never a solid thatch); a blank sky.
+shading (never a solid thatch); a paper sky with a few smudged patches,
+heavier toward the horizon.

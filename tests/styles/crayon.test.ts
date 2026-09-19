@@ -3,7 +3,7 @@
  * (docs/architecture.md §4.11, wave 18d "Pencil / crayon v3"): the
  * coloured-pencil stroke colour, the paper wash strength, and the
  * re-export identity of `roughSmudge` / `smearGate` / `wallWashRough`
- * / `hatchGate` / `facadeDir` with `pencil`. The shared stroke
+ * / `skyShadeOf` / `hatchGate` / `facadeDir` with `pencil`. The shared stroke
  * machinery is the `strokes.ts` chunk — its tests live in
  * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
@@ -17,6 +17,7 @@ import {
   hatchGate,
   roughSmudge,
   smearGate,
+  skyShadeOf,
   wallWashRough,
 } from '../../src/render/styles/crayon';
 import {
@@ -24,14 +25,16 @@ import {
   hatchGate as pencilHatchGate,
   roughSmudge as pencilRoughSmudge,
   smearGate as pencilSmearGate,
+  skyShadeOf as pencilSkyShadeOf,
   wallWashRough as pencilWallWashRough,
 } from '../../src/render/styles/pencil';
 
-describe('roughSmudge / smearGate / wallWashRough / hatchGate / facadeDir', () => {
+describe('roughSmudge / smearGate / wallWashRough / skyShadeOf / hatchGate / facadeDir', () => {
   it('re-exports the same functions (`toBe` identity)', () => {
     expect(roughSmudge).toBe(pencilRoughSmudge);
     expect(smearGate).toBe(pencilSmearGate);
     expect(wallWashRough).toBe(pencilWallWashRough);
+    expect(skyShadeOf).toBe(pencilSkyShadeOf);
     expect(hatchGate).toBe(pencilHatchGate);
     expect(facadeDir).toBe(pencilFacadeDir);
   });

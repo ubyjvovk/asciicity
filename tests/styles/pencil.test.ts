@@ -1,9 +1,9 @@
 /**
  * Unit tests for the pure parts of the `pencil` render style
  * (docs/architecture.md §4.11, wave 18d "Pencil / crayon v3"): the
- * rough-smudge / smear-gate / rough-wall-wash / hatch-gate /
- * facade-direction mirrors, plus the kept `pencilWash` and
- * `crossCoords`. The shared stroke machinery is unit-tested in
+ * rough-smudge / smear-gate / rough-wall-wash / sky-patch-shade /
+ * hatch-gate / facade-direction mirrors, plus the kept `pencilWash`
+ * and `crossCoords`. The shared stroke machinery is unit-tested in
  * `tests/styles/strokes.test.ts`. Runs in node; no WebGL is touched.
  */
 import { describe, expect, it } from 'vitest';
@@ -16,6 +16,7 @@ import {
   pencilWash,
   roughSmudge,
   smearGate,
+  skyShadeOf,
   wallWashRough,
 } from '../../src/render/styles/pencil';
 
@@ -90,6 +91,22 @@ describe('wallWashRough', () => {
 
   it('wallWashRough(1, 1, 1) → 0.35', () => {
     expect(wallWashRough(1, 1, 1)).toBeCloseTo(0.35, 6);
+  });
+});
+
+describe('skyShadeOf', () => {
+  it('skyShadeOf(0.5, ·, ·, 1) → 0', () => {
+    expect(skyShadeOf(0.5, 0, 0, 1)).toBe(0);
+    expect(skyShadeOf(0.5, 1, 1, 1)).toBe(0);
+    expect(skyShadeOf(0.5, 0.5, 0.5, 1)).toBe(0);
+  });
+
+  it('skyShadeOf(1, 1, 1, 1) → 0.22', () => {
+    expect(skyShadeOf(1, 1, 1, 1)).toBeCloseTo(0.22, 6);
+  });
+
+  it('skyShadeOf(1, 1, 0, 1) → 0.077', () => {
+    expect(skyShadeOf(1, 1, 0, 1)).toBeCloseTo(0.077, 3);
   });
 });
 

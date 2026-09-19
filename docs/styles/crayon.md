@@ -5,9 +5,10 @@ Cell **2×2**, sub **1×1**, depth texture (`needsDepth: true`),
 `docs/architecture.md` §4.11 (wave 18d, T-0148 "Pencil / crayon v3"):
 **coloured pencil — the `pencil` six-rule shader with colour**. The
 stroke / shading GLSL block is byte-identical; only the colour lines
-differ (`groundCol = mix(G, tint, satF)`, `strokeCol`, wash colour
-`mix(G, tint, satF)`). The sky is paper — the blue pencil dome is
-gone. Water smudges blue.
+differ (`skyCol = SKY_PENCIL`, `groundCol = mix(G, tint, satF)`,
+`strokeCol`, wash colour `mix(G, tint, satF)`). The sky is paper plus
+a few smudged `SKY_PENCIL` patches (heavier at the horizon). Water
+smudges blue.
 
 **The stroke machinery is shared** — the GLSL helpers (`hash2`,
 `viewPos`, `viewNormal`, `strokeCoords`, `strokeScale`, `wobble`,
@@ -16,10 +17,10 @@ gone. Water smudges blue.
 `toothOf`, `vnoiseA`, `anchoredNoise`, and their TS mirrors live in
 `src/render/styles/strokes.ts` (`STROKE_GLSL`); see
 **`docs/styles/strokes.md`**. This file documents only what is
-crayon-specific: the colours, the two pure mirrors (`crayonStroke`,
-`crayonWash`), the re-exported `roughSmudge` / `smearGate` /
-`wallWashRough` / `hatchGate` / `facadeDir` (from `pencil`), and the
-fragment `main()`.
+crayon-specific: the colours (`PAPER_P`, `G`, `SKY_PENCIL`), the two
+pure mirrors (`crayonStroke`, `crayonWash`), the re-exported
+`roughSmudge` / `smearGate` / `wallWashRough` / `skyShadeOf` /
+`hatchGate` / `facadeDir` (from `pencil`), and the fragment `main()`.
 
 ## The six rules (per pixel)
 
@@ -36,7 +37,10 @@ RULES markers). After that block, crayon colours the mix:
     if s.cls == 2: out = mix(out, strokeCol, ink)
     out = mix(out, G, strength · e)              // outline stays graphite
 
-**1. Sky = paper.** `out = PAPER_P`. No hair, no blue/violet wash.
+**1. Sky = paper + a few smudged patches** (heavier toward the
+horizon). Same `n1s` / `n2s` / `horiz` / `skyShade` as pencil; mixed
+toward `skyCol = SKY_PENCIL` `(0.40, 0.46, 0.62)` instead of graphite.
+No hair.
 
 **2. Horizontal surfaces** (`s.cls == 1`) = paper + rough smudge (no
 hatch). Same `sm` / `n1` / `n2` / `skip` / `smudge` / `smear` /
@@ -73,21 +77,23 @@ Outline colour is `G`. Ground cells keep their outline.
 
 ## Shader notes
 
-- **Pencil strokes, crayon colours** — the 9-tap tone, rough smudge,
-  rough wash, one-direction hatch, 2-cell outline and silhouette
-  strength are exactly the `pencil` RULES block; only `groundCol`,
-  `strokeCol` and wash colour `mix(G, tint, satF)` carry the hue.
+- **Pencil strokes, crayon colours** — the sky patches, 9-tap tone,
+  rough smudge, rough wash, one-direction hatch, 2-cell outline and
+  silhouette strength are exactly the `pencil` RULES block; only
+  `skyCol = SKY_PENCIL`, `groundCol`, `strokeCol` and wash colour
+  `mix(G, tint, satF)` carry the hue.
 - **Grain only** — crayon uses the chunk's `toothOf(s)`, `vnoiseA` and
   `anchoredNoise` (via the shared RULES block), not `blotchA`. The tooth
-  rides the surfaces (sky is paper, so the dome tooth is unused).
+  rides the surfaces and the sky patches (`g` in `skyShadeOf`).
 - **Chunk + fragment** — `fragment: STROKE_GLSL + CRAYON_FRAGMENT`:
   the shared machinery (`docs/styles/strokes.md`) plus crayon's
-  constants (`PAPER_P`, `G`), the `daylight` uniform and `main()`.
+  constants (`PAPER_P`, `G`, `SKY_PENCIL`), the `daylight` uniform and
+  `main()`.
 - **One uniform** — `uniform float daylight` is the only style uniform,
   seeded from `ctx.daylight` in `makeUniforms` and refreshed every frame
-  by the `update` hook. Unused in v3 (the sky is paper).
-  `makeUniforms` creates no textures; no `dispose`. Prelude uniforms
-  (`viewUp`, `tanHalfFov`, `viewToWorld`) are never redeclared.
+  by the `update` hook. Unused in v3 (the sky is paper + `SKY_PENCIL`
+  patches). `makeUniforms` creates no textures; no `dispose`. Prelude
+  uniforms (`viewUp`, `tanHalfFov`, `viewToWorld`) are never redeclared.
 
 ## Pure exports (unit-tested in node)
 
@@ -99,12 +105,14 @@ keeps:
   `pencil`).
 - `G` — `[0.22, 0.22, 0.25]`, the graphite dark: stroke colour for grey
   things and the outline colour.
+- `SKY_PENCIL` — `[0.40, 0.46, 0.62]`, the crayon sky pigment.
 - `crayonStroke(tint, satF): [r, g, b]` — `mix(G, tint·0.60,
   0.85·satF)` per channel.
 - `crayonWash(tone, satF): number` — `0.45·satF·tone^0.7 +
   0.20·(1−satF)·tone` (kept; v1 wash strength).
-- `roughSmudge`, `smearGate`, `wallWashRough`, `hatchGate`,
-  `facadeDir` — re-exported from `pencil` (`toBe` identity).
+- `roughSmudge`, `smearGate`, `wallWashRough`, `skyShadeOf`,
+  `hatchGate`, `facadeDir` — re-exported from `pencil` (`toBe`
+  identity).
 
 ## Uniforms owned by the style
 
@@ -121,7 +129,8 @@ them and never redeclares them. No textures are created, so there is no
 ## What the shader does per pixel
 
 1. `p = vUv · grid`; `Surf s = surfaceAt(vUv)`; `g = toothOf(s)`.
-2. Sky cells write `PAPER_P` and return.
+2. Sky cells mix paper toward `skyCol` (`SKY_PENCIL`) by `skyShadeOf`
+   and return.
 3. 3×3 `sampleSub` mean → `toneS`; rough smudge / rough wash /
    one-direction hatch / 2-cell outline (the shared RULES block).
 4. Colour: `groundCol = washCol = mix(G, tint, satF)`,
@@ -133,4 +142,5 @@ Expected frame: a coloured-pencil drawing on mostly white paper;
 buildings as tinted contour drawings with soft coloured shading and
 hatching in the shadowed facades, one stroke direction per facade;
 roads, water and roofs with rough uneven tinted smudge (water blue);
-a blank sky.
+a paper sky with a few smudged blue patches, heavier toward the
+horizon.

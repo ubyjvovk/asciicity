@@ -1,17 +1,18 @@
 /**
  * `pencil` render style (docs/architecture.md §4.11, wave 18d T-0148
  * "Pencil / crayon v3 — rough smudged shading"): a graphite sketch on
- * warm paper — blank sky, rough uneven smudge on horizontals (uneven
- * patches, sideways smear, soft wide strokes, grain), smoothed 3×3
- * tone, hatch only in dark wall facets (one stroke direction per
- * facade) with a roughened wash, strong silhouettes. Cell 2×2, sub
- * 1×1, `targetCap` 960×540, `needsDepth: true`, `groundGrid: false`.
+ * warm paper — sparse smudged sky patches (heavier at the horizon),
+ * rough uneven smudge on horizontals (uneven patches, sideways smear,
+ * soft wide strokes, grain), smoothed 3×3 tone, hatch only in dark
+ * wall facets (one stroke direction per facade) with a roughened wash,
+ * strong silhouettes. Cell 2×2, sub 1×1, `targetCap` 960×540,
+ * `needsDepth: true`, `groundGrid: false`.
  *
  * Built on the shared chunk (`./strokes.ts`): `fragment: STROKE_GLSL +
  * PENCIL_FRAGMENT`. The stroke / shading GLSL block (wrapped in the
  * RULES markers) is byte-identical in `crayon.ts` — only the colour
- * lines after it differ (`groundCol = G` here). `daylight` is the only
- * style uniform; prelude uniforms are never redeclared.
+ * lines differ (`skyCol = G`, `groundCol = G` here). `daylight` is the
+ * only style uniform; prelude uniforms are never redeclared.
  */
 import * as THREE from 'three';
 import type { RenderStyle, StyleContext } from '../style';
@@ -76,6 +77,17 @@ export function wallWashRough(toneS: number, g: number, n1w: number): number {
   return 0.35 * g * smoothstep(0.2, 0.9, toneS) * (0.55 + 0.45 * n1w);
 }
 
+/** Sparse sky-patch shade (§4.11 v3 `skyShadeOf`): `0.22 · smoothstep(0.58, 0.85, n1s) · (0.55 + 0.45 · n2s) · (0.35 + 0.65 · horiz) · g`. */
+export function skyShadeOf(n1s: number, n2s: number, horiz: number, g: number): number {
+  return (
+    0.22 *
+    smoothstep(0.58, 0.85, n1s) *
+    (0.55 + 0.45 * n2s) *
+    (0.35 + 0.65 * horiz) *
+    g
+  );
+}
+
 /** Hatch-in-shadow × distance gate (§4.11 v2 `hatchGate`): `smoothstep(0.50, 0.75, toneS) · (1 − smoothstep(150, 400, dC))`. */
 export function hatchGate(toneS: number, dC: number): number {
   return smoothstep(0.5, 0.75, toneS) * (1 - smoothstep(150, 400, dC));
@@ -98,12 +110,12 @@ export function facadeDir(
  * (the half after the shared `STROKE_GLSL` chunk). `main()` starts with
  * `Surf s = surfaceAt(vUv)` and `g = toothOf(s)`. The six rules live
  * in the marked RULES GLSL block (byte-identical in `crayon.ts`): sky
- * is paper; horizontals are paper + rough smudge (patches, smear,
- * grain); tone is the 3×3-smoothed `toneS`; walls rough wash +
- * one-direction hatch in shadow; contrasting 2-cell outlines
- * (silhouette 1.0 / crease 0.7). Pencil then mixes toward graphite
- * `G` (`groundCol = G`). `daylight` is the only style uniform; prelude
- * uniforms are never redeclared.
+ * is paper + sparse smudged patches; horizontals are paper + rough
+ * smudge (patches, smear, grain); tone is the 3×3-smoothed `toneS`;
+ * walls rough wash + one-direction hatch in shadow; contrasting 2-cell
+ * outlines (silhouette 1.0 / crease 0.7). Pencil mixes toward graphite
+ * `G` (`skyCol = G`, `groundCol = G`). `daylight` is the only style
+ * uniform; prelude uniforms are never redeclared.
  */
 const PENCIL_FRAGMENT = `
 uniform float daylight;
@@ -114,13 +126,19 @@ void main() {
   vec2 p = vUv * grid;
   vec2 cell = floor(p);
 
+  vec3 skyCol = G;
+
   // RULES BEGIN
   Surf s = surfaceAt(vUv);
   float g = toothOf(s);
 
-  // 1. SKY = paper. No hair, no wash.
+  // 1. SKY = paper + a few smudged patches (heavier toward the horizon).
   if (s.cls == 0) {
-    gl_FragColor = vec4(PAPER_P, 1.0);
+    float n1s = vnoiseA(s.ps.x, s.ps.y, 1.0, 1.0, 30.0, 12.0);
+    float n2s = vnoiseA(s.ps.x, s.ps.y / 6.0, 1.0, 1.0 / 6.0, 6.0, 13.0);
+    float horiz = 1.0 - smoothstep(0.05, 0.45, clamp(s.dirW.y, 0.0, 1.0));
+    float skyShade = 0.22 * smoothstep(0.58, 0.85, n1s) * (0.55 + 0.45 * n2s) * (0.35 + 0.65 * horiz) * g;
+    gl_FragColor = vec4(mix(PAPER_P, skyCol, skyShade), 1.0);
     return;
   }
 
@@ -204,10 +222,10 @@ void main() {
 `;
 
 /**
- * Graphite sketch on warm paper — blank sky, rough smudged horizontals,
- * smoothed tone, one-direction hatch in shadowed facades with a
- * roughened wash, strong silhouettes. Cell 2×2, sub 1×1,
- * `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
+ * Graphite sketch on warm paper — sparse smudged sky patches, rough
+ * smudged horizontals, smoothed tone, one-direction hatch in shadowed
+ * facades with a roughened wash, strong silhouettes. Cell 2×2, sub
+ * 1×1, `targetCap` 960×540, depth. `R` cycles, `?render=pencil`.
  */
 export const STYLES: readonly RenderStyle[] = [
   {
