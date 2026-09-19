@@ -446,6 +446,17 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (90 s waitForFunction) times out because crayon v3 is slower under
   SwiftShader and the walk depends on frame rate — PM answered: spec is
   added to scope, timeouts 90 → 170 s / 180 → 300 s, plus the sky rule.
+- T-0148 attempt 2 (grok, 16 min, $0.45) met the amended spec; PM host
+  review: sky patches right, but the road went mid-grey overall and the
+  wide smear printed fine stripes at night — PM numbers again. PM tuned on
+  the branch (sm 0.35–0.95, ×0.60, skip 0.55–0.75, smear 0.12·smoothstep,
+  cap 0.55; tests 34/34, docs, §4.11 updated) and ACCEPTED 2026-09-19
+  ~02:00Z. Frames `pm-pencil-v4-*`, `pm-crayon-v5-*`, `pm-pencil-v4-sky`.
+- **Wave 18d complete (147 done).** Board empty. Awaiting the user's look
+  at the shaded ground/water and the sky patches. Pattern for the log:
+  three of the last four shading tickets needed a PM tune pass on host
+  frames after a spec-faithful worker landing — budget one from the
+  start for anything "artistic".
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
