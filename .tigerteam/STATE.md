@@ -421,6 +421,17 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   (gate 0.50–0.75) in ONE direction per facade (hash of normal + 40 m
   segment; vertical or 45°), far walls outline-only (150–400 m), 2-cell
   outlines with silhouette 1.0 / crease 0.7. T-0147 boarded (grok).
+- T-0147 ACCEPTED 2026-09-19 00:2xZ (grok-1, attempt 1, 19 min, $0.74).
+  PM host review (`pm-pencil-v3-*`, `pm-crayon-v4-*`): white paper sky and
+  road, contour drawings with soft smudge, single-direction hatch per
+  facade (vertical / 45°), far buildings outline-only, strong silhouettes
+  — the user's six rules, met. Grok flagged that pastel no longer has a
+  9-tap loop (T-0145 went 4-tap) and implemented the 3×3 mean itself;
+  `daylight` uniform now unused in pencil/crayon (harmless).
+- **Wave 18c complete (146 done).** Board empty. Awaiting the user's look
+  at pencil/crayon v2. Ideas if asked: window rectangles still read as a
+  grid on near facades (could smooth harder or drop windows under 20 m);
+  a faint horizon smudge in the sky; crayon at Minas Tirith walk.
 - T-0138 blocked three times in total, every time on PM numbers (grok's
   analysis was right each time: sky mix, grey cores, then value-noise
   tremor at 0.35 cells = ruler lines). PM took the ticket over (assignee
