@@ -229,3 +229,49 @@ does, waits two `requestAnimationFrame`s, then runs the same capture path.
 `POSTCARD SAVED` is toasted only when a download was requested (the silent
 `window.__asciicity.postcard('png' | 'gif')` test hook does not toast it).
 See `docs/integration.md` for the full menu rows, persistence, and keys.
+
+## NOSEVIEW skin (`retrocgi`)
+
+While the `retrocgi` render style is active the game looks like the glider
+display of *Escape from New York* (1981): the green NAVIGATION panel and the
+minimap disappear and a cyan overlay appears — a big `NOSEVIEW` caption,
+`ALT.` / `AIR..` readouts, a dashed reticle, and landmark tags turned into
+red target blips. All of it lives in `src/hud/noseview.ts` (the `Noseview`
+DOM class + pure formatters, wired into `main.ts` by the PM) and
+`src/hud/noseview.css`. The design contract is `docs/architecture.md` §4.11
+"`retrocgi` (wave 19)", paragraph "HUD skin".
+
+Visibility is pure CSS, keyed on `body[data-render="retrocgi"]` (main.ts
+keeps that attribute equal to the active style id). The NAVIGATION panel and
+minimap are hidden with `body[data-render='retrocgi'] #hud, ... #mini {
+  display: none !important; }` (main.ts sets inline `display` on them, so the
+`!important` is required); they return on the next style.
+
+`new Noseview(root)` builds these children of `#noseview` (class names
+locked — the e2e and PM review use them): `.nv-title` (`NOSEVIEW`),
+`.nv-alt`, `.nv-air`, `.nv-v`, `.nv-h`, `.nv-box`, `.nv-tick-l`,
+`.nv-tick-r`. Initial text is `ALT. 0` and `AIR.. 0`. `update(v)` touches
+only `textContent` and reuses two sample objects (no per-update
+allocation), writing `` `ALT. ${formatNvAlt(v.altM)}` `` and
+`` `AIR.. ${formatNvAir(shown)}` `` where `shown` is the airspeed smoothed
+`shown += (raw − shown) · 0.35` per update.
+
+Three pure functions (unit-tested in `tests/noseview.test.ts`):
+
+- `formatNvAlt(altM)` — `String(max(0, round(altM)))`, no unit, no padding.
+  `formatNvAlt(533.4)` → `'533'`; `formatNvAlt(-3)` → `'0'`.
+- `formatNvAir(speedMs)` — knots, `String(round(speedMs · 1.944))`.
+  `formatNvAir(36)` → `'70'`; `formatNvAir(0)` → `'0'`.
+- `nvSpeed(prev, cur)` — horizontal m/s between two samples; `0` on the
+  first update (`prev` undefined), when `dt ≤ 0`, or when `dt > 1 s`
+  (teleport / tab sleep). 10 m along x in 0.5 s → 20.
+
+Styling: `#noseview` is `position: fixed; inset: 0; pointer-events: none;
+z-index: 4` (under the CRT overlay, z 5), `#7fe9ff` on black with a cyan
+glow, monospace bold italic, `letter-spacing: .18em`, upper-case. Sizes are
+`%` of the viewport with `clamp()` fonts; the dashed reticle uses
+`border-left`/`border-top: 2px dashed` on zero-width / zero-height
+absolutely-positioned divs. **Every rule that styles something outside
+`#noseview` is prefixed with `body[data-render='retrocgi']`** — e.g. the
+`div.tag` blips (`color: #7fe9ff`, transparent background, a 7 px `#ff3b30`
+`::before` dot with a red glow, left of the label).
