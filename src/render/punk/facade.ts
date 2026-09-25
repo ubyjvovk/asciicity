@@ -1,15 +1,19 @@
 /**
  * Cyberpunk facade materials (wave 20b): dark weathered walls + bitumen roofs.
  * Decisions live in `facademath.ts`; this file is the TSL graph over them.
- * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Facades".
+ * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Facades" and
+ * "Facades × OSM (wave 21)" (the `*Osm` variants read the `extra` attribute).
  */
 import * as THREE from 'three/webgpu';
+import type { Node } from 'three/webgpu';
 import {
   abs,
+  attribute,
   float,
   floor,
   fract,
   length,
+  max,
   mix,
   min,
   normalize,
@@ -32,6 +36,8 @@ import {
   ALBEDO_RANGE,
   ATLAS_CELL_PX,
   BLINDS_SHARE,
+  BRICK_FADE_FAR_M,
+  BRICK_FADE_NEAR_M,
   DARK_BUILDING_SHARE,
   DETAIL_FADE_FAR_M,
   DETAIL_FADE_NEAR_M,
@@ -40,7 +46,10 @@ import {
   FLOOR_BAND_DARKEN,
   FLOOR_BAND_M,
   FLOOR_BAND_WIDTH_M,
+  FACADE_PATTERNS,
   GLASS_ALBEDO,
+  GLASS_LIT_MAX,
+  GLASS_LIT_MULT,
   GLASS_METALNESS,
   GLASS_ROUGHNESS,
   HASH_SALT_BLINDS,
@@ -58,7 +67,16 @@ import {
   LUMA_B,
   LUMA_G,
   LUMA_R,
+  MAT_BRICK,
+  MAT_GLASS,
+  MAT_METAL,
+  MAT_PLASTER,
+  MAT_STONE,
+  MAT_WOOD,
   MULLION_M,
+  OSM_GRIME_KEEP,
+  OSM_ROOF_NIGHT,
+  OSM_WALL_NIGHT,
   PANEL_SEAM_M,
   RIPPLE_SCALE,
   ROOF_ALBEDO_MIN,
@@ -93,10 +111,17 @@ import {
   WINDOW_TINTS,
 } from './facademath';
 
-/** The two building materials, in the `[walls, roof]` group order of `makeBuildingsObject`. */
+/**
+ * The building materials, in the `[walls, roof]` group order of
+ * `makeBuildingsObject`. `walls` / `roof` never read an attribute beyond
+ * position / normal / uv / color; `wallsOsm` / `roofOsm` also read `extra`
+ * and must only go on geometry that has it.
+ */
 export interface FacadeMaterials {
   walls: THREE.MeshStandardNodeMaterial;
   roof: THREE.MeshStandardNodeMaterial;
+  wallsOsm: THREE.MeshStandardNodeMaterial;
+  roofOsm: THREE.MeshStandardNodeMaterial;
 }
 
 const TUNGSTEN = vec3(WINDOW_TINTS[0][0], WINDOW_TINTS[0][1], WINDOW_TINTS[0][2]);
@@ -113,18 +138,38 @@ const MULLION = vec3(0.012, 0.011, 0.01);
  * windows or shopfronts, just the weathered material.
  */
 export function makeFacadeMaterials(windowTex: THREE.Texture | null, u: WetUniforms): FacadeMaterials {
+  const withWindows = windowTex !== null;
+  return {
+    walls: makeWalls(u, withWindows, false),
+    roof: makeRoof(u, false),
+    wallsOsm: makeWalls(u, withWindows, true),
+    roofOsm: makeRoof(u, true),
+  };
+}
+
+/** Bitumen roof; with `osm`, an OSM roof colour (rgb ≥ 0) replaces the bitumen as `roofColor · 0.15`. */
+function makeRoof(u: WetUniforms, osm: boolean): THREE.MeshStandardNodeMaterial {
   const roof = new THREE.MeshStandardNodeMaterial();
   const xz = positionWorld.xz;
   const nRoof = vnoiseNode(xz.mul(0.4));
   const bitumen = float(ROOF_ALBEDO_MIN).add(nRoof.mul(ROOF_ALBEDO_RANGE));
+  let dry: Node<'vec3'> = vec3(bitumen, bitumen, bitumen);
+  if (osm) {
+    const extra = attribute<'vec4'>('extra', 'vec4');
+    dry = mix(dry, extra.xyz.mul(OSM_ROOF_NIGHT), step(0, extra.x));
+  }
   const puddle = smoothstep(ROOF_PUDDLE_LO, ROOF_PUDDLE_HI, fbm2Node(xz.mul(ROOF_PUDDLE_FREQ)));
-  roof.colorNode = mix(vec3(bitumen, bitumen, bitumen), vec3(0.02, 0.02, 0.022), puddle);
+  roof.colorNode = mix(dry, vec3(0.02, 0.02, 0.022), puddle);
   roof.roughnessNode = mix(float(0.52), float(0.03), puddle);
   roof.metalnessNode = mix(float(0.15), float(0.9), puddle);
   roof.normalNode = rippleNormal(u, RIPPLE_SCALE, mix(float(0.12), float(1.2), puddle));
+  return roof;
+}
 
+/** Wall material; `osm` switches on the `extra`-driven colour and material patterns. */
+function makeWalls(u: WetUniforms, withWindows: boolean, osm: boolean): THREE.MeshStandardNodeMaterial {
   const walls = new THREE.MeshStandardNodeMaterial();
-  const st = wallNodes(u, windowTex !== null);
+  const st = wallNodes(u, withWindows, osm);
   walls.colorNode = st.color;
   walls.roughnessNode = st.roughness;
   walls.metalnessNode = st.metalness;
@@ -133,11 +178,122 @@ export function makeFacadeMaterials(windowTex: THREE.Texture | null, u: WetUnifo
   // the WebGL2 fallback and races style restore; perturb the view normal instead
   // (architecture.md: "bumpMap on a height node or perturb normalNode").
   walls.normalNode = normalize(normalView.add(vec3(st.seam.mul(SEAM_BUMP), st.band.mul(0.2), st.ridge.mul(0.25))));
-  return { walls, roof };
+  return walls;
+}
+
+type F = Node<'float'>;
+
+/** 1 on a joint line of width `width` (m) centred on multiples of `spacing` along `coordM`. */
+function jointLine(coordM: F, spacing: number, width: number): F {
+  const t = fract(coordM.div(spacing));
+  return jointAt(t, spacing, width);
+}
+
+/** 1 on a joint of width `width` (m) at the edges of a unit whose fractional position is `t` and length `unit` (m). */
+function jointAt(t: F, unit: number, width: number): F {
+  const d = min(t, t.oneMinus()).mul(unit);
+  return float(1).sub(smoothstep(width * 0.3, width * 0.5, d));
+}
+
+/** 1 when the `extra.w` material code equals `k`. */
+function isMat(code: F, k: number): F {
+  return float(1).sub(step(0.5, abs(code.sub(k))));
+}
+
+/**
+ * Material-code pattern (architecture.md §4.11 "Facades × OSM"): albedo
+ * multiplier, vertical / horizontal joint heights for the normal perturb, PBR,
+ * and the glass curtain-wall mask / mullions.
+ */
+function osmPattern(code: F, uM: F, vM: F, seed: F, fade: F, fine: F, seamH: F) {
+  const mBrick = isMat(code, MAT_BRICK);
+  const mStone = isMat(code, MAT_STONE);
+  const mGlass = isMat(code, MAT_GLASS);
+  const mMetal = isMat(code, MAT_METAL);
+  const mWood = isMat(code, MAT_WOOD);
+  const mPlaster = isMat(code, MAT_PLASTER);
+  const mPanels = float(1).sub(mBrick).sub(mStone).sub(mGlass).sub(mMetal).sub(mWood).sub(mPlaster);
+  const P = FACADE_PATTERNS;
+
+  // Brick: running-bond courses, half-brick offset every other course, recessed mortar.
+  const bP = P[MAT_BRICK];
+  const bRow = floor(vM.div(bP.size));
+  const bX = uM.div(bP.unitLength).add(fract(bRow.mul(0.5)));
+  const bH = jointAt(fract(vM.div(bP.size)), bP.size, bP.joint).mul(fine);
+  const bV = jointAt(fract(bX), bP.unitLength, bP.joint).mul(fine);
+  const bVar = hash2Node(vec2(floor(bX).add(seed.mul(31)), bRow)).sub(0.5).mul(2 * bP.variation).mul(fine).add(1);
+  const brickMul = bVar.mul(float(1).sub(max(bH, bV).mul(0.35)));
+
+  // Stone: ashlar blocks, half-block offset every other course.
+  const sP = P[MAT_STONE];
+  const sRow = floor(vM.div(sP.size));
+  const sX = uM.div(sP.unitLength).add(fract(sRow.mul(0.5)));
+  const sH = jointAt(fract(vM.div(sP.size)), sP.size, sP.joint).mul(fade);
+  const sV = jointAt(fract(sX), sP.unitLength, sP.joint).mul(fade);
+  const sVar = hash2Node(vec2(floor(sX).add(seed.mul(37)), sRow)).sub(0.5).mul(2 * sP.variation).add(1);
+  const stoneMul = sVar.mul(float(1).sub(max(sH, sV).mul(0.3)));
+
+  // Glass curtain wall: vertical mullions every 1.5 m, transoms on the 3 m floor lines.
+  const gP = P[MAT_GLASS];
+  const gV = jointLine(uM, gP.size, gP.joint).mul(fade);
+  const gH = jointLine(vM, FLOOR_BAND_M, 0.1).mul(fade);
+  const mullion = max(gV, gH);
+
+  // Metal: 0.5 m vertical standing seams (raised, catch a little light).
+  const mP = P[MAT_METAL];
+  const mV = jointLine(uM, mP.size, mP.joint).mul(fade);
+  const metalMul = mV.mul(0.25).add(1);
+
+  // Wood: 0.2 m vertical boards, per-board tone, dark gaps.
+  const wP = P[MAT_WOOD];
+  const wIdx = floor(uM.div(wP.size));
+  const wV = jointLine(uM, wP.size, wP.joint).mul(fine);
+  const wVar = hash2Node(vec2(wIdx.add(seed.mul(43)), seed)).sub(0.5).mul(2 * wP.variation).add(1);
+  const woodMul = wVar.mul(float(1).sub(wV.mul(0.5)));
+
+  // Plaster: smooth, low-contrast broad stains.
+  const pP = P[MAT_PLASTER];
+  const stain = vnoiseNode(vec2(uM.mul(0.35), vM.mul(0.2)));
+  const plasterMul = float(1).sub(stain.mul(pP.variation));
+
+  const albedoMul = mBrick
+    .mul(brickMul)
+    .add(mStone.mul(stoneMul))
+    .add(mMetal.mul(metalMul))
+    .add(mWood.mul(woodMul))
+    .add(mPlaster.mul(plasterMul))
+    .add(mPanels.add(mGlass));
+  const vLine = mPanels
+    .mul(seamH)
+    .add(mBrick.mul(bV))
+    .add(mStone.mul(sV))
+    .add(mGlass.mul(gV))
+    .add(mMetal.mul(mV))
+    .add(mWood.mul(wV));
+  const hLine = mBrick.mul(bH).add(mStone.mul(sH)).add(mGlass.mul(gH));
+  const byMat = (pick: (p: (typeof P)[number]) => number): F =>
+    mPanels
+      .mul(pick(P[0]))
+      .add(mBrick.mul(pick(bP)))
+      .add(mStone.mul(pick(sP)))
+      .add(mGlass.mul(pick(gP)))
+      .add(mMetal.mul(pick(mP)))
+      .add(mWood.mul(pick(wP)))
+      .add(mPlaster.mul(pick(pP)));
+  return {
+    mGlass,
+    mullion,
+    albedoMul,
+    vLine,
+    hLine,
+    roughness: byMat((p) => p.roughness),
+    metalness: byMat((p) => p.metalness),
+    glassAlbedo: gP.albedo,
+  };
 }
 
 /** Wall colour / PBR / bump / emissive for one fragment. */
-function wallNodes(u: WetUniforms, withWindows: boolean) {
+function wallNodes(u: WetUniforms, withWindows: boolean, osm: boolean) {
   const uv2 = uv();
   const vc = vertexColor().rgb;
   const seed = hash2Node(vec2(vc.r.mul(97).add(vc.b.mul(13)), vc.g.mul(97).add(vc.b.mul(13))));
@@ -162,8 +318,39 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const belowCornice = float(1).sub(smoothstep(0, 0.4, floorT));
   const streakAmt = streak.mul(mix(float(0.45), float(1), belowCornice));
 
-  const wallCol = base.mul(mix(float(1), float(1 - FLOOR_BAND_DARKEN), bandH)).mul(float(1).sub(streakAmt.mul(STREAK_DARKEN)));
-  const wallR = float(WALL_ROUGHNESS).sub(streakAmt.mul(STREAK_ROUGHNESS_DROP));
+  const grime = mix(float(1), float(1 - FLOOR_BAND_DARKEN), bandH).mul(float(1).sub(streakAmt.mul(STREAK_DARKEN)));
+  let wallCol = base.mul(grime);
+  let wallR = float(WALL_ROUGHNESS).sub(streakAmt.mul(STREAK_ROUGHNESS_DROP));
+  let wallM: F = float(WALL_METALNESS);
+  let vLine: F = seamH;
+  let hBump: F = bandH;
+  let glassR: F = float(GLASS_ROUGHNESS);
+  let glassM: F = float(GLASS_METALNESS);
+  let mGlass: F | null = null;
+  let curtainMullion: F = float(0);
+  let litMul: F = float(1);
+  if (osm) {
+    // Facades × OSM: rgb ≥ 0 → `osm · 0.18` night albedo with 25 % of the
+    // procedural grime / bands on top; rgb < 0 → the procedural look above.
+    const extra = attribute<'vec4'>('extra', 'vec4');
+    const hasCol = step(0, extra.x);
+    const keep = mix(float(1), float(OSM_GRIME_KEEP), hasCol);
+    const fine = float(1).sub(smoothstep(BRICK_FADE_NEAR_M, BRICK_FADE_FAR_M, length(positionView)));
+    const pat = osmPattern(extra.w, uM, vM, seed, fade, fine, seamH);
+    const osmBase = mix(base, extra.xyz.mul(OSM_WALL_NIGHT), hasCol);
+    const patCol = osmBase.mul(mix(float(1), grime, keep)).mul(pat.albedoMul);
+    const curtain = mix(vec3(pat.glassAlbedo, pat.glassAlbedo, pat.glassAlbedo), MULLION, pat.mullion);
+    wallCol = mix(patCol, curtain, pat.mGlass);
+    wallR = pat.roughness.sub(streakAmt.mul(STREAK_ROUGHNESS_DROP).mul(keep).mul(pat.mGlass.oneMinus()));
+    wallM = pat.metalness;
+    vLine = pat.vLine;
+    hBump = bandH.mul(keep).add(pat.hLine);
+    glassR = mix(glassR, pat.roughness, pat.mGlass);
+    glassM = mix(glassM, pat.metalness, pat.mGlass);
+    mGlass = pat.mGlass;
+    curtainMullion = pat.mullion;
+    litMul = mix(float(1), float(GLASS_LIT_MULT), pat.mGlass);
+  }
 
   const ridge = abs(fract(vM.div(SHUTTER_RIDGE_M)).sub(0.5)).mul(2).mul(fade);
 
@@ -171,10 +358,10 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
     return {
       color: wallCol,
       roughness: wallR,
-      metalness: float(WALL_METALNESS),
+      metalness: wallM,
       emissive: vec3(0, 0, 0),
-      seam: seamH,
-      band: bandH,
+      seam: vLine,
+      band: hBump,
       ridge: float(0),
     };
   }
@@ -185,10 +372,13 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const f = fract(uv2.mul(ATLAS_CELL_PX));
   const inWinX = step(WINDOW_PX_X0 / ATLAS_CELL_PX, f.x).mul(float(1).sub(step(WINDOW_PX_X1 / ATLAS_CELL_PX, f.x)));
   const inWinY = step(WINDOW_PX_Y0 / ATLAS_CELL_PX, f.y).mul(float(1).sub(step(WINDOW_PX_Y1 / ATLAS_CELL_PX, f.y)));
-  const inWindow = inWinX.mul(inWinY);
+  // Glass curtain wall: every pane between mullions is window.
+  const inWindow = mGlass === null ? inWinX.mul(inWinY) : mix(inWinX.mul(inWinY), curtainMullion.oneMinus(), mGlass);
 
   const dark = hash2Node(vec2(seed, HASH_SALT_DARK)).lessThan(DARK_BUILDING_SHARE);
-  const pLit = select(dark, float(DARK_WINDOW_LIT_P), float(WINDOW_LIT_P));
+  const pLit0 = select(dark, float(DARK_WINDOW_LIT_P), float(WINDOW_LIT_P));
+  // Offices (glass): lit ×1.5, capped at 0.3 (`windowLitP`).
+  const pLit = osm ? min(pLit0.mul(litMul), GLASS_LIT_MAX) : pLit0;
   const hLit = hash2Node(vec2(cellU.add(seed.mul(17)), cellV.add(seed.mul(9)).add(HASH_SALT_LIT)));
   // cellV·3 ≥ 4 (same cut as windowLight): step is 1 on/above the shopfront.
   const aboveShopCell = step(SHOPFRONT_HEIGHT_M, cellV.mul(WINDOW_CELL_M));
@@ -240,18 +430,18 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const color = select(inShop, shopCol, mix(wallCol, GLASS, inWindow));
   const roughness = select(
     inShop,
-    select(isShutter, float(0.38), mix(wallR, float(GLASS_ROUGHNESS), inSpan)),
-    mix(wallR, float(GLASS_ROUGHNESS), inWindow),
+    select(isShutter, float(0.38), mix(wallR, glassR, inSpan)),
+    mix(wallR, glassR, inWindow),
   );
   const metalness = select(
     inShop,
-    select(isShutter, float(0.72), mix(float(WALL_METALNESS), float(GLASS_METALNESS), inSpan)),
-    mix(float(WALL_METALNESS), float(GLASS_METALNESS), inWindow),
+    select(isShutter, float(0.72), mix(wallM, glassM, inSpan)),
+    mix(wallM, glassM, inWindow),
   );
   // Shutters never emit.
   const emissive = select(inShop, select(isShutter, vec3(0, 0, 0), shopEm), winEm);
 
   // No panel seams across glass: they read as vertical stripes inside windows.
-  const seam = seamH.mul(inWindow.oneMinus());
-  return { color, roughness, metalness, emissive, seam, band: bandH, ridge: ridge.mul(shutterOn) };
+  const seam = vLine.mul(inWindow.oneMinus());
+  return { color, roughness, metalness, emissive, seam, band: hBump, ridge: ridge.mul(shutterOn) };
 }

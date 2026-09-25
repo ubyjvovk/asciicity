@@ -20,7 +20,22 @@ import {
   shopfrontKind,
   shutterAlbedo,
   windowLight,
+  FACADE_PATTERNS,
+  GLASS_LIT_MAX,
+  MAT_BRICK,
+  MAT_CONCRETE,
+  MAT_GLASS,
+  MAT_METAL,
+  MAT_NONE,
+  MAT_PLASTER,
+  MAT_STONE,
+  MAT_WOOD,
+  facadePattern,
+  nightAlbedo,
+  nightRoofAlbedo,
+  windowLitP,
 } from '../src/render/punk/facademath';
+import { MATERIAL_CODE } from '../src/world/buildings';
 
 /** Deterministic [0, 1) PRNG (mulberry32). */
 function mulberry32(seed: number): () => number {
@@ -211,5 +226,77 @@ describe('cyberpunk facades', () => {
     expect(shopfrontKind(3, seed)).toBe(shopfrontKind(3, seed));
     expect(shopEmissive(3, seed)).toBe(shopEmissive(3, seed));
     expect(shutterAlbedo(3, seed)).toBe(shutterAlbedo(3, seed));
+  });
+});
+
+describe('cyberpunk facades × OSM', () => {
+  it('nightAlbedo([1, 0, 0]) = [0.18, 0, 0]; −1 input → null (use procedural)', () => {
+    const n = nightAlbedo([1, 0, 0]);
+    expect(n).not.toBeNull();
+    expect(n?.[0]).toBeCloseTo(0.18, 6);
+    expect(n?.[1]).toBeCloseTo(0, 6);
+    expect(n?.[2]).toBeCloseTo(0, 6);
+    expect(nightAlbedo([-1, -1, -1])).toBeNull();
+    expect(nightRoofAlbedo([1, 0.5, 0])?.[1]).toBeCloseTo(0.075, 6);
+    expect(nightRoofAlbedo([-1, -1, -1])).toBeNull();
+  });
+
+  it('the pattern table has one entry per material code 0–7 with the §4.11 sizes', () => {
+    expect(FACADE_PATTERNS).toHaveLength(8);
+    // Codes agree with world/buildings.ts MATERIAL_CODE.
+    expect(MATERIAL_CODE).toEqual({
+      brick: MAT_BRICK,
+      stone: MAT_STONE,
+      concrete: MAT_CONCRETE,
+      glass: MAT_GLASS,
+      metal: MAT_METAL,
+      wood: MAT_WOOD,
+      plaster: MAT_PLASTER,
+    });
+    expect(facadePattern(MAT_NONE).kind).toBe('panels');
+    expect(facadePattern(MAT_CONCRETE).kind).toBe('panels');
+    expect(facadePattern(MAT_BRICK).kind).toBe('brick');
+    expect(facadePattern(MAT_BRICK).size).toBeCloseTo(0.075, 6);
+    expect(facadePattern(MAT_STONE).kind).toBe('ashlar');
+    expect(facadePattern(MAT_STONE).size).toBeCloseTo(0.6, 6);
+    const glass = facadePattern(MAT_GLASS);
+    expect(glass.kind).toBe('curtain');
+    expect(glass.size).toBeCloseTo(1.5, 6);
+    expect(glass.albedo).toBeCloseTo(0.02, 6);
+    expect(glass.roughness).toBeCloseTo(0.05, 6);
+    expect(glass.metalness).toBeCloseTo(0.9, 6);
+    expect(facadePattern(MAT_METAL).kind).toBe('seams');
+    expect(facadePattern(MAT_METAL).size).toBeCloseTo(0.5, 6);
+    expect(facadePattern(MAT_METAL).metalness).toBeCloseTo(0.7, 6);
+    expect(facadePattern(MAT_WOOD).kind).toBe('boards');
+    expect(facadePattern(MAT_WOOD).size).toBeCloseTo(0.2, 6);
+    expect(facadePattern(MAT_PLASTER).kind).toBe('smooth');
+    expect(facadePattern(99).kind).toBe('panels');
+  });
+
+  it('glass lit fraction over 20 000 cells within [0.12, 0.21] and ≤ 0.3 per building', () => {
+    const rng = mulberry32(0x61a55);
+    let lit = 0;
+    let n = 0;
+    for (let b = 0; b < 50; b++) {
+      const seed = buildingSeed(rng(), rng(), rng());
+      expect(windowLitP(seed, MAT_GLASS)).toBeLessThanOrEqual(GLASS_LIT_MAX);
+      let litB = 0;
+      for (let i = 0; i < 400; i++) {
+        const cellU = b * 17 + (i % 40);
+        const cellV = 2 + Math.floor(i / 40);
+        if (windowLight(cellU, cellV, seed, MAT_GLASS).lit) litB++;
+      }
+      expect(litB / 400).toBeLessThanOrEqual(0.3);
+      lit += litB;
+      n += 400;
+    }
+    expect(n).toBe(20000);
+    const frac = lit / n;
+    expect(frac).toBeGreaterThanOrEqual(0.12);
+    expect(frac).toBeLessThanOrEqual(0.21);
+    // Non-glass materials keep the T-0152 probability.
+    const seed = buildingSeed(0.3, 0.3, 0.3);
+    expect(windowLitP(seed, MAT_BRICK)).toBe(windowLitP(seed));
   });
 });
