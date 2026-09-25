@@ -111,6 +111,48 @@ on every building mesh (synthesising an `extra` over all codes / with and
 without colour), `e2e/cyberpunk.spec.ts` passes on the WebGL2 fallback (zero
 console errors, exact restore). The edit was not committed.
 
+## PBR detail textures (wave 23, T-0167)
+
+Contract: architecture.md §4.11 "PBR detail textures". `makeFacadeMaterials(windowTex, u, pbr?)`
+takes the optional `PbrSets` from `punk/pbr.ts` (`loadPbrSets(renderer)`); without
+it every graph is the procedural one above, node for node.
+
+- **Loader (`pbr.ts`, browser-only).** One `THREE.Texture` per map for the six
+  CC0 sets under `public/textures/cc0/` (`RepeatWrapping`, trilinear mipmaps,
+  anisotropy `min(8, renderer max)`, colour `SRGBColorSpace`, normal / rough
+  `NoColorSpace`, URLs from `import.meta.env.BASE_URL`). Per set two uniforms:
+  `mean` — the colour map's mean linear rgb (`TEX_MEAN`), measured at load by
+  drawing the image into a 32² canvas (`linearMeanRgb`), so no constants are
+  baked from the image files — and `ready` (0 until all three maps load; the
+  texture weight is × `ready`, so the procedural look shows meanwhile).
+  `disposePbrSets(sets)` frees them.
+- **Walls.** uv = wall uv × 6 (4 m per repeat) + a per-building offset; the
+  isotropic sets (concrete, plaster) also take the 0/90° u↔v swap (bricks and
+  standing seams would turn on their side — a deliberate narrowing of the
+  locked "per-building swap", flagged to the PM). Set per fragment
+  (`PBR_WALL_SETS` index): concrete default, OSM brick / metal / plaster,
+  stone → concrete × (0.9, 0.87, 0.8), glass / wood → none, shutters → metal.
+  Glass (windows, the lit shop span) is untextured (`texMask`).
+- **One set per fragment, 3 samples.** `makeWallSamplers` builds three TSL
+  functions (colour, rough, normal), each an `If` chain on the set index with
+  `textureGrad` samples; the uv gradients are assigned *before* the chain
+  (a bare `.toVar()` is emitted lazily inside the branch — invalid WGSL), and
+  the swap uses `mix`, not `select` (a select compiles to an if/else that
+  nests and duplicates the chain). Verified on the generated GLSL: 12
+  `textureGrad` (4 sets × 3 maps), all three chains at top level.
+- **Normal.** The decoded tangent xy × 0.8 × fade on a cotangent frame from
+  screen derivatives of the (unswapped) wall uv (`uvPerturbNormal`; the
+  swap is undone in tangent space), then the seam / band / ridge nudges on top.
+- **Roofs.** Concrete at 6 m per repeat on world xz (u = x, v = −z), explicit
+  horizontal TBN (`horizontalPbrNormal`: T = +x, B = −z, N = +y) added to the
+  ripple normal; albedo / roughness / normal fade under puddles.
+- **Blend.** Albedo × `clamp(tex / mean, 0.45, 1.8)` pulled to 1 over 15 → 60 m;
+  roughness = mix(procedural, tex.r, 0.6).
+
+Pure mirrors (facademath.ts, `tests/punk-pbr.test.ts`): `pbrAlbedoMod`,
+`pbrFade`, `pbrAntiTile`, `pbrWallUv`, `pbrFacadeSet`, `pbrWallIndex`,
+`PBR_WALL_SETS`, `srgbByteToLinear`, `linearMeanRgb`, `PBR_*` constants.
+
 ## Pure exports (`facademath.ts`)
 
 Unit-tested in `tests/punk-facade.test.ts`. The shader hashes the same inputs

@@ -75,6 +75,27 @@ is unchanged at d ≤ 20, reaches `ROUGH_FLOOR` by d ≥ 80 for r < 0.35, and ne
 lowers roughness. The SSR half-resolution blockiness itself lives in
 `pipeline.ts` (PM-owned).
 
+## PBR detail textures (wave 23, T-0167)
+
+`makeStreetMaterials(u, pbr?)`; without `pbr` the graphs are unchanged.
+Contract: architecture.md §4.11 "PBR detail textures"; loader in `punk/pbr.ts`
+(see cyberpunk-facades.md).
+
+- Road → asphalt (3 m per repeat), ground and terrain → paving (2 m); water none.
+- World xz → uv with u = x, v = −z (`horizontalUv`); anti-tiling: a second
+  sample at `rotate(uv, 37°) · 0.43` (`antiTileUv`), blended by
+  `vnoise(xz · 0.05)` (`antiTileBlend`) — the only double sampling (6 maps).
+  The rotated sample's tangent normal is rotated back by −37°.
+- Albedo × `clamp(tex / mean, 0.45, 1.8)`, pattern → mean over 15 → 60 m;
+  dry roughness = mix(procedural, tex.r, 0.6); the normal (explicit TBN
+  T = +x, B = −z, N = +y, `horizontalTbn`) is added to the ripple / tile-seam
+  normal at strength 0.8 × fade. Under puddles the texture fades out
+  (albedo is replaced by the puddle, normal × (1 − puddle), roughness →
+  puddle roughness): puddles stay mirror-smooth.
+- Pure mirrors (streetmath.ts): `horizontalUv`, `rotate2`, `antiTileUv`,
+  `antiTileBlend`, `horizontalTbn`, `PBR_ASPHALT_M`, `PBR_PAVING_M`,
+  `PBR_ROT_DEG`, `PBR_ROT_SCALE`, `PBR_BLEND_FREQ`; tested in `tests/punk-pbr.test.ts`.
+
 ## Testing
 
 `tests/punk-street.test.ts` runs the pure `streetmath.ts` in plain node:
