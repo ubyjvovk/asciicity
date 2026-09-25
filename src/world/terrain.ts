@@ -162,10 +162,12 @@ export function buildTerrainGeometry(t: TerrainData): THREE.BufferGeometry {
  * flat ground, modulated by per-vertex slope shade.
  */
 export function makeTerrainObject(t: TerrainData): THREE.Mesh {
-  return new THREE.Mesh(
+  const mesh = new THREE.Mesh(
     buildTerrainGeometry(t),
     new THREE.MeshBasicMaterial({ map: makeGridTexture(), vertexColors: true }),
   );
+  mesh.userData.surface = 'terrain';
+  return mesh;
 }
 
 /**

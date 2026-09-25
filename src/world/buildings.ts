@@ -385,5 +385,7 @@ export function makeBuildingsObject(
   const geom = toGeometry(buildBuildingsMesh(buildings, heightAt));
   const wallMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: windowTex });
   const roofMat = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x606060 });
-  return new THREE.Mesh(geom, [wallMat, roofMat]);
+  const mesh = new THREE.Mesh(geom, [wallMat, roofMat]);
+  mesh.userData.surface = 'buildings';
+  return mesh;
 }

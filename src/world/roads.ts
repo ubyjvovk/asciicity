@@ -148,5 +148,7 @@ export function makeRoadsObject(
 ): THREE.Mesh {
   const geom = toGeometry(buildRoadsMesh(roads, heightAt, humps));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
-  return new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.userData.surface = 'road';
+  return mesh;
 }

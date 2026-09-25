@@ -1421,6 +1421,40 @@ E2E (DOM only, no pixels): under `?render=retrocgi` `#noseview` is visible
 with the three captions and `#hud` is `display: none`; after one `R` press
 `#noseview` is hidden and `#hud` is back.
 
+**`cyberpunk` (wave 20) — the first `engine: 'webgpu'` style.** Full
+notes: `docs/styles/cyberpunk.md`. Ported from ektogamat/threejs-conference
+("Threejs-Punk", MIT) onto our maps.
+  - Contract: `RenderStyle.engine?: 'webgpu'` (style.ts). main.ts
+    `syncEngine()` lazily `import()`s `src/render/punk/view.ts` the first
+    time such a style is active; `PunkView` owns a second canvas `#punk`
+    laid over `#view` (a canvas holds one context type), a
+    `WebGPURenderer` (WebGL2 backend when WebGPU is absent), and renders the
+    SAME `scene` + `camera`. While it loads or if it fails
+    (`__asciicity.punk.status`), the style's GLSL `fragment` runs on the WebGL
+    path as a fallback. `R` away → `setActive(false)` restores the scene.
+  - Scene swap while active (restored exactly on deactivate): night
+    background + FogExp2 0.0045 (altitude-thinned like the WebGL fog), dim
+    blue lights, gradient env map, sky hidden, and node materials on meshes
+    tagged `userData.surface` (`buildings` walls/roofs, `road`, `water`,
+    `ground`, `terrain` — tags set in the builders; geometry untouched).
+    Streamed tiles are dressed every 20 frames and `release()`d before
+    disposal.
+  - Collision rain (`punk/rain.ts`, maths mirrored in `punk/rainmath.ts`):
+    top-down ortho pass → 512² HalfFloat world-position map over a 96 m box
+    around the point 21 m ahead of the eye; 6500 closed-form drops (no
+    compute buffers) stop at that height and splash. Render targets sample
+    top-row-first on both backends: v = (z − c.z)/96 + 0.5 (south-positive).
+  - Post (`punk/pipeline.ts`): MRT (output, emissive, normal, metalrough —
+    extras alpha-blended so transparent rain does not overwrite them) → SSR
+    on wet surfaces (WebGPU backend only; SSRNode does not compile on WebGL2)
+    → bloom + lens flare on emissive → fog → grade → edge chroma → vignette
+    → SMAA → film grain → lens rain (`punk/glass.ts`, derived from CC BY-NC-SA 3.0 work).
+  - Keys (only while active): `L` cycles the six upstream looks
+    (`punk/look.ts`), `G` toggles lens rain; both persist in
+    `localStorage['asciicity.punk']`.
+  - `vite.config.ts` pre-bundles `three`, `three/webgpu`, `three/tsl` and the
+    TSL display addons together so there is one `three.core`.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting

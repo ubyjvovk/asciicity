@@ -224,7 +224,7 @@ async function waitReady(page: Page): Promise<void> {
 }
 
 test('smoke: R cycles every render style and each paints', async ({ page }) => {
-  test.setTimeout(240_000); // 20 styles under SwiftShader; the sketch family renders ~2× slower (wave 18b)
+  test.setTimeout(240_000); // 21 styles under SwiftShader; the sketch family renders ~2× slower (wave 18b)
   // `?cell=3x6` so SwiftShader's 64-row blanking does not hide the lower half.
   await page.goto('/?synthetic=1&cell=3x6');
   await waitReady(page);
@@ -235,7 +235,9 @@ test('smoke: R cycles every render style and each paints', async ({ page }) => {
     ).__asciicity;
     return api?.styles ?? [];
   });
-  expect(styles.length).toBe(20);
+  // 21 with `cyberpunk` (wave 20): its #view frame is the WebGL fallback
+  // fragment while the WebGPU view boots (covered by e2e/cyberpunk.spec.ts).
+  expect(styles.length).toBe(21);
 
   mkdirSync('e2e/__shots__', { recursive: true });
 

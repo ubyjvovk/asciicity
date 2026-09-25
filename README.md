@@ -93,8 +93,23 @@ The `matrix` render style's katakana glyphs are 8×16 bitmaps derived from
 [GNU Unifont](https://unifoundry.com/unifont/) (dual-licensed SIL OFL 1.1 /
 GPL v2+ with the font-embedding exception).
 
-© 2026 [@ubyjvovk](https://github.com/ubyjvovk). All rights reserved —
-license to be decided.
+The `cyberpunk` render style (`src/render/punk/`) is a port of
+[ektogamat/threejs-conference](https://github.com/ektogamat/threejs-conference)
+by Anderson Mancini & Sunag (MIT); its lens-rain shader derives from
+[rocksdanister/rain](https://github.com/rocksdanister/rain) (CC BY-NC-SA 3.0),
+itself after BigWings' "Heartfelt". None of that project's assets are used.
+
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+contributors, available under the Open Database License (ODbL).
+
+## License
+
+© 2026 [@ubyjvovk](https://github.com/ubyjvovk). Licensed under
+[Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+— see [`LICENSE`](LICENSE). Non-commercial use only; adaptations must be
+shared under the same licence. Third-party parts keep their own licences
+(MIT for the threejs-conference port, OFL/GPL for Unifont glyphs, ODbL for
+the OSM-derived data).
 
 ## Tests
 

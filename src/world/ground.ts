@@ -103,5 +103,7 @@ export function makeGround(size = 6000): THREE.Mesh {
   const map = makeGridTexture();
   map.repeat.set(size / TILE_METRES, size / TILE_METRES);
   const material = new THREE.MeshBasicMaterial({ map });
-  return new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData.surface = 'ground';
+  return mesh;
 }

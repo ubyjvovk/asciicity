@@ -20,6 +20,7 @@ import { STYLES as pencil } from './pencil';
 import { STYLES as crayon } from './crayon';
 import { STYLES as pastel } from './pastel';
 import { STYLES as watercolor } from './watercolor';
+import { STYLES as cyberpunk } from './cyberpunk';
 
 const modules: readonly (readonly RenderStyle[])[] = [
   ascii,
@@ -38,6 +39,7 @@ const modules: readonly (readonly RenderStyle[])[] = [
   crayon,
   pastel,
   watercolor,
+  cyberpunk,
 ];
 
 const byId = new Map<string, RenderStyle>();

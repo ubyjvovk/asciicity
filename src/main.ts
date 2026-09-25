@@ -56,6 +56,7 @@ import {
 import { TouchControls, mergeInput } from './player/touch';
 import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { StyleRenderer } from './render/post';
+import type { PunkView } from './render/punk/view';
 import { STYLE_ORDER } from './render/style';
 import { STYLES } from './render/styles/index';
 import { mountCrt, setCrt } from './render/crt';
@@ -141,6 +142,20 @@ declare global {
         pending: number;
         version: number;
         disposed: number;
+      };
+      /**
+       * Cyberpunk WebGPU view (wave 20): `'off'` until the style is first
+       * picked, then `'loading'` → `'ready'` (or `'failed'`, WebGL fallback
+       * fragment stays). `backend` is `'WebGPU'` or `'WebGL2'`.
+       */
+      punk: {
+        status: 'off' | 'loading' | 'ready' | 'failed';
+        backend: string;
+        look: string;
+        glass: boolean;
+        error: string;
+        /** Rain collision height at world (x, z), `null` outside the rain box or when not ready. */
+        probe(x: number, z: number): Promise<number | null>;
       };
     };
   }
@@ -587,6 +602,18 @@ async function main(): Promise<void> {
 
   const renderer = makeRenderer(canvas);
   const scene = makeScene();
+  // Cyberpunk style host (wave 20): created lazily by `syncEngine` below.
+  // Declared this early because tile disposal (`applyTileEvent`) hands
+  // outgoing groups to it.
+  let punk: PunkView | null = null;
+  const punkDebug: Window['__asciicity']['punk'] = {
+    status: 'off',
+    backend: '',
+    look: '',
+    glass: true,
+    error: '',
+    probe: (x: number, z: number) => (punk ? punk.probeRain(x, z) : Promise.resolve(null)),
+  };
   const camera = makeCamera(
     Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight),
   );
@@ -754,6 +781,7 @@ async function main(): Promise<void> {
       const group = tileGroups.get(e.key);
       if (group) {
         scene.remove(group);
+        punk?.release(group);
         disposeObject3D(group);
         tileGroups.delete(e.key);
         disposedCount += 1;
@@ -985,6 +1013,69 @@ async function main(): Promise<void> {
   };
   applyGroundGrid();
 
+  // Cyberpunk (wave 20): a style with `engine: 'webgpu'` is drawn by the
+  // lazily imported WebGPU view on its own canvas over `#view`; until it is
+  // ready (or if it fails) the style's WebGL fallback fragment runs.
+  const PUNK_KEY = 'asciicity.punk';
+  const punkPrefs = ((): { look?: string; glass?: boolean } => {
+    try {
+      const raw: unknown = JSON.parse(localStorage.getItem(PUNK_KEY) ?? '{}');
+      if (raw && typeof raw === 'object') {
+        const r = raw as Record<string, unknown>;
+        return {
+          look: typeof r.look === 'string' ? r.look : undefined,
+          glass: typeof r.glass === 'boolean' ? r.glass : undefined,
+        };
+      }
+    } catch {
+      /* private mode / bad JSON: defaults */
+    }
+    return {};
+  })();
+  const savePunkPrefs = (): void => {
+    if (!punk) return;
+    punkDebug.look = punk.look.id;
+    punkDebug.glass = punk.glass;
+    try {
+      localStorage.setItem(PUNK_KEY, JSON.stringify({ look: punk.look.id, glass: punk.glass }));
+    } catch {
+      /* ignore */
+    }
+  };
+  const syncEngine = (): void => {
+    const want = post.style.engine === 'webgpu';
+    if (want && !punk && punkDebug.status === 'off') {
+      punkDebug.status = 'loading';
+      import('./render/punk/view')
+        .then((m) =>
+          m.createPunkView({
+            anchor: canvas,
+            scene,
+            camera,
+            windowTex: wallTex === windowTex ? windowTex : null,
+            sky,
+            look: punkPrefs.look,
+            glass: punkPrefs.glass,
+          }),
+        )
+        .then((view) => {
+          punk = view;
+          punkDebug.status = 'ready';
+          punkDebug.backend = view.backend;
+          view.setSize(viewW, Math.max(1, viewH - CREDITS_BAR_PX));
+          savePunkPrefs();
+          syncEngine();
+        })
+        .catch((err: unknown) => {
+          punkDebug.status = 'failed';
+          punkDebug.error = err instanceof Error ? err.message : String(err);
+          console.error('cyberpunk view failed', err);
+          toast.show('CYBERPUNK: WEBGPU UNAVAILABLE');
+        });
+    }
+    punk?.setActive(want);
+  };
+
   // Time-of-day for styles (StyleContext.daylight): same sun altitude the sky
   // and ship lights use, refreshed on the same 10 s cadence.
   const applyDaylight = (): void => {
@@ -1089,6 +1180,7 @@ async function main(): Promise<void> {
           : Promise.reject(new Error(`unknown postcard kind: ${kind}`)),
     loading,
     pointer,
+    punk: punkDebug,
   };
   window.__asciicity = api;
   // Every builder ran successfully — flip the loading phase to `ready` so the
@@ -1109,6 +1201,7 @@ async function main(): Promise<void> {
     viewH = h;
     const canvasH = Math.max(1, h - CREDITS_BAR_PX);
     post.setSize(w, canvasH);
+    punk?.setSize(w, canvasH);
     camera.aspect = w / canvasH;
     camera.updateProjectionMatrix();
     api.cols = post.cols;
@@ -1116,6 +1209,8 @@ async function main(): Promise<void> {
   }
   applySize();
   window.addEventListener('resize', applySize);
+  // Boot straight into the cyberpunk view when it is the boot style.
+  syncEngine();
 
   // Overlay: title + CLICK TO ENTER on load; on pointer-lock loss, a smaller
   // CLICK TO RESUME reappears with the pause/settings menu in `#menu`. Clicks
@@ -1189,6 +1284,7 @@ async function main(): Promise<void> {
     toast.show(`RENDER: ${post.style.label}`);
     persist();
     relabelMenu();
+    syncEngine();
   };
   const setFly = (on: boolean): void => {
     if (state.fly === on) {
@@ -1549,6 +1645,17 @@ async function main(): Promise<void> {
       applyStyleChange();
       return;
     }
+    // Cyberpunk only: `L` cycles the colour grade, `G` toggles lens rain.
+    if (punk?.active && ev.code === 'KeyL') {
+      toast.show(`LOOK: ${punk.cycleLook(ev.shiftKey ? -1 : 1).label}`);
+      savePunkPrefs();
+      return;
+    }
+    if (punk?.active && ev.code === 'KeyG') {
+      toast.show(`LENS RAIN: ${punk.toggleGlass() ? 'ON' : 'OFF'}`);
+      savePunkPrefs();
+      return;
+    }
     // `P` downloads a postcard PNG; `Shift+P` records a 3 s GIF.
     if (ev.code === 'KeyP') {
       if (ev.shiftKey) void postcard.recordGif(true);
@@ -1594,7 +1701,9 @@ async function main(): Promise<void> {
     // level it is the constant 0.0018, roughly halving by ~150 m AGL so the
     // whole city stays visible from above.
     const agl = state.y - EYE_HEIGHT - groundAt(state.x, state.z);
-    if (scene.fog instanceof THREE.FogExp2) {
+    if (punk?.active) {
+      punk.setFogScale(1 / (1 + agl / 150));
+    } else if (scene.fog instanceof THREE.FogExp2) {
       scene.fog.density = 0.0018 / (1 + agl / 150);
     }
 
@@ -1629,7 +1738,8 @@ async function main(): Promise<void> {
     boats?.update(dt);
     ships.update(dt);
 
-    post.render(scene, camera);
+    if (punk?.active) punk.render(scene, camera);
+    else post.render(scene, camera);
     // Copy the freshly rendered frame out (T-0072) — the canvas is not
     // preserved between frames, so the capture must happen right here.
     postcard.afterRender();
@@ -1697,7 +1807,7 @@ function mountCredits(parent: HTMLElement): HTMLAnchorElement {
   el.target = '_blank';
   el.rel = 'noopener';
   const display = CREDITS.url.replace(/^https?:\/\//, '');
-  el.textContent = `built by ${CREDITS.author} · ${display}`;
+  el.textContent = `built by ${CREDITS.author} · ${display} · map ${CREDITS.osm}`;
   for (const evt of ['click', 'pointerdown', 'mousedown'] as const) {
     el.addEventListener(evt, (e) => e.stopPropagation());
   }

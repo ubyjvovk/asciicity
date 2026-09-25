@@ -31,7 +31,7 @@ describe('registry ground-grid flags (T-0132)', () => {
   });
 
   it('every other registry style resolves to groundGrid true', () => {
-    const painterly = new Set(['quest', 'lowpoly', 'scribble', 'pencil', 'crayon', 'pastel', 'watercolor', 'retrocgi']);
+    const painterly = new Set(['quest', 'lowpoly', 'scribble', 'pencil', 'crayon', 'pastel', 'watercolor', 'retrocgi', 'cyberpunk']);
     for (const style of STYLES) {
       if (!painterly.has(style.id)) {
         expect(groundGridFor(style), style.id).toBe(true);

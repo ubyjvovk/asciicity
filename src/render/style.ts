@@ -56,6 +56,13 @@ export interface RenderStyle {
    */
   targetCap?: { w: number; h: number };
   /**
+   * Alternate renderer (wave 20, cyberpunk): `'webgpu'` means main.ts hands
+   * the frame to the lazily loaded `src/render/punk/` WebGPU pipeline on its
+   * own canvas once it is ready; until then (and if it fails) this style's
+   * `fragment` runs on the WebGL path as a fallback. Absent = WebGL only.
+   */
+  engine?: 'webgpu';
+  /**
    * GLSL ES 1.0 fragment shader body appended to `STYLE_PRELUDE` (which
    * declares the common uniforms, `vUv` and the helpers below). Must define
    * `void main()` writing `gl_FragColor`.
@@ -168,5 +175,6 @@ export const STYLE_ORDER = [
   'crayon',
   'pastel',
   'watercolor',
+  'cyberpunk',
 ] as const;
 export type StyleId = (typeof STYLE_ORDER)[number];

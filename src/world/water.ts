@@ -87,5 +87,7 @@ export function buildWaterMesh(rings: Vec2[][], levels?: number[]): MeshData {
 export function makeWaterObject(rings: Vec2[][], levels?: number[]): THREE.Mesh {
   const geom = toGeometry(buildWaterMesh(rings, levels));
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
-  return new THREE.Mesh(geom, mat);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.userData.surface = 'water';
+  return mesh;
 }
