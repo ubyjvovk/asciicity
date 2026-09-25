@@ -568,10 +568,12 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
   shibuya: {
     // Jingu-dori Street (神宮通り) tertiary road vertex on the Shibuya
     // Scramble Crossing (6.8 m from the geographic crossing at 35.6595 N,
-    // 139.7005 E; tile −7_2). 115.3 m from the `Shibuya` index.landmarks
-    // anchor at (−5935.9, 2503.1) — a "north of Shibuya Station" street
-    // vantage on the world-famous scramble, well inside the ticket's 120 m
-    // Hachiko-exit bound. Bearing 315° (NW) looks across the crossing into
+    // 139.7005 E; tile −7_2) — a "north of Shibuya Station" street
+    // vantage on the world-famous scramble. 183.9 m from the `Shibuya`
+    // index.landmarks anchor at (−5920.7, 2577.2) since wave 22 (T-0166):
+    // PLATEAU splits the station and rule 3b anchors the name on a 13.6 m
+    // piece ~77 m north of the old OSM outline (was 115.3 m from
+    // (−5935.9, 2503.1)); the test bound is 200 m. Bearing 315° (NW) looks across the crossing into
     // the Center-gai building wall (Q-FRONT / center-gai storefronts on the
     // NW corner of the intersection). 8 m of building clearance on the 3×3
     // tiles centred on −7_2 (two of the nine tiles — −8_1 and −8_3 — are
@@ -583,16 +585,18 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     city: 'tokyo',
   },
   shinjuku: {
-    // Pedestrian-street road vertex 144.3 m east of the `Shinjuku`
-    // index.landmarks anchor at (−6063.1, −938.3) — tile −6_−1, on the
-    // east side of Shinjuku Station's East Exit block. Bearing 30° (NNE)
-    // faces into Kabukicho (Kabukicho centre ≈ (−5817, −1468) is 526 m
-    // NNE, Godzilla-head bearing from here ≈ 7°; the 30° bearing rounds
-    // toward the north-east district as the ticket names it). 6 m of
-    // building clearance on the 3×3 tiles centred on −6_−1 (all nine tiles
-    // present).
-    lon: 139.701643,
-    lat: 35.689713,
+    // Pedestrian-street road vertex 82.6 m east of the `Shinjuku`
+    // index.landmarks anchor at (−5990.5, −952.5) — tile −6_−1, on the
+    // east side of Shinjuku Station's East Exit block. Moved 10.8 m east in
+    // wave 22 (T-0166): the PLATEAU build added a 6.1 m structure (18 × 6 m)
+    // on the East Exit street over the old vertex (−5918.8, −941.3), and
+    // the anchor shifted from (−6063.1, −938.3). Bearing 30° (NNE) faces
+    // into Kabukicho (Kabukicho centre ≈ (−5817, −1468) is ≈ 530 m NNE;
+    // the 30° bearing rounds toward the north-east district as the ticket
+    // names it). 6 m of building clearance on the 3×3 tiles centred on
+    // −6_−1 (all nine tiles present).
+    lon: 139.701759,
+    lat: 35.689736,
     bearingDeg: 30,
     label: 'Shinjuku East Exit, facing Kabukicho',
     city: 'tokyo',
