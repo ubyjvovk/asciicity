@@ -189,3 +189,82 @@ describe('validateCity Simple 3D Buildings (wave 21)', () => {
     expect(() => validateCity(c)).toThrow(/buildings\[0\]\.material/);
   });
 });
+
+describe('validateCity PLATEAU tiers (wave 22)', () => {
+  /** A base city whose building 0 is 30 m tall with a square footprint. */
+  function tiered(): ReturnType<typeof syntheticCity> {
+    const c = base();
+    c.buildings[0].h = 30;
+    c.buildings[0].poly = [[0, 0], [20, 0], [20, 20], [0, 20]];
+    return c;
+  }
+
+  it('6. accepts a building with 3 valid tiers', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [
+      { h: 30, poly: [[0, 0], [10, 0], [10, 10], [0, 10]] },
+      { h: 12, poly: [[10, 0], [20, 0], [20, 10], [10, 10]] },
+      { h: 1, poly: [[0, 10], [20, 10], [20, 20], [0, 20]] },
+    ];
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('6. accepts buildings without tiers unchanged', () => {
+    const c = base();
+    const before = structuredClone(c);
+    expect(validateCity(c)).toEqual(before);
+  });
+
+  it('6. rejects 0 tiers', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers: must be an array of 1-64/);
+  });
+
+  it('6. rejects 65 tiers', () => {
+    const c = tiered();
+    c.buildings[0].tiers = Array.from({ length: 65 }, () => ({
+      h: 10,
+      poly: [[0, 0], [1, 0], [1, 1]] as [number, number][],
+    }));
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers: must be an array of 1-64/);
+    c.buildings[0].tiers.length = 64;
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('6. rejects tier h 0.5', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [
+      { h: 10, poly: [[0, 0], [10, 0], [10, 10]] },
+      { h: 0.5, poly: [[0, 0], [10, 0], [10, 10]] },
+    ];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers\[1\]\.h/);
+  });
+
+  it('6. rejects tier h > building h', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [{ h: 30.01, poly: [[0, 0], [10, 0], [10, 10]] }];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers\[0\]\.h/);
+  });
+
+  it('6. rejects NaN (tier h and tier poly point)', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [{ h: NaN, poly: [[0, 0], [10, 0], [10, 10]] }];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers\[0\]\.h/);
+    c.buildings[0].tiers = [{ h: 10, poly: [[0, 0], [NaN, 0], [10, 10]] }];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers\[0\]\.poly: point 1/);
+  });
+
+  it('6. rejects a 2-point tier poly', () => {
+    const c = tiered();
+    c.buildings[0].tiers = [{ h: 10, poly: [[0, 0], [10, 0]] }];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers\[0\]\.poly: polygon must have at least 3 points/);
+  });
+
+  it('6. rejects roof+tiers', () => {
+    const c = tiered();
+    c.buildings[0].roof = { shape: 'gabled', h: 5 };
+    c.buildings[0].tiers = [{ h: 10, poly: [[0, 0], [10, 0], [10, 10]] }];
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.tiers: .*both roof and tiers/);
+  });
+});
