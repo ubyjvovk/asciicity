@@ -1628,6 +1628,34 @@ ashlar blocks; glass → curtain wall (albedo 0.02, roughness 0.05, metalness
 vertical standing seams, metalness 0.7; wood → 0.2 m vertical boards;
 plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
 
+*PBR detail textures (wave 23, T-0167):* six CC0 ambientCG sets in
+`public/textures/cc0/<set>/{color,normal,rough}.jpg` (asphalt, concrete,
+brick, metal, paving, plaster; provenance in its README). The procedural
+materials stay the base look; the textures add real surface detail:
+  - Loader `punk/pbr.ts` (browser-only): one cached `THREE.Texture` per map,
+    `RepeatWrapping`, mipmaps, anisotropy `min(8, renderer max)`, colour
+    maps `SRGBColorSpace`, normal/rough `NoColorSpace`; URLs from
+    `import.meta.env.BASE_URL`; disposed with the view.
+  - Albedo = procedural albedo × (tex.rgb / TEX_MEAN) clamped to
+    [0.45, 1.8] — the night darkness and tints stay, the pattern appears.
+    Roughness = mix(procedural, tex.r, 0.6). Normal = tangent-space map at
+    strength 0.8 (walls via the wall UVs; horizontal surfaces via an explicit
+    TBN: T = +x, B = −z, N = +y).
+  - Scale: facades 4 m per repeat (wall uv × 6), roofs 6 m, asphalt 3 m,
+    paving 2 m (world xz). Anti-tiling: per-building 0/90° swap + offset from
+    the building seed (walls); ground/road = two samples (xz and a 37°-rotated
+    ×0.43 copy) blended by `vnoiseNode` at 0.05 m⁻¹.
+  - Distance fade: normal detail → flat and albedo pattern → its mean over
+    15 → 60 m (aliasing; mipmaps do the rest).
+  - Mapping: facades concrete by default; OSM brick → brick, metal → metal,
+    plaster → plaster, stone → concrete ×(0.9, 0.87, 0.8) tint, glass /
+    wood → none (procedural). Shutters use metal. Roofs concrete. Roads
+    asphalt (texture fades under puddles: puddles stay mirror-smooth), ground
+    and terrain paving, water none.
+  - Cost: ≤ 3 texture maps sampled per material path (anti-tiling doubles
+    the ground ones only); the PM measures ≤ 10 % fps loss at bank with the
+    `?punkq=` perf harness.
+
 *Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
   - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).
   - Puddle mask `puddle = smoothstep(0.54, 0.62, fbm2(x·0.07, z·0.07))`:
