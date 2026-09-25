@@ -322,6 +322,7 @@ describe('resolveSpawn', () => {
       'bigben',
       'botanicgarden',
       'brooklynbridge',
+      'centergai',
       'centralpark',
       'centralstation',
       'chrysler',
@@ -346,6 +347,7 @@ describe('resolveSpawn', () => {
       'healing',
       'hydropark',
       'imperialpalace',
+      'kabukicho',
       'kingscross',
       'lavra',
       'leadenhall',
@@ -1429,6 +1431,9 @@ describe('Tokyo presets (wave 11)', () => {
     // Wave 12 (T-0103) west-Tokyo presets on the bbox v2 dataset.
     'shibuya',
     'shinjuku',
+    // Neon v3 (T-0169) narrow night-life street presets.
+    'kabukicho',
+    'centergai',
   ];
 
   it('every new Tokyo preset key parses to its preset', () => {
@@ -1507,7 +1512,14 @@ describe('Tokyo presets (wave 11)', () => {
     shibuya: [-7, 2],
     // shinjuku vertex (-5908.3, -943.9) → tile -6_-1 (moved in T-0166).
     shinjuku: [-6, -1],
+    // T-0169: kabukicho vertex (-5978.0, -1386.5) → tile -6_-2;
+    // centergai vertex (-6060.9, 2356.3) → tile -7_2.
+    kabukicho: [-6, -2],
+    centergai: [-7, 2],
   };
+
+  /** Narrow-street presets: 4 m of building clearance instead of 6 m (T-0169). */
+  const NARROW = new Set(['centergai']);
 
   /** Anchor (local metres) of each tower's `index.landmarks` first entry. */
   const TOWER_ANCHOR: Record<string, Vec2> = {
@@ -1574,7 +1586,10 @@ describe('Tokyo presets (wave 11)', () => {
       // few metres from the Sumida waterline — being within 6 m of the bank is
       // the point of the preset, so it only needs plain walkability.
       expect(collision.blocked([spawn.x, spawn.z]), `preset ${key}`).toBe(false);
-      if (key !== 'sumida') {
+      // Center Gai is a ~10 m pedestrian street: 4 m clearance is its ceiling.
+      if (NARROW.has(key)) {
+        expect(collision.blocked([spawn.x, spawn.z], 4), `preset ${key} 4m`).toBe(false);
+      } else if (key !== 'sumida') {
         expect(collision.blocked([spawn.x, spawn.z], 6), `preset ${key} 6m`).toBe(false);
       }
 

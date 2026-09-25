@@ -153,17 +153,21 @@ export interface NeonProfile {
   dense: boolean;
   /** Per-building cap for a building of height `h`. */
   cap(h: number): number;
+  /** Max distance, metres, from a wall segment's midpoint to a same-cell road. */
+  reach: number;
+  /** Neon v3: blade / stack / panel sizes scale with the building height ({@link neonSignSize}). */
+  scaled: boolean;
 }
 
-const DEFAULT_PROFILE: NeonProfile = { p: 0.24, minEdge: 6, dense: false, cap: () => 2 };
+const DEFAULT_PROFILE: NeonProfile = { p: 0.24, minEdge: 6, dense: false, cap: () => 2, reach: 12, scaled: false };
 
 /**
  * Placement profiles by city id. `tokyo` is dense (Shinjuku stacks);
  * `minas-tirith` has no neon; any other id uses the default (v1 × 2).
  */
 export const NEON_PROFILE: Readonly<Record<string, NeonProfile>> = {
-  tokyo: { p: 0.7, minEdge: 4, dense: true, cap: (h) => Math.min(8, 2 + Math.floor(h / 15)) },
-  'minas-tirith': { p: 0, minEdge: 6, dense: false, cap: () => 0 },
+  tokyo: { p: 1, minEdge: 4, dense: true, cap: (h) => Math.min(10, 3 + Math.floor(h / 12)), reach: 20, scaled: true },
+  'minas-tirith': { p: 0, minEdge: 6, dense: false, cap: () => 0, reach: 12, scaled: false },
 };
 
 /** The profile for `cityId` (default for unknown ids). */
@@ -172,7 +176,6 @@ export function neonProfile(cityId: string): NeonProfile {
 }
 
 const MIN_H = 8;
-const ROAD_REACH = 12;
 const BLADE_PROB = 0.6;
 const FLICKER_PROB = 0.08;
 const BLADE_WIDTH = 0.9;
@@ -204,7 +207,7 @@ const STACK_GAP = 0.1;
 const BLADE_FOOT = 0.3;
 /** Flat signs keep this far from the ends of their wall segment. */
 const END_MARGIN = 0.2;
-/** Grid for the road-segment index. Coarser than {@link ROAD_REACH} is still exact. */
+/** Grid for the road-segment index. Any grid is exact: `nearRoad` visits every cell within the reach. */
 const GRID = 32;
 
 /** Mulberry32: deterministic [0, 1) PRNG from a 32-bit seed. Copied from `world/textures.ts`. */
@@ -269,17 +272,17 @@ function indexRoads(roads: readonly Road[]): Map<string, Seg[]> {
   return map;
 }
 
-function nearRoad(index: Map<string, Seg[]>, x: number, z: number): boolean {
-  const i0 = Math.floor((x - ROAD_REACH) / GRID);
-  const i1 = Math.floor((x + ROAD_REACH) / GRID);
-  const j0 = Math.floor((z - ROAD_REACH) / GRID);
-  const j1 = Math.floor((z + ROAD_REACH) / GRID);
+function nearRoad(index: Map<string, Seg[]>, x: number, z: number, reach: number): boolean {
+  const i0 = Math.floor((x - reach) / GRID);
+  const i1 = Math.floor((x + reach) / GRID);
+  const j0 = Math.floor((z - reach) / GRID);
+  const j1 = Math.floor((z + reach) / GRID);
   for (let ci = i0; ci <= i1; ci++) {
     for (let cj = j0; cj <= j1; cj++) {
       const list = index.get(`${ci}_${cj}`);
       if (!list) continue;
       for (const seg of list) {
-        if (distToSeg(x, z, seg) <= ROAD_REACH) return true;
+        if (distToSeg(x, z, seg) <= reach) return true;
       }
     }
   }
@@ -317,7 +320,7 @@ interface Edge {
 }
 
 /** Street-facing exterior wall segments (tier walls after culling, else the envelope edges). */
-function qualifyingEdges(walls: readonly WallSeg[], index: Map<string, Seg[]>, minEdge: number): Edge[] {
+function qualifyingEdges(walls: readonly WallSeg[], index: Map<string, Seg[]>, minEdge: number, reach: number): Edge[] {
   const out: Edge[] = [];
   for (const { a, b, base, top } of walls) {
     const dx = b[0] - a[0];
@@ -326,7 +329,7 @@ function qualifyingEdges(walls: readonly WallSeg[], index: Map<string, Seg[]>, m
     if (len < minEdge) continue;
     const midX = (a[0] + b[0]) / 2;
     const midZ = (a[1] + b[1]) / 2;
-    if (!nearRoad(index, midX, midZ)) continue;
+    if (!nearRoad(index, midX, midZ, reach)) continue;
     const nx = dz / len;
     const nz = -dx / len;
     const off = a[0] * nx + a[1] * nz;
@@ -433,13 +436,52 @@ function tooClose(feet: readonly Foot[], f: Foot): boolean {
   return false;
 }
 
+/** Dense sign sizes: `null` blade fields mean the v2 random draw. */
+interface DenseSize {
+  bladeW: number | null;
+  bladeH: number | null;
+  stackW: number;
+  /** Height of one stack panel. */
+  stackH: number;
+  /** Panel width is `3 + rng · panelSpan`. */
+  panelSpan: number;
+}
+
+/** v2 sizes (unscaled dense profile): blades 0.8–1.2 × 3–7 m, stack panels 1.6 × 0.9 m, panels 3–7 m. */
+const V2_SIZE: DenseSize = { bladeW: null, bladeH: null, stackW: STACK_W, stackH: STACK_H, panelSpan: 4 };
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Neon v3 sign sizes for a building of height `h` (§4.11 "Neon v3"): blade
+ * `clamp(0.9 + h/40, 0.9, 2.2)` × `clamp(3 + h/6, 3, 10)` m, stack panels
+ * `clamp(1.6 + h/50, 1.6, 2.8)` × `clamp(0.9 + h/120, 0.9, 1.4)` m, panels 3–9 m wide.
+ */
+export function neonSignSize(h: number): { bladeW: number; bladeH: number; stackW: number; stackH: number; panelSpan: number } {
+  return {
+    bladeW: clamp(0.9 + h / 40, 0.9, 2.2),
+    bladeH: clamp(3 + h / 6, 3, 10),
+    stackW: clamp(1.6 + h / 50, 1.6, 2.8),
+    stackH: clamp(0.9 + h / 120, 0.9, 1.4),
+    panelSpan: 6,
+  };
+}
+
+/** Blade centre distance off the wall: 0.6 m, or half the blade + 0.1 m when wider (v3 blades never cut into the wall). */
+export function neonBladeOffset(width: number): number {
+  return Math.max(BLADE_OFF, width / 2 + 0.1);
+}
+
 /**
  * Dense rule (tokyo): each qualifying wall segment is active with `p`; signs
  * sit in 3.5 m storey slots above the wall base, ≥ 1.2 m apart on one wall
  * line, until the per-building cap. Eye-level bias (PM rework): blades hang
  * with bottom in [3, 7] m; stacks and panels fill the [3, 12] m slots
  * bottom-up (walls round-robin) for the first 75 % of the cap, the rest go
- * higher, up to `min(h − 2, 30)`; screens keep bottom ≥ 10 m.
+ * higher, up to `min(h − 2, 30)`; screens keep bottom ≥ 10 m. With
+ * `profile.scaled` (neon v3) sizes follow {@link neonSignSize}.
  */
 function placeDense(
   building: Building,
@@ -477,9 +519,10 @@ function placeDense(
     let width: number;
     let height: number;
     let panels: StackPanel[] | undefined;
+    const size = profile.scaled ? neonSignSize(building.h) : V2_SIZE;
     if (kind === 'blade') {
-      width = 0.8 + rng() * 0.4;
-      height = 3 + rng() * 4;
+      width = size.bladeW ?? 0.8 + rng() * 0.4;
+      height = size.bladeH ?? 3 + rng() * 4;
     } else if (kind === 'stack') {
       const n = 2 + Math.floor(rng() * 3);
       panels = [{ word, text, border }];
@@ -487,10 +530,10 @@ function placeDense(
         const w = pick(rng, list, 'バー');
         panels.push({ word: w, ...neonColours('stack', w) });
       }
-      width = STACK_W;
-      height = n * STACK_H + (n - 1) * STACK_GAP;
+      width = size.stackW;
+      height = n * size.stackH + (n - 1) * STACK_GAP;
     } else if (kind === 'panel') {
-      width = 3 + rng() * 4;
+      width = 3 + rng() * size.panelSpan;
       height = 1 + rng() * 0.6;
     } else {
       width = 6 + rng() * 6;
@@ -503,7 +546,7 @@ function placeDense(
     const pickSlot = rng();
     const flat = kind !== 'blade';
     if (flat) width = Math.min(width, edge.len - 2 * END_MARGIN);
-    const minW = kind === 'panel' ? 3 : kind === 'screen' ? 6 : kind === 'stack' ? STACK_W : 0;
+    const minW = kind === 'panel' ? 3 : kind === 'screen' ? 6 : kind === 'stack' ? size.stackW : 0;
     if (width < minW - 1e-9) continue;
     const foot = flat ? width : BLADE_FOOT;
     const lo = END_MARGIN + foot / 2;
@@ -540,7 +583,7 @@ function placeDense(
     const bottom = wallBase + chosen * STOREY;
     onLine.push({ a0: lineA - foot / 2, a1: lineA + foot / 2, y0: bottom, y1: bottom + height });
     if (kind !== 'screen' && chosen > lowTop) high++;
-    const off = flat ? PANEL_OFF : BLADE_OFF;
+    const off = flat ? PANEL_OFF : neonBladeOffset(width);
     const px = edge.ax + ((edge.bx - edge.ax) * along) / edge.len;
     const pz = edge.az + ((edge.bz - edge.az) * along) / edge.len;
     const x = px + edge.nx * off;
@@ -582,7 +625,7 @@ function rotate(list: number[], u: number): number[] {
 /**
  * Place neon signs on street-facing exterior walls of one cell (§4.11 "Neon
  * v2"). Qualifying segments: building h ≥ 8 m, segment ≥ the profile's
- * `minEdge`, midpoint within 12 m of a same-cell road. The city's
+ * `minEdge`, midpoint within the profile's `reach` (12 m; tokyo 20 m) of a same-cell road. The city's
  * {@link NEON_PROFILE} decides density, kinds and caps.
  */
 export function placeSigns(
@@ -598,7 +641,7 @@ export function placeSigns(
   const index = indexRoads(roads);
   for (const building of buildings) {
     if (building.h < MIN_H || building.poly.length < 3) continue;
-    const edges = qualifyingEdges(exteriorWalls(building, heightAt), index, profile.minEdge);
+    const edges = qualifyingEdges(exteriorWalls(building, heightAt), index, profile.minEdge, profile.reach);
     if (edges.length === 0) continue;
     if (!edges.every((e) => Number.isFinite(e.base))) continue;
     if (profile.dense) placeDense(building, edges, profile, list, heightAt, signs);
@@ -739,9 +782,9 @@ export const NEON_TUBE_GAIN = 7;
 /** Emissive gain of facade screens. */
 export const NEON_SCREEN_GAIN = 3;
 /** Glow card: size factor over the sign, colour factor, offset off the wall. */
-export const NEON_GLOW_SCALE = 2.2;
+export const NEON_GLOW_SCALE = 3;
 /** Glow card colour factor (× linear sign colour). */
-export const NEON_GLOW_STRENGTH = 0.35;
+export const NEON_GLOW_STRENGTH = 0.45;
 /** Glow card distance in front of the wall. */
 export const NEON_GLOW_OFF = 0.05;
 
@@ -939,7 +982,7 @@ export function buildNeonMeshes(
     const T: V3 = [-sign.nz, 0, sign.nx];
     const hw = sign.width / 2;
     const hh = sign.height / 2;
-    const off = sign.kind === 'blade' ? BLADE_OFF : PANEL_OFF;
+    const off = sign.kind === 'blade' ? neonBladeOffset(sign.width) : PANEL_OFF;
     const wall = sub3(C, mul3(N, off));
 
     if (sign.kind === 'blade') {
@@ -993,7 +1036,7 @@ export function buildNeonMeshes(
       frameAround(frames, C, T, Y, N, sign.width, sign.height);
     }
 
-    // Fake spill: additive card on the wall behind the sign, 2.2 × its size.
+    // Fake spill: additive card on the wall behind the sign, 3 × its size.
     const col = mul3(neonLinear(sign.text), NEON_GLOW_STRENGTH);
     const gw = (sign.kind === 'blade' ? Math.max(sign.width, 1) : sign.width) * NEON_GLOW_SCALE * 0.5;
     const gh = sign.height * NEON_GLOW_SCALE * 0.5;

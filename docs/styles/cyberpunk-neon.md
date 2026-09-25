@@ -21,17 +21,22 @@ Contract: `docs/architecture.md` §4.11 "`cyberpunk` v2" → "Neon signs" and
 drops cells past 550 m, one cell per frame. Placement sees only that cell's
 `cell.roads`.
 
-## Profiles (`NEON_PROFILE`, wave 23b)
+## Profiles (`NEON_PROFILE`, wave 23b; neon v3 T-0169)
 
-| city | p per qualifying wall | min segment | cap per building | kinds |
-|---|---|---|---|---|
-| `tokyo` (dense) | 0.7 | 4 m | `min(8, 2 + floor(h / 15))` | blade 45 / stack 25 / panel 22 / screen 8 % |
-| default (every other id) | 0.24 | 6 m | 2 | blade 60 / panel 40 % (v1 rule) |
-| `minas-tirith` | 0 | — | 0 | — |
+| city | p per qualifying wall | min segment | road reach | cap per building | sizes | kinds |
+|---|---|---|---|---|---|---|
+| `tokyo` (dense) | 1.0 | 4 m | 20 m | `min(10, 3 + floor(h / 12))` | scaled by `h` (v3) | blade 45 / stack 25 / panel 22 / screen 8 % |
+| default (every other id) | 0.24 | 6 m | 12 m | 2 | fixed (v1) | blade 60 / panel 40 % (v1 rule) |
+| `minas-tirith` | 0 | — | 12 m | 0 | — | — |
+
+`NeonProfile` carries `reach` (road reach) and `scaled` (v3 height-scaled
+sizes) next to `p`, `minEdge`, `dense` and `cap`. v2 tokyo was p 0.7, cap
+`min(8, 2 + floor(h / 15))`, reach 12 m.
 
 A qualifying wall is a segment of `exteriorWalls(b, heightAt)` (architecture
 §4.2 "Tiers": culled tier walls, else the envelope edges) on a building with
-`h ≥ 8`, whose midpoint is within 12 m of a same-cell road centreline. Seed is
+`h ≥ 8`, whose midpoint is within the profile's road reach (12 m; tokyo
+20 m) of a same-cell road centreline. Seed is
 `mulberry32(id ^ 0x9e3779b9)` (the PRNG copied from `src/world/textures.ts`).
 The outward normal of a CCW edge a→b is `(dz, −dx)/len`. Flicker (about 8 %)
 has its own seed from building id, x and y.
@@ -52,7 +57,7 @@ poke above the segment's `top` is dropped (after its RNG draws). London tile
 
 ### Dense (tokyo)
 
-Each qualifying segment is *active* with p 0.7. Then up to `cap × 6`
+Each qualifying segment is *active* with the profile's p (tokyo 1.0: every one). Then up to `cap × 6`
 attempts go round-robin over the active segments (screens always take the
 building's longest active segment) until the cap is reached. Each attempt
 rolls a kind, a word, the size, a position along the wall and a storey slot
@@ -75,24 +80,39 @@ rolls a kind, a word, the size, a position along the wall and a storey slot
 - flat signs keep 0.2 m from the segment ends (their width is clamped to
   the segment, then rejected below the kind's minimum).
 
+Sizes (neon v3, `profile.scaled`, `neonSignSize(h)` for building height
+`h`; blades and stacks are deterministic in `h`, panels and screens roll):
+
 | kind | size (w × h) | off wall | notes |
 |---|---|---|---|
-| blade | 0.8–1.2 × 3–7 m | 0.6 m | perpendicular, two faces |
-| stack | 1.6 m × (n·0.9 + (n−1)·0.1) m, n = 2–4 | 0.15 m | a column of 1.6 × 0.9 m panels, each its own word/colours (`Sign.panels`, top to bottom) |
-| panel | 3–7 × 1–1.6 m | 0.15 m | flat |
-| screen | 6–12 × 4–8 m | 0.15 m | only h ≥ 30 m, bottom ≥ 10 m; emissive ×3 |
+| blade | `clamp(0.9 + h/40, 0.9, 2.2)` × `clamp(3 + h/6, 3, 10)` m | `neonBladeOffset(w)` = max(0.6, w/2 + 0.1) m | perpendicular, two faces; bottom still 3.5 or 7 m |
+| stack | `clamp(1.6 + h/50, 1.6, 2.8)` × (n·ph + (n−1)·0.1) m, ph = `clamp(0.9 + h/120, 0.9, 1.4)`, n = 2–4 | 0.15 m | a column of panels, each its own word/colours (`Sign.panels`, top to bottom) |
+| panel | 3–9 × 1–1.6 m | 0.15 m | flat |
+| screen | 6–12 × 4–8 m | 0.15 m | only h ≥ 30 m, bottom ≥ 10 m; emissive ×3 (unchanged) |
+
+The ticket gives the stack panel height only as the range 0.9–1.4 m; it
+scales with `h` on the same slope family (`0.9 + h/120` reaches 1.4 at
+60 m, where the width reaches 2.8 m). A dense profile with `scaled: false`
+keeps the v2 sizes (blade 0.8–1.2 × 3–7 m, stack 1.6 × 0.9 m, panel 3–7 m).
+The blade offset grows with its width so a 2.2 m blade does not cut into the
+wall; for the default 0.9 m blade it stays 0.6 m.
 
 Screens are only legal on the third of Tokyo's signs that sit on buildings
 ≥ 30 m, so on those buildings the screen roll is 35 % (the other three kinds
 share the rest 45 : 25 : 22); after fit rejections the city-wide share on
 tile `−6_−1` is ≈ 8 % (blade 43.7, stack 25.4, panel 22.7, screen 8.1 %).
 
-Measured on tile `−6_−1` (`FLAT_HEIGHT`, node): Shinjuku East-Exit cell
-`(−24, −4)` 167 signs / ≈ 15 k triangles; busiest cell 498 signs / ≈ 42 k
-triangles; the whole tile 2 227 signs placed in ≈ 20–90 ms. Kind shares
-blade 41.9, stack 26.3, panel 22.6, screen 9.3 %. 87 % of sign bottoms are
-≤ 12 m; 31 signs with bottom ≤ 8 m lie within 60 m of the Shinjuku spawn
-(−5908.3, −943.9).
+Measured on tile `−6_−1` (`FLAT_HEIGHT`, node), neon v3: Shinjuku
+East-Exit cell `(−24, −4)` 299 signs / 26 944 triangles; busiest cell 851
+signs / 73 498 triangles (budget 1 500 signs / 120 k); the whole tile 4 178
+signs placed in ≈ 25 ms (budget 400 ms; v2 was 2 227 signs). Kind shares
+blade 42.5, stack 25.6, panel 22.3, screen 9.6 %. 86 % of sign bottoms are
+≤ 12 m; 51 signs with bottom ≤ 8 m lie within 60 m of the Shinjuku spawn
+(−5908.3, −943.9). 1 719 signs sit on walls 12–20 m from a road (the v3
+reach). Around the v3 presets (3×3 tiles): `kabukicho` (−5978.0, −1386.5)
+75 and `centergai` (−6060.9, 2356.3) 51 signs with bottom ≤ 10 m within
+60 m; the busiest cell of tile −6_−2's 3×3 is 1 084 signs / ≈ 100 k
+triangles.
 
 ## Words and colours
 
@@ -162,10 +182,12 @@ layer adds them as `neon-face`, `neon-frame`, `neon-glow`:
 2. **frames** — dark metal frame around every face (per stack panel), plus
    two brackets from each blade back to the wall.
 3. **glow** — the fake spill: one additive card per sign 0.05 m in front of
-   the wall, 2.2 × the sign's size (blades: at least 1 m wide), colour =
-   linear text colour × 0.35 (per-vertex `glow` attribute), opacity =
+   the wall, 3 × the sign's size (blades: at least 1 m wide), colour =
+   linear text colour × 0.45 (per-vertex `glow` attribute), opacity =
    squared radial falloff × flicker; `MeshBasicNodeMaterial`, additive,
-   `depthWrite: false`, fog on.
+   `depthWrite: false`, fog on. (Neon v3: was 2.2 × / × 0.35. The mesh
+   builder is shared, so London's glow cards grow too; its placement and
+   sign sizes do not change.)
 
 ## Spill lights
 
@@ -181,9 +203,12 @@ retarget every 0.25 s to the nearest signs inside the camera frustum and
 
 Unit: `tests/punk-neon.test.ts` — the v1 cases on London `tiles/0_0.json`
 (via `bucketSources`) re-pinned to the default profile, the tier cases, and
-the v2 cases 1–8 on Tokyo `tiles/-6_-1.json` (counts, cap/spacing/storey
+the v2 cases 2–8 on Tokyo (v2 case 1's counts moved into v3 case 3) `tiles/-6_-1.json` (counts, cap/spacing/storey
 slots + eye-level bias and the Shinjuku-spawn count, kind shares, default
 ≈ 2× v1, words/colours incl. no warm-white text and ≤ 15 % warm borders,
 atlas slot table incl. overflow look matching, triangle and time budget,
-determinism) and "colour pair is a function of the atlas key". The WebGL2 graph is gated by
+determinism) and "colour pair is a function of the atlas key", and the v3
+cases 1–5 (height-scaled sizes, tokyo cap/p + 20 m / 12 m reach, cell
+budgets, sign counts at the `kabukicho` / `centergai` presets, default
+profile unchanged — London's sign sha256 stays pinned). The WebGL2 graph is gated by
 `e2e/cyberpunk.spec.ts` — zero console errors, exact scene restore on `R`.
