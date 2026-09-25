@@ -46,6 +46,27 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Session log 2026-09-25 (afternoon) — reviews, Opus lane, wave 22 spike
+- Opus lane live: user rebuilt the image (Claude Code 2.1.282, verified
+  claude-opus-5-5). First launches fast-failed ("Input must be provided
+  through stdin"): the board's `.tigerteam/scripts/in-container.sh` was a
+  stale copy without `docker run -i` for stdin transport; refreshed it (and
+  pm-guard.sh) from the skill. Lesson: after a tigerteam/skill upgrade,
+  diff `.tigerteam/scripts/*` against the skill's `scripts/`.
+- Accepted: T-0157 atmosphere (ds), T-0158 converter (opus; .d.ts scope
+  overstep accepted), T-0153 streets (ds, 1 rework; the remaining glitter
+  was the PM pipeline — SSR now full-res and weighted by wetness),
+  T-0159 roofs (opus; deviated from the PM's densify recipe with a better
+  crease-cut method — §4.2 updated; PM added the runtime roof.h clamp T-0158
+  flagged), T-0155 props (ds, 2 reworks, both PM spec gaps: lamps inside
+  narrow City facades; short OSM ways got no lamps; PM tuned cones — they
+  were additive WHITE).
+- T-0152 facades (grok found the PM's main.ts restore race: applyGroundGrid
+  before syncEngine — fixed) → GPU preview good; PM visual notes appended
+  (shopfront 25 % / dimmer, albedo ×2, distance fade); re-pinned to opus.
+- T-0154 detail reworked (vertex-vs-triangle counting bug; greys up).
+- T-0160 re-pinned to opus. T-0162 wave-22 spike (PLATEAU, C3, opus).
+
 ## Wave 21 (2026-09-25) — OSM Simple 3D Buildings (roofs, colours, materials)
 - User chose option 1 of the geometry question (OSM S3DB tags) "since it's
   cyberpunk"; Tokyo from PLATEAU (open LOD2 CityGML) is wave 22; the user is
