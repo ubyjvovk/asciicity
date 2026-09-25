@@ -1550,8 +1550,8 @@ reworked):*
 
 *Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
   - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).
-  - Puddle mask `puddle = smoothstep(0.52, 0.60, fbm2(x·0.07, z·0.07))`:
-    **25–35 % of road area** is puddle (mirror-measured over 200 m × 200 m).
+  - Puddle mask `puddle = smoothstep(0.54, 0.62, fbm2(x·0.07, z·0.07))`:
+    **25–35 % of road area** is puddle (mean of three 200 m × 200 m windows; PM-measured 0.34 / 0.28 / 0.26 → 0.30).
   - Asphalt: albedo 0.035–0.06 grey (fine grain `vnoise(x·3, z·3)` ±0.01,
     patch `vnoise(x·0.3, z·0.3)` ±0.012), road vertex colour only as a ±15 %
     class tint; dry roughness 0.45–0.6, metalness 0.12. Puddle: albedo 0.02,
@@ -1571,7 +1571,7 @@ reworked):*
   - Only buildings with h ≥ 6 m and a wall edge ≥ 4 m; per edge (outward
     normal as walls): ledges — a 0.25 m slab protruding 0.35 m every 12 m of
     height (h ≥ 15 only); AC units 0.9 × 0.6 × 0.5 m boxes on the 3 m window
-    grid, ~1 per 30 m² of wall below 40 m, at floor + 0.4 m, protruding
+    grid, ~1 per 45 m² of wall below 40 m (PM estimate on london 0_0: ≈ 670 k triangles per tile ≈ 42 k per cell; if the budget test fails, lower AC density first and report the number), at floor + 0.4 m, protruding
     0.5 m; balconies on 30 % of buildings: every other floor up to 30 m,
     every 6 m of edge, slab 2.4 × 0.15 × 1.1 m + a 0.05 m railing bar at
     +1.0 m; vertical pipes 0.2 × 0.2 m, 1 per edge ≥ 10 m (2 if ≥ 25 m),
@@ -1607,8 +1607,9 @@ reworked):*
 *Neon signs — EXPERIMENTAL (`punk/neonplace.ts` pure, `punk/neonatlas.ts`,
 `punk/neon.ts`, T-0156):* on by default, `N` / `?neon=0|1` toggle, persisted.
   - Placement per building (h ≥ 8 m) edge ≥ 6 m whose midpoint is within
-    12 m of any road centreline segment of the same cell: probability 0.35,
-    max 2 signs per building, seeded `mulberry32(id ^ 0x9e3779b9)`. Kinds:
+    12 m of any road centreline segment of the same cell: probability 0.12
+    per qualifying edge, max 1 sign per building (2 if h ≥ 20 m) — "here and
+    there": PM estimate ≈ 150 signs per london tile, ≈ 10 per cell, seeded `mulberry32(id ^ 0x9e3779b9)`. Kinds:
     60 % `blade` (perpendicular to the wall, 0.9 m wide, 3–6 m tall, bottom
     3.5–5 m above wall base, 0.6 m off the wall, at 25–75 % along the edge),
     40 % `panel` (flat, 3–7 m wide × 1–1.6 m tall, bottom 4–8 m, 0.15 m off).
@@ -1632,7 +1633,7 @@ reworked):*
 *Atmosphere (`punk/atmosphere.ts` + pure `punk/fogmath.ts`, T-0157):*
   - Height fog: density ρ(y) = ρ0 · exp(−(y − y0)/H), H = 18 m, y0 = camera
     ground height (camera y − 1.7 when walking; uniform from the pipeline),
-    ρ0 = 0.012 × look `fogAmount`; transmittance along the view ray from the
+    ρ0 = 0.006 × look `fogAmount` (PM check: window at y0 + 10 m, 300 m away, neonNoir → T ≈ 0.44; street level at 100 m → T ≈ 0.62); transmittance along the view ray from the
     analytic integral (`fogmath.heightFogTransmittance`), combined with the
     look's distance fog by max().
   - Light diffusion: the emissive attachment blurred at ¼ resolution with a
