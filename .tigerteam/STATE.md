@@ -63,6 +63,13 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   T-0170 vehicles layer boarded to opus. PM review: nose-first direction
   per model (flip manifest yaw by π), Century is untextured (paint rule),
   fps, fleet boxes restored on detach.
+- T-0170 ACCEPTED (opus-1, $4.09, 1st try). PM GPU review: all 11 models
+  nose-first with head lights on the nose (no manifest yaw flips; code adds
+  FLEET_YAW π), Century gets real colours via a specular-glossiness shim,
+  police livery reads. Cost ~3 % fps (bank 310→301, kabukicho 244→238 at
+  1920×2160 uncapped). PM follow-up fd17e4c: `punk.carsNear(x,z,n)` debug hook,
+  GLTFLoader pre-bundled, traffic() JSDoc says hide via material.visible.
+  Review harness: scratchpad carshot.mjs / carshot2.mjs (chase a model).
 
 ## Wave 23 (2026-09-25 evening) — perf pass + PBR textures (user: <20 fps on MacBook, "smooth tiles")
 - PM profiled with `?punkq=` switches + an uncapped harness (RTX 5080,
