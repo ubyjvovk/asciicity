@@ -13,12 +13,16 @@ import type { PunkSource } from '../src/render/punk/layer';
 import {
   NEON_ATLAS_SLOTS,
   NEON_COLORS,
+  NEON_TEXT_COLORS,
+  NEON_WARM_WHITE,
   NeonSlotTable,
   WORDS,
   buildNeonMeshes,
   neonAtlasKey,
+  neonColours,
   neonKeyHash,
   neonSlotUv,
+  parseNeonAtlasKey,
   placeSigns,
   type Sign,
 } from '../src/render/punk/neonplace';
@@ -358,11 +362,11 @@ describe('tiers (wave 22, architecture §4.2 "Tiers")', () => {
     expect(tall).toBeGreaterThan(0);
   });
 
-  // The pre-wave-22 hash was 11643bbf…; neon v2 (T-0168) re-rolls the default profile (p 0.24, cap 2, text + border colours).
+  // The pre-wave-22 hash was 11643bbf…; neon v2 (T-0168) re-rolls the default profile (p 0.24, cap 2, colour pair keyed by kind|word).
   it('6. byte-identical output for buildings without tiers (v2 default-profile sha256, london tile 0_0 on a slope)', () => {
     const signs = placeSigns(tile.buildings, tile.roads, (x, z) => 0.01 * x + 0.02 * z, 'london');
     expect(createHash('sha256').update(JSON.stringify(signs)).digest('hex')).toBe(
-      '221b07406348ea4d48e2649cbbb344ba351978f377a1a1097eb27b663dc5942e',
+      '9fd8f94377698afdefc2b0bb07dc7f3593e3f87318693a0782fb12e2a4b8263e',
     );
   });
 });
@@ -401,7 +405,7 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
     for (const { signs } of tokyoPlaced) expect(signs.length).toBeLessThanOrEqual(800);
   });
 
-  it('2. per-building cap, 1.2 m spacing on one wall, storey-slot bottoms ≤ min(h − 2, 30)', () => {
+  it('2. per-building cap, 1.2 m spacing on one wall, storey-slot bottoms ≤ min(h − 2, 30); eye-level bias', () => {
     const byBuilding = new Map<number, Sign[]>();
     for (const sign of tokyoSigns) {
       const list = byBuilding.get(sign.buildingId) ?? [];
@@ -424,6 +428,10 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
         expect(Math.abs(k - Math.round(k))).toBeLessThan(1e-6);
         expect(Math.round(k)).toBeGreaterThanOrEqual(1);
         expect(rel).toBeLessThanOrEqual(Math.min(b.h - 2, 30) + 1e-6);
+        if (sign.kind === 'blade') {
+          expect(rel).toBeGreaterThanOrEqual(3 - 1e-6);
+          expect(rel).toBeLessThanOrEqual(7 + 1e-6);
+        }
         return { sign, line: wx * sign.nx + wz * sign.nz, a0: along - w / 2, a1: along + w / 2, y0: bottom, y1: bottom + sign.height };
       });
       for (let i = 0; i < feet.length; i++) {
@@ -438,6 +446,14 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
         }
       }
     }
+    // PM rework: ≥ 70 % of the bottoms at eye level (≤ 12 m above the wall base).
+    const low = tokyoSigns.filter((s) => s.y - s.height / 2 - wallBaseOf(tokyoById.get(s.buildingId)!) <= 12 + 1e-6).length;
+    const lowShare = low / tokyoSigns.length;
+    // Shinjuku spawn: signs with bottom ≤ 8 m within 60 m (in frame from the street).
+    const spawn = tokyoSigns.filter((s) => s.y - s.height / 2 <= 8 + 1e-6 && Math.hypot(s.x + 5908.3, s.z + 943.9) <= 60).length;
+    console.log(`[neon v2] tokyo -6_-1 bottoms ≤ 12 m: ${(lowShare * 100).toFixed(1)} %; Shinjuku spawn low signs within 60 m: ${spawn}`);
+    expect(lowShare).toBeGreaterThanOrEqual(0.7);
+    expect(spawn).toBeGreaterThanOrEqual(25);
   });
 
   it('3. tokyo kind shares 45 / 25 / 22 / 8 (±6 %); screens h ≥ 30, bottom ≥ 10; stacks 2–4 panels', () => {
@@ -491,12 +507,17 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
     expect(placeSigns(block.buildings, block.roads, FLAT_HEIGHT, 'minas-tirith')).toEqual([]);
   });
 
-  it('5. tokyo words ≥ 40 distinct from the tokyo list; text ≠ border colour', () => {
+  it('5. tokyo words ≥ 40 distinct from the tokyo list; text ≠ border colour; warm white only as a border (≤ 15 %)', () => {
     const list = new Set(WORDS.tokyo);
     const used = new Set<string>();
+    let borders = 0;
+    let warm = 0;
     const check = (word: string, text: string, border: string): void => {
       expect(list.has(word)).toBe(true);
       expect(COLORS.has(text)).toBe(true);
+      expect(text).not.toBe('#fff1c1');
+      borders++;
+      if (border === '#fff1c1') warm++;
       expect(COLORS.has(border)).toBe(true);
       expect(text).not.toBe(border);
       used.add(word);
@@ -505,8 +526,14 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
       check(sign.word, sign.text, sign.border);
       for (const p of sign.panels ?? []) check(p.word, p.text, p.border);
     }
-    for (const sign of londonSigns) expect(sign.text).not.toBe(sign.border);
-    console.log(`[neon v2] tokyo -6_-1 distinct words: ${used.size} of ${list.size}`);
+    for (const sign of londonSigns) {
+      expect(sign.text).not.toBe(sign.border);
+      expect(sign.text).not.toBe('#fff1c1');
+    }
+    console.log(`[neon v2] tokyo -6_-1 distinct words: ${used.size} of ${list.size}; warm-white borders ${((warm / borders) * 100).toFixed(1)} %`);
+    expect(warm / borders).toBeLessThanOrEqual(0.15);
+    expect(NEON_TEXT_COLORS).not.toContain(NEON_WARM_WHITE);
+    expect(NEON_TEXT_COLORS).toContain('#ffcc33');
     expect(used.size).toBeGreaterThanOrEqual(40);
     expect(NEON_COLORS).toContain('#fff1c1');
     expect(NEON_COLORS).toContain('#ffcc33');
@@ -514,11 +541,14 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
 
   it('6. atlas key space: 128 slots, deterministic slot for a key', () => {
     expect(NEON_ATLAS_SLOTS).toBe(128);
-    const keys = tokyoSigns.map((s) => neonAtlasKey(s.kind, s.word, s.text, s.border));
+    const keys = tokyoSigns.flatMap((s) =>
+      s.kind === 'stack' ? (s.panels ?? []).map((p) => neonAtlasKey('stack', p.word)) : [neonAtlasKey(s.kind, s.word)],
+    );
     const a = new NeonSlotTable();
     const b = new NeonSlotTable();
     const distinct: string[] = [];
     const seen = new Set<string>();
+    const owner = new Map<number, string>();
     for (const key of keys) {
       const ra = a.slotFor(key);
       const rb = b.slotFor(key);
@@ -528,8 +558,22 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
       if (!seen.has(key)) {
         seen.add(key);
         distinct.push(key);
-        if (distinct.length <= 128) expect(ra).toEqual({ slot: distinct.length - 1, fresh: true });
-        else expect(ra).toEqual({ slot: neonKeyHash(key) % 128, fresh: false });
+        if (distinct.length <= 128) {
+          expect(ra).toEqual({ slot: distinct.length - 1, fresh: true });
+          owner.set(ra.slot, key);
+        } else {
+          // Overflow shares a drawn slot of the same kind, and of the same colours when one exists.
+          expect(ra.fresh).toBe(false);
+          const mine = parseNeonAtlasKey(key);
+          const theirs = parseNeonAtlasKey(owner.get(ra.slot)!);
+          expect(theirs.kind).toBe(mine.kind);
+          const sameLook = [...owner.values()].some((k) => {
+            const o = parseNeonAtlasKey(k);
+            return o.kind === mine.kind && o.text === mine.text && o.border === mine.border;
+          });
+          if (sameLook) expect([theirs.text, theirs.border]).toEqual([mine.text, mine.border]);
+          expect(a.lookOf(ra.slot)).toEqual({ text: theirs.text, border: theirs.border });
+        }
       } else {
         expect(ra.fresh).toBe(false);
       }
@@ -550,6 +594,23 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
       rects.add(`${uv.u0.toFixed(4)}:${uv.v0.toFixed(4)}`);
     }
     expect(rects.size).toBe(128);
+  });
+
+  it('colour pair is a function of the atlas key', () => {
+    const pair = new Map<string, string>();
+    for (const sign of [...tokyoSigns, ...londonSigns]) {
+      const faces = sign.kind === 'stack' ? (sign.panels ?? []).map((p) => ({ kind: 'stack' as const, ...p })) : [sign];
+      for (const f of faces) {
+        const key = neonAtlasKey(f.kind, f.word);
+        const look = `${f.text}/${f.border}`;
+        expect(pair.get(key) ?? look, key).toBe(look);
+        pair.set(key, look);
+        expect(neonColours(f.kind, f.word)).toEqual({ text: f.text, border: f.border });
+        expect(parseNeonAtlasKey(key)).toEqual({ kind: f.kind, word: f.word, text: f.text, border: f.border });
+      }
+      if (sign.kind === 'stack') expect([sign.text, sign.border]).toEqual([sign.panels?.[0]?.text, sign.panels?.[0]?.border]);
+    }
+    expect(pair.size).toBeGreaterThan(100);
   });
 
   it('7. geometry budget: ≤ 60 k triangles and 3 meshes per cell; tile placement ≤ 250 ms', () => {

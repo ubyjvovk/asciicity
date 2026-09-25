@@ -15,6 +15,7 @@ import {
   neonSlotRotated,
   neonSlotUv,
   parseNeonAtlasKey,
+  type Sign,
   type SignKind,
   type SlotUv,
 } from './neonplace';
@@ -68,9 +69,16 @@ export function disposeNeonAtlas(): void {
 /** CJK first (generic stack, no bundled font); the last entries still render Latin/Cyrillic and tofu-free fallbacks. */
 const FONT = '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic", "DejaVu Sans", sans-serif';
 
+/** Bold glyph stroke thickness as a share of the font size (CJK and Latin bold faces). */
+const STROKE = 0.13;
+/** Colour tube stroke over the white fill: covers 30 % of the glyph stroke from each side ⇒ a ≤ 40 % white core. */
+const TUBE = STROKE * 0.6;
+
 /**
- * Two-pass tube lettering centred at the current origin: a wide glow in the
- * text colour, then a thin near-white core. `pixelW` is the target width.
+ * Tube lettering centred at the current origin (PM rework: neon, not
+ * white): a blurred full-saturation glow in the text colour, then a
+ * near-white glyph whose edges are overdrawn by a colour stroke, leaving a
+ * white core ≤ 40 % of the glyph stroke. `pixelW` is the target width.
  */
 function paintText(ctx: CanvasRenderingContext2D, text: string, pixelH: number, pixelW: number, color: string): void {
   ctx.font = `700 ${pixelH}px ${FONT}`;
@@ -79,14 +87,18 @@ function paintText(ctx: CanvasRenderingContext2D, text: string, pixelH: number, 
   const natural = Math.max(1, ctx.measureText(text).width);
   ctx.save();
   ctx.scale(pixelW / natural, 1);
+  ctx.lineJoin = 'round';
   ctx.shadowColor = color;
   ctx.shadowBlur = Math.max(6, pixelH * 0.4);
   ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = pixelH * TUBE;
   ctx.fillText(text, 0, 0);
+  ctx.strokeText(text, 0, 0);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#f4f7ff';
-  ctx.font = `600 ${pixelH * 0.62}px ${FONT}`;
   ctx.fillText(text, 0, 0);
+  ctx.strokeText(text, 0, 0);
   ctx.restore();
 }
 
@@ -163,13 +175,37 @@ function drawSlot(ctx: CanvasRenderingContext2D, slot: number, key: string): voi
 }
 
 /**
- * UV rect for one sign face. The first 128 distinct `kind|word|text|border`
- * keys each get a slot; later keys reuse `hash(key) % 128` (no eviction).
+ * UV rect for one sign face. The first 128 distinct `kind|word` keys each get
+ * a slot; later keys reuse a drawn slot of the same look (see {@link NeonSlotTable}).
  */
-export function getSlotUv(kind: SignKind, word: string, text: string, border: string): SlotUv {
+export function getSlotUv(kind: SignKind, word: string): SlotUv {
   const ctx = ensure();
-  const key = neonAtlasKey(kind, word, text, border);
+  const key = neonAtlasKey(kind, word);
   const { slot, fresh } = table.slotFor(key);
   if (fresh) drawSlot(ctx, slot, key);
   return neonSlotUv(slot, neonSlotRotated(kind));
+}
+
+/** Colours actually drawn in the slot of `kind|word` (drawing the slot if it is new). */
+function drawnLook(kind: SignKind, word: string, text: string, border: string): { text: string; border: string } {
+  const ctx = ensure();
+  const key = neonAtlasKey(kind, word);
+  const { slot, fresh } = table.slotFor(key);
+  if (fresh) drawSlot(ctx, slot, key);
+  return table.lookOf(slot) ?? { text, border };
+}
+
+/**
+ * `sign` recoloured to what its atlas slot shows, so face, glow card and
+ * spill light agree. Identity except for an overflow key that had to share a
+ * slot of a different colour pair.
+ */
+export function withDrawnColours(sign: Sign): Sign {
+  if (sign.kind === 'stack' && sign.panels) {
+    const panels = sign.panels.map((p) => ({ ...p, ...drawnLook('stack', p.word, p.text, p.border) }));
+    const top = panels[0];
+    return top ? { ...sign, text: top.text, border: top.border, panels } : sign;
+  }
+  const look = drawnLook(sign.kind, sign.word, sign.text, sign.border);
+  return look.text === sign.text && look.border === sign.border ? sign : { ...sign, ...look };
 }

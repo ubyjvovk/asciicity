@@ -8,7 +8,7 @@ import * as THREE from 'three/webgpu';
 import { attribute, clamp, float, floor, hash, length, select, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
 import { CellStreamer, type CellData } from './cells';
 import type { PunkLayer, PunkLayerContext } from './layer';
-import { disposeNeonAtlas, getSlotUv, neonAtlasSlotCount, neonAtlasTexture } from './neonatlas';
+import { disposeNeonAtlas, getSlotUv, neonAtlasSlotCount, neonAtlasTexture, withDrawnColours } from './neonatlas';
 import { buildNeonMeshes, placeSigns, type NeonMesh, type Sign } from './neonplace';
 
 const LIGHTS = 4;
@@ -122,7 +122,7 @@ export function createNeonLayer(): PunkLayer {
 
   const buildCell = (cell: CellData): THREE.Group | null => {
     if (!ctx || !faceMat || !frameMat || !glowMat) return null;
-    const signs = placeSigns(cell.buildings, cell.roads, ctx.groundAt, ctx.cityId);
+    const signs = placeSigns(cell.buildings, cell.roads, ctx.groundAt, ctx.cityId).map(withDrawnColours);
     if (signs.length === 0) return null;
     const meshes = buildNeonMeshes(signs, getSlotUv);
     const group = new THREE.Group();

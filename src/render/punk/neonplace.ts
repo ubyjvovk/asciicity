@@ -19,6 +19,12 @@ export const NEON_COLORS: readonly string[] = [
   '#ffcc33',
 ];
 
+/** Warm white: a border option only (≈ 10 % of borders), never lettering. */
+export const NEON_WARM_WHITE = '#fff1c1';
+
+/** Lettering colours: {@link NEON_COLORS} without warm white (sodium stays). */
+export const NEON_TEXT_COLORS: readonly string[] = NEON_COLORS.filter((c) => c !== NEON_WARM_WHITE);
+
 const ENGLISH: readonly string[] = [
   'BAR',
   'HOTEL',
@@ -186,6 +192,11 @@ const SCREEN_MIN_H = 30;
  */
 const SCREEN_TALL = 0.35;
 const SCREEN_MIN_BOTTOM = 10;
+/** Eye-level bias: first low slot (bottom 3.5 m), top of the low band, blade bottom ceiling, low share of the cap. */
+const LOW_SLOT = 1;
+const LOW_TOP = 12;
+const BLADE_BOTTOM_MAX = 7;
+const LOW_SHARE = 0.75;
 const STACK_W = 1.6;
 const STACK_H = 0.9;
 const STACK_GAP = 0.1;
@@ -339,12 +350,22 @@ function pick<T>(rng: () => number, list: readonly T[], fallback: T): T {
   return list[Math.floor(rng() * list.length)] ?? fallback;
 }
 
-/** A text colour and a different border colour. */
-function colours(rng: () => number): { text: string; border: string } {
-  const n = NEON_COLORS.length;
-  const t = Math.floor(rng() * n);
-  const b = (t + 1 + Math.floor(rng() * (n - 1))) % n;
-  return { text: NEON_COLORS[t] ?? '#ff2a6d', border: NEON_COLORS[b] ?? '#05d9e8' };
+/** Share of atlas keys whose border is warm white (the PM cap is 15 % of borders). */
+const WARM_BORDER = 0.1;
+
+/**
+ * The sign's (text, border) colour pair, a pure function of its atlas key
+ * `kind|word` (hash-seeded), so a shared atlas slot always matches the sign's
+ * glow card and spill light. Text never warm white; border ≠ text.
+ */
+export function neonColours(kind: SignKind, word: string): { text: string; border: string } {
+  const rng = mulberry32(neonKeyHash(neonAtlasKey(kind, word)));
+  const texts = NEON_TEXT_COLORS;
+  const t = Math.floor(rng() * texts.length);
+  const text = texts[t] ?? '#ff2a6d';
+  if (rng() < WARM_BORDER) return { text, border: NEON_WARM_WHITE };
+  const b = (t + 1 + Math.floor(rng() * (texts.length - 1))) % texts.length;
+  return { text, border: texts[b] ?? '#05d9e8' };
 }
 
 /** v1 rule (default profile): 60 % blades / 40 % panels, low on the wall, cap per building. */
@@ -365,7 +386,7 @@ function placeDefault(
     if (rng() >= profile.p) continue;
     const blade = rng() < BLADE_PROB;
     const word = pick(rng, list, 'BAR');
-    const { text, border } = colours(rng);
+    const { text, border } = neonColours(blade ? 'blade' : 'panel', word);
     const width = blade ? BLADE_WIDTH : 3 + rng() * 4;
     const height = blade ? 3 + rng() * 3 : 1 + rng() * 0.6;
     const bottom = blade ? 3.5 + rng() * 1.5 : 4 + rng() * 4;
@@ -414,9 +435,11 @@ function tooClose(feet: readonly Foot[], f: Foot): boolean {
 
 /**
  * Dense rule (tokyo): each qualifying wall segment is active with `p`; signs
- * go up the active facades in 3.5 m storey slots from 3.5 m to
- * `min(h − 2, 30)` above the wall base, ≥ 1.2 m apart on one wall line,
- * until the per-building cap.
+ * sit in 3.5 m storey slots above the wall base, ≥ 1.2 m apart on one wall
+ * line, until the per-building cap. Eye-level bias (PM rework): blades hang
+ * with bottom in [3, 7] m; stacks and panels fill the [3, 12] m slots
+ * bottom-up (walls round-robin) for the first 75 % of the cap, the rest go
+ * higher, up to `min(h − 2, 30)`; screens keep bottom ≥ 10 m.
  */
 function placeDense(
   building: Building,
@@ -430,6 +453,7 @@ function placeDense(
   const active = edges.filter(() => rng() < profile.p);
   if (active.length === 0) return;
   const cap = profile.cap(building.h);
+  const lowCap = Math.ceil(cap * LOW_SHARE);
   const { base } = ringHeights(normalizeRing(building.poly), heightAt);
   const wallBase = base + (building.minH ?? 0);
   const slots = Math.floor(Math.min(building.h - 2, SLOT_TOP) / STOREY + 1e-9);
@@ -439,6 +463,7 @@ function placeDense(
   for (const e of active) if (longest && e.len > longest.len) longest = e;
   const feet = new Map<string, Foot[]>();
   let placed = 0;
+  let high = 0;
   const attempts = cap * 6;
   for (let i = 0; i < attempts && placed < cap; i++) {
     const u = rng();
@@ -448,7 +473,7 @@ function placeDense(
       kind = r < SHARE_BLADE ? 'blade' : r < SHARE_BLADE + SHARE_STACK ? 'stack' : 'panel';
     }
     const word = pick(rng, list, 'バー');
-    const { text, border } = colours(rng);
+    const { text, border } = neonColours(kind, word);
     let width: number;
     let height: number;
     let panels: StackPanel[] | undefined;
@@ -458,7 +483,10 @@ function placeDense(
     } else if (kind === 'stack') {
       const n = 2 + Math.floor(rng() * 3);
       panels = [{ word, text, border }];
-      for (let k = 1; k < n; k++) panels.push({ word: pick(rng, list, 'バー'), ...colours(rng) });
+      for (let k = 1; k < n; k++) {
+        const w = pick(rng, list, 'バー');
+        panels.push({ word: w, ...neonColours('stack', w) });
+      }
       width = STACK_W;
       height = n * STACK_H + (n - 1) * STACK_GAP;
     } else if (kind === 'panel') {
@@ -471,14 +499,8 @@ function placeDense(
     // Screens take the building's longest active facade; the rest go round-robin.
     const edge = kind === 'screen' ? longest : active[i % active.length];
     if (!edge) break;
-    // Storey slots whose sign fits inside this wall segment's y span.
-    const minSlot = Math.max(kind === 'screen' ? Math.ceil(SCREEN_MIN_BOTTOM / STOREY) : 1, Math.ceil((edge.base - wallBase) / STOREY - 1e-9));
-    const maxSlot = Math.min(slots, Math.floor((edge.top - wallBase - height) / STOREY + 1e-9));
-    const slot = minSlot + Math.floor(rng() * Math.max(0, maxSlot - minSlot + 1));
     const t = rng();
-    if (slot > maxSlot) continue;
-    const bottom = wallBase + slot * STOREY;
-    if (bottom < edge.base - 1e-6 || bottom + height > edge.top + 1e-6) continue;
+    const pickSlot = rng();
     const flat = kind !== 'blade';
     if (flat) width = Math.min(width, edge.len - 2 * END_MARGIN);
     const minW = kind === 'panel' ? 3 : kind === 'screen' ? 6 : kind === 'stack' ? STACK_W : 0;
@@ -488,15 +510,36 @@ function placeDense(
     const hi = edge.len - END_MARGIN - foot / 2;
     if (hi < lo) continue;
     const along = lo + (hi - lo) * t;
-    const lineA = (edge.ax * -edge.nz + edge.az * edge.nx) + along;
-    const f: Foot = { a0: lineA - foot / 2, a1: lineA + foot / 2, y0: bottom, y1: bottom + height };
+    const lineA = edge.ax * -edge.nz + edge.az * edge.nx + along;
     let onLine = feet.get(edge.line);
     if (!onLine) {
       onLine = [];
       feet.set(edge.line, onLine);
     }
-    if (tooClose(onLine, f)) continue;
-    onLine.push(f);
+    // Storey slots whose sign fits inside this wall segment's y span.
+    const fitLo = Math.max(1, Math.ceil((edge.base - wallBase) / STOREY - 1e-9));
+    const fitHi = Math.min(slots, Math.floor((edge.top - wallBase - height) / STOREY + 1e-9));
+    const lowTop = Math.floor((kind === 'blade' ? BLADE_BOTTOM_MAX : LOW_TOP) / STOREY + 1e-9);
+    // Candidate slots in try order: low ones bottom-up; high ones (above LOW_TOP) from a random start.
+    const lowRange = (): number[] => range(Math.max(fitLo, LOW_SLOT), Math.min(fitHi, lowTop));
+    const highRange = (): number[] => rotate(range(Math.max(fitLo, lowTop + 1), fitHi), pickSlot);
+    let order: number[];
+    if (kind === 'screen') order = rotate(range(Math.max(fitLo, Math.ceil(SCREEN_MIN_BOTTOM / STOREY)), fitHi), pickSlot);
+    else if (kind === 'blade') order = lowRange();
+    else if (placed >= lowCap && high < cap - lowCap) order = [...highRange(), ...lowRange()];
+    else order = [...lowRange(), ...highRange()];
+    let chosen = -1;
+    for (const slot of order) {
+      const y0 = wallBase + slot * STOREY;
+      if (y0 < edge.base - 1e-6 || y0 + height > edge.top + 1e-6) continue;
+      if (tooClose(onLine, { a0: lineA - foot / 2, a1: lineA + foot / 2, y0, y1: y0 + height })) continue;
+      chosen = slot;
+      break;
+    }
+    if (chosen < 0) continue;
+    const bottom = wallBase + chosen * STOREY;
+    onLine.push({ a0: lineA - foot / 2, a1: lineA + foot / 2, y0: bottom, y1: bottom + height });
+    if (kind !== 'screen' && chosen > lowTop) high++;
     const off = flat ? PANEL_OFF : BLADE_OFF;
     const px = edge.ax + ((edge.bx - edge.ax) * along) / edge.len;
     const pz = edge.az + ((edge.bz - edge.az) * along) / edge.len;
@@ -521,6 +564,19 @@ function placeDense(
     out.push(sign);
     placed++;
   }
+}
+
+/** Integers `a..b` inclusive (empty when `b < a`). */
+function range(a: number, b: number): number[] {
+  const out: number[] = [];
+  for (let k = a; k <= b; k++) out.push(k);
+  return out;
+}
+
+/** `list` rotated to start at index `⌊u · length⌋`. */
+function rotate(list: number[], u: number): number[] {
+  const k = Math.floor(u * list.length);
+  return [...list.slice(k), ...list.slice(0, k)];
 }
 
 /**
@@ -576,16 +632,18 @@ export interface SlotUv {
   rot: boolean;
 }
 
-/** Atlas key `kind|word|text|border`. */
-export function neonAtlasKey(kind: SignKind, word: string, text: string, border: string): string {
-  return `${kind}|${word}|${text}|${border}`;
+/** Atlas key `kind|word`; the colours follow from it ({@link neonColours}). */
+export function neonAtlasKey(kind: SignKind, word: string): string {
+  return `${kind}|${word}`;
 }
 
-/** Split an atlas key back into its parts (missing parts fall back to a panel in the first colours). */
+/** Split an atlas key back into its parts plus the key's colour pair (a bad kind falls back to a panel). */
 export function parseNeonAtlasKey(key: string): { kind: SignKind; word: string; text: string; border: string } {
-  const [k, word, text, border] = key.split('|');
+  const bar = key.indexOf('|');
+  const k = bar < 0 ? key : key.slice(0, bar);
+  const word = bar < 0 ? '' : key.slice(bar + 1);
   const kind: SignKind = k === 'blade' || k === 'stack' || k === 'screen' ? k : 'panel';
-  return { kind, word: word ?? '', text: text ?? '#ff2a6d', border: border ?? '#05d9e8' };
+  return { kind, word, ...neonColours(kind, word) };
 }
 
 /** FNV-1a 32-bit hash of an atlas key (overflow slot). */
@@ -618,38 +676,58 @@ export function neonSlotUv(slot: number, rot: boolean): SlotUv {
 
 /**
  * Key → slot table: the first {@link NEON_ATLAS_SLOTS} distinct keys get
- * slots 0, 1, 2, …; later keys reuse `hash(key) % 128` without evicting.
+ * slots 0, 1, 2, …; later keys reuse a drawn slot without evicting — one of
+ * the same kind and colour pair when there is one (so glyph orientation,
+ * glow card and spill light still agree), else of the same kind, else
+ * `hash(key) % 128`. The choice among candidates is `hash(key) % count`.
  */
 export class NeonSlotTable {
   private readonly slots = new Map<string, number>();
-  private used = 0;
+  /** Drawn slots in slot order: kind, colours and `kind|text|border` of the key that drew each. */
+  private readonly owners: { kind: string; text: string; border: string; look: string }[] = [];
 
   /** Slot for `key`; `fresh` is true when the caller must draw it. */
   slotFor(key: string): { slot: number; fresh: boolean } {
     const existing = this.slots.get(key);
     if (existing !== undefined) return { slot: existing, fresh: false };
+    const { kind, text, border } = parseNeonAtlasKey(key);
+    const look = `${kind}|${text}|${border}`;
     let slot: number;
     let fresh = false;
-    if (this.used < NEON_ATLAS_SLOTS) {
-      slot = this.used;
-      this.used += 1;
+    if (this.owners.length < NEON_ATLAS_SLOTS) {
+      slot = this.owners.length;
+      this.owners.push({ kind, text, border, look });
       fresh = true;
     } else {
-      slot = neonKeyHash(key) % NEON_ATLAS_SLOTS;
+      const h = neonKeyHash(key);
+      const same: number[] = [];
+      const sameKind: number[] = [];
+      this.owners.forEach((o, i) => {
+        if (o.look === look) same.push(i);
+        if (o.kind === kind) sameKind.push(i);
+      });
+      const pool = same.length > 0 ? same : sameKind;
+      slot = pool.length > 0 ? (pool[h % pool.length] ?? 0) : h % NEON_ATLAS_SLOTS;
     }
     this.slots.set(key, slot);
     return { slot, fresh };
   }
 
+  /** Colours actually drawn in `slot` (those of the key that drew it); null if not drawn yet. */
+  lookOf(slot: number): { text: string; border: string } | null {
+    const o = this.owners[slot];
+    return o ? { text: o.text, border: o.border } : null;
+  }
+
   /** Slots drawn so far (≤ 128). */
   get drawn(): number {
-    return this.used;
+    return this.owners.length;
   }
 
   /** Forget every key. */
   clear(): void {
     this.slots.clear();
-    this.used = 0;
+    this.owners.length = 0;
   }
 }
 
@@ -843,11 +921,11 @@ function flatFace(buf: Soup, C: V3, T: V3, N: V3, hw: number, hh: number, uv: Sl
 /**
  * Build the three merged meshes of one cell: faces (atlas UVs, flicker seed,
  * emissive gain), frames + brackets, and additive glow cards on the wall.
- * `uvFor(kind, word, text, border)` resolves an atlas slot.
+ * `uvFor(kind, word)` resolves an atlas slot.
  */
 export function buildNeonMeshes(
   signs: readonly Sign[],
-  uvFor: (kind: SignKind, word: string, text: string, border: string) => SlotUv,
+  uvFor: (kind: SignKind, word: string) => SlotUv,
 ): NeonCellMeshes {
   const faces = new Soup();
   const frames = new Soup();
@@ -865,7 +943,7 @@ export function buildNeonMeshes(
     const wall = sub3(C, mul3(N, off));
 
     if (sign.kind === 'blade') {
-      const uv = uvFor('blade', sign.word, sign.text, sign.border);
+      const uv = uvFor('blade', sign.word);
       const gap = 0.05;
       // Faces lie in the normal/up plane; the back face mirrors U so text reads from both sides.
       const front = add3(C, mul3(T, gap));
@@ -904,12 +982,12 @@ export function buildNeonMeshes(
       for (let k = 0; k < n; k++) {
         const p = sign.panels[k]!;
         const cy = hh - ph / 2 - k * (ph + STACK_GAP);
-        const uv = uvFor('stack', p.word, p.text, p.border);
+        const uv = uvFor('stack', p.word);
         flatFace(faces, add3(O, mul3(Y, cy)), T, N, hw, ph / 2, uv, flick, NEON_TUBE_GAIN);
         frameAround(frames, add3(C, mul3(Y, cy)), T, Y, N, sign.width, ph);
       }
     } else {
-      const uv = uvFor(sign.kind, sign.word, sign.text, sign.border);
+      const uv = uvFor(sign.kind, sign.word);
       const gain = sign.kind === 'screen' ? NEON_SCREEN_GAIN : NEON_TUBE_GAIN;
       flatFace(faces, add3(C, mul3(N, 0.015)), T, N, hw, hh, uv, flick, gain);
       frameAround(frames, C, T, Y, N, sign.width, sign.height);
