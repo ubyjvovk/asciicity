@@ -6,8 +6,8 @@
 
 /** Rain box edge (m) around the point ahead of the camera. */
 export const RAIN_AREA = 70;
-/** Drop count (upstream default 5000, over a 60 m box). */
-export const RAIN_COUNT = 6500;
+/** Drop count (upstream default 5000, over a 60 m box; 6500 until wave 25, user: "a notch less"). */
+export const RAIN_COUNT = 4800;
 /** Fall speed (m/s) before the ±7.5 % per-drop variance. */
 export const RAIN_SPEED = 24;
 /** Vertical span (m) a drop falls per cycle; it starts `RAIN_TOP` above the eye. */

@@ -1125,11 +1125,10 @@ async function main(): Promise<void> {
             windowTex: wallTex === windowTex ? windowTex : null,
             sky,
             look: punkPrefs.look,
-            // `?glass=0|1` overrides the persisted lens-rain state (review / screenshots).
-            glass: ((): boolean | undefined => {
-              const q = new URLSearchParams(location.search).get('glass');
-              return q === '0' ? false : q === '1' ? true : punkPrefs.glass;
-            })(),
+            // Lens rain (wet glass) is OFF by default since wave 25 (user: "it
+            // just looks wrong"); the persisted state is ignored. Opt in with
+            // `?glass=1` or the `G` key.
+            glass: new URLSearchParams(location.search).get('glass') === '1',
             groundAt,
             cityId: cityId ?? 'synthetic',
             sources: punkSources,

@@ -1507,7 +1507,7 @@ notes: `docs/styles/cyberpunk.md`. Ported from ektogamat/threejs-conference
     disposal.
   - Collision rain (`punk/rain.ts`, maths mirrored in `punk/rainmath.ts`):
     top-down ortho pass → 512² HalfFloat world-position map over a 96 m box
-    around the point 21 m ahead of the eye; 6500 closed-form drops (no
+    around the point 21 m ahead of the eye; 4800 (wave 25; was 6500) closed-form drops (no
     compute buffers) stop at that height and splash. Render targets sample
     top-row-first on both backends: v = (z − c.z)/96 + 0.5 (south-positive).
   - Post (`punk/pipeline.ts`): MRT (output, emissive, normal, metalrough —
