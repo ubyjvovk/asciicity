@@ -46,6 +46,23 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 23 (2026-09-25 evening) — perf pass + PBR textures (user: <20 fps on MacBook, "smooth tiles")
+- PM profiled with `?punkq=` switches + an uncapped harness (RTX 5080,
+  1920×2160 = half a 4K screen): SSR was ~75 % of the frame (it marched
+  every pixel with metalness > 0: walls/pavement at ~0.1). Fix: SSR masked
+  to metalness ≥ 0.5, half-res; damp asphalt metalness 0.6 keeps streets
+  glossy; adaptive `QualityController` (punk/quality.ts, 5 tiers of dpr +
+  SSR scale/quality, 48/80 fps hysteresis, no oscillation). Bank 105 → 320
+  fps, Kyiv square 110 → 258.
+- Textures: PM picked 6 CC0 ambientCG sets (public/textures/cc0, 3.1 MB,
+  README with provenance) + §4.11 contract; T-0167 (opus, $3.38) blended
+  them in (pbr.ts; found 3 TSL traps incl. derivatives in non-uniform
+  control flow). PM wired it + tuned: albedo 0.25–2.6, normal ×1.6, fade
+  25–90 m, night lights raised (ambient 0.8 / hemi 1.6 / moon 1.4) — at
+  the old darkness no surface detail could read. Cost 4 % fps.
+- Flaky: tests/punk-detail "build time ≤ 400 ms" (414 ms under host load;
+  passes solo) — candidate for a looser bound.
+
 ## Wave 22 COMPLETE — Tokyo from PLATEAU (2026-09-25 ~16:00)
 - T-0164 validator, T-0165 tiers rendering (+exteriorWalls, byte-identical
   for tier-less buildings: 9 sha256 hashes), T-0163 converter (1 rework:
