@@ -402,6 +402,11 @@ landmarks, names) stays OSM.
 3. **Names**: OSM name of the best OSM partner at footprint IoU ≥ 0.5; else
    the OSM named building whose footprint is ≥ 50 % covered by this one
    (largest overlap wins); else PLATEAU `gml:name`; else none.
+   **3b (PM, after T-0163):** afterwards, every named OSM building whose name
+   was not transferred anywhere gives its name to the unnamed PLATEAU
+   building that overlaps its footprint most (any overlap > 0; ties → larger
+   PLATEAU footprint), so curated landmarks and presets (e.g. "Shibuya", a
+   station complex PLATEAU splits into pieces) keep resolving.
 4. **Kept OSM buildings**: OSM buildings covered < 20 % by PLATEAU stay
    as they are (canopies, new builds, footbridges).
 5. **OSM `building:part`s** (Tokyo Tower, Skytree, …) are kept and
