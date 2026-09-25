@@ -5,7 +5,13 @@
  * shapes (mirroring `src/data/types.ts` via `import type`).
  */
 
-import type { CityData, RoadClass, Vec2 } from '../src/data/types';
+import type {
+  BuildingMaterial,
+  BuildingRoof,
+  CityData,
+  RoadClass,
+  Vec2,
+} from '../src/data/types';
 
 /** WGS84 point used as the projection origin. */
 type Origin = { lat: number; lon: number };
@@ -28,6 +34,23 @@ export function round1(v: number): number;
 export function roadClassOf(highway: string): RoadClass | null;
 
 export function heightOf(tags: Record<string, string>): number;
+
+/** OSM Simple-3D-Buildings roof (data-format "Simple 3D Buildings" items 1–3), or null. */
+export function roofOf(
+  tags: Record<string, string>,
+  ring: Vec2[],
+  h: number,
+  minH: number,
+): BuildingRoof | null;
+
+/** OSM colour tag → 24-bit RGB integer (`#rgb`, `#rrggbb`, CSS names), or undefined. */
+export function parseColour(value: string | undefined): number | undefined;
+
+/** OSM `building:material` → normalised `BuildingMaterial`, or undefined. */
+export function materialOf(tags: Record<string, string>): BuildingMaterial | undefined;
+
+/** `roof:direction` (degrees or compass letters) → degrees in [0, 360), or undefined. */
+export function compassToDeg(value: string | undefined): number | undefined;
 
 export function pickName(
   tags: Record<string, string>,

@@ -16,6 +16,52 @@ const ROAD_CLASSES = new Set<string>([
   'footway',
 ]);
 
+const ROOF_SHAPES = new Set<string>([
+  'gabled',
+  'hipped',
+  'pyramidal',
+  'skillion',
+  'dome',
+  'onion',
+  'round',
+]);
+
+const MATERIALS = new Set<string>([
+  'brick',
+  'stone',
+  'concrete',
+  'glass',
+  'metal',
+  'wood',
+  'plaster',
+]);
+
+/** True when `v` is an integer 24-bit RGB colour (`0 … 0xffffff`). */
+function isRgb24(v: unknown): boolean {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
+}
+
+/**
+ * Validate an optional OSM Simple-3D-Buildings `roof` (data-format "Simple 3D
+ * Buildings" item 7): shape in the enum, `h` finite in `[0.5, h − minH − 1]`,
+ * `dir` finite in `[0, 360)` when present.
+ */
+function validateRoof(roof: unknown, h: number, minH: number, path: string): void {
+  if (typeof roof !== 'object' || roof === null) {
+    throw new Error(`${path}: expected an object`);
+  }
+  const r = roof as Record<string, unknown>;
+  if (typeof r.shape !== 'string' || !ROOF_SHAPES.has(r.shape)) {
+    throw new Error(`${path}.shape: unknown roof shape`);
+  }
+  if (!isFiniteNum(r.h) || r.h < 0.5 || r.h > h - minH - 1) {
+    throw new Error(`${path}.h: must be a finite number in [0.5, h - minH - 1]`);
+  }
+  if (r.dir !== undefined && (!isFiniteNum(r.dir) || r.dir < 0 || r.dir >= 360)) {
+    throw new Error(`${path}.dir: must be a finite number in [0, 360)`);
+  }
+}
+
 /** True when `v` is a finite number. */
 function isFiniteNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
@@ -174,7 +220,8 @@ function validateWaterLevels(levels: unknown, water: unknown, path: string): voi
 /**
  * Validate an unknown value as `CityData`, returning the same object (typed)
  * when valid and throwing otherwise. `h` is in `[3, 650]`; optional `minH`
- * is a finite number in `[0, h - 1)`.
+ * is a finite number in `[0, h - 1)`; optional S3DB `roof` / `osmColor` /
+ * `roofColor` / `material` follow data-format "Simple 3D Buildings" item 7.
  */
 export function validateCity(raw: unknown): CityData {
   if (typeof raw !== 'object' || raw === null) {
@@ -242,6 +289,25 @@ export function validateCity(raw: unknown): CityData {
       )
     ) {
       throw new Error(`buildings[${i}].color: must be an integer in [0, 0xffffff]`);
+    }
+    if (building.roof !== undefined) {
+      validateRoof(
+        building.roof,
+        building.h as number,
+        (building.minH as number | undefined) ?? 0,
+        `buildings[${i}].roof`,
+      );
+    }
+    for (const key of ['osmColor', 'roofColor'] as const) {
+      if (building[key] !== undefined && !isRgb24(building[key])) {
+        throw new Error(`buildings[${i}].${key}: must be an integer in [0, 0xffffff]`);
+      }
+    }
+    if (
+      building.material !== undefined &&
+      !(typeof building.material === 'string' && MATERIALS.has(building.material))
+    ) {
+      throw new Error(`buildings[${i}].material: unknown material`);
     }
     validatePoly(building.poly, `buildings[${i}].poly`);
     if (!isFiniteNum(building.id)) {

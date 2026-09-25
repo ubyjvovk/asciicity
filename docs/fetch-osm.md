@@ -204,12 +204,37 @@ endpoint fallback unchanged), and dedupes the concatenated `elements` by
 ## Conversion behaviour
 
 Handled by the pure module `scripts/osm-convert.mjs` (`convertOverpass`,
-`heightOf`, `roadClassOf`, `project`, `assembleRings`, `clipRingToBox`),
+`heightOf`, `roofOf`, `parseColour`, `materialOf`, `compassToDeg`, `roadClassOf`, `project`, `assembleRings`, `clipRingToBox`),
 exactly per `docs/data-format.md`:
 
 - **Buildings** — closed `way["building"]` rings (closing point dropped),
   `building=part`/`no` and open ways skipped, degenerate rings (< 1 m²)
   dropped, heights clamped to `[3, 650]`.
+- **Simple 3D Buildings (wave 21, T-0158)** — per data-format.md "Simple 3D
+  Buildings" items 1–7, every outline and `building:part` may carry four
+  OPTIONAL keys, emitted only when their tags parse (untagged buildings
+  convert byte-identically to before):
+  - `roof` = `roofOf(tags, ring, h, minH)`: `roof:shape` (lower-cased, first
+    `;` item) mapped to `gabled` / `hipped` / `pyramidal` / `skillion` /
+    `dome` / `onion` / `round` (`flat` and unknown → no roof). `roof.h` from
+    `roof:height` (ft-aware), else `roof:levels × 3`, else 3 m (4 m
+    `pyramidal`, 0.5·R `dome`, 1.2·R `onion`, R = √(area/π)); rounded to
+    0.1 m and clamped to `[0.5, h − minH − 1]` — no roof when that range is
+    empty. `roof.dir` from `roof:direction` (degrees or 16-point compass
+    letters via `compassToDeg`, `WSW` → 247.5 → 248), else for
+    `roof:orientation=across` the longest-edge bearing + 90 reported axially
+    in `[0, 180)` (an east-west block → 0); rounded to 1°, `360` → `0`.
+    Bearings are clockwise from north = −z.
+  - `osmColor` / `roofColor` = `parseColour(building:colour ?? colour)` /
+    `parseColour(roof:colour)`: `#rgb`, `#rrggbb`, 6 bare hex digits, or one
+    of the 148 CSS names (`_`, space, `-` ignored; `grey`/`gray`) → 24-bit
+    int; anything else is omitted. `colour` is only consulted when
+    `building:colour` is absent/empty.
+  - `material` = `materialOf(tags)`: `building:material` → brick / stone /
+    concrete / glass / metal / wood / plaster (item-5 table), else omitted.
+  - A part's roof clamp uses its emitted `minH` (0 when grounded). Outlines
+    replaced by parts still transfer only their `name` — never roof, colours
+    or material. `validateCity` rejects out-of-range values (item 7).
 - **Roads** — `highway` → `cls` via the mapping table; `footway`, `cycleway`
   and other unmapped values (e.g. `steps`) are dropped; ways with < 2
   distinct points are dropped. A road whose way carries a `bridge` tag with a

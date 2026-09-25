@@ -128,3 +128,64 @@ describe('buildings[].color (wave 16)', () => {
     expect(() => validateCity(c)).toThrow(/buildings\[0\]\.color/);
   });
 });
+
+describe('validateCity Simple 3D Buildings (wave 21)', () => {
+  it('7. accepts a building without the S3DB fields and valid ones', () => {
+    const c = base();
+    expect(() => validateCity(c)).not.toThrow();
+    c.buildings[0].h = 20;
+    c.buildings[0].minH = 5;
+    c.buildings[0].roof = { shape: 'gabled', h: 14, dir: 359 };
+    c.buildings[0].osmColor = 0xffffff;
+    c.buildings[0].roofColor = 0;
+    c.buildings[0].material = 'brick';
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('7. rejects an unknown roof shape', () => {
+    const c = base();
+    c.buildings[0].h = 20;
+    (c.buildings[0] as { roof?: unknown }).roof = { shape: 'many', h: 3 };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.shape/);
+  });
+
+  it('7. rejects roof.h > h − minH − 1 and roof.h < 0.5', () => {
+    const c = base();
+    c.buildings[0].h = 20;
+    c.buildings[0].minH = 5;
+    c.buildings[0].roof = { shape: 'hipped', h: 14.01 };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.h/);
+    c.buildings[0].roof = { shape: 'hipped', h: 0.4 };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.h/);
+    c.buildings[0].roof = { shape: 'hipped', h: NaN };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.h/);
+  });
+
+  it('7. rejects roof.dir = 360 (and negatives)', () => {
+    const c = base();
+    c.buildings[0].h = 20;
+    c.buildings[0].roof = { shape: 'skillion', h: 3, dir: 360 };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.dir/);
+    c.buildings[0].roof = { shape: 'skillion', h: 3, dir: -1 };
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roof\.dir/);
+    c.buildings[0].roof = { shape: 'skillion', h: 3, dir: 0 };
+    expect(() => validateCity(c)).not.toThrow();
+  });
+
+  it('7. rejects colour 0x1000000 and non-integers', () => {
+    const c = base();
+    c.buildings[0].osmColor = 0x1000000;
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.osmColor/);
+    delete c.buildings[0].osmColor;
+    c.buildings[0].roofColor = 0x1000000;
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roofColor/);
+    c.buildings[0].roofColor = 1.5;
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.roofColor/);
+  });
+
+  it('7. rejects material "vinyl"', () => {
+    const c = base();
+    (c.buildings[0] as { material?: unknown }).material = 'vinyl';
+    expect(() => validateCity(c)).toThrow(/buildings\[0\]\.material/);
+  });
+});

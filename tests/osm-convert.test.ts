@@ -12,13 +12,17 @@ import {
   chaikin,
   cleanupMask,
   clipRingToBox,
+  compassToDeg,
   contourWaterRings,
   convertOverpass,
   heightOf,
   majorityVoteGrid,
+  materialOf,
+  parseColour,
   project,
   protectedNodesFrom,
   roadClassOf,
+  roofOf,
   round1,
   traceWaterBoundary,
   TREE_CAP,
@@ -1863,5 +1867,259 @@ describe('committed public/data/sydney (T-0116)', () => {
     expect(tz).toBeGreaterThanOrEqual(minZ);
     expect(tz).toBeLessThanOrEqual(maxZ);
     expect(Math.max(maxX - minX, maxZ - minZ)).toBeGreaterThanOrEqual(100);
+  });
+});
+
+describe('osm-convert Simple 3D Buildings (wave 21)', () => {
+  const DEG = Math.PI / 180;
+  const COS = Math.cos(ORIGIN.lat * DEG);
+  /** 20 × 20 m square footprint (area 400 m², R ≈ 11.28 m). */
+  const SQUARE: Vec2[] = [
+    [0, 0],
+    [20, 0],
+    [20, 20],
+    [0, 20],
+  ];
+  /** East-west 30 × 10 m rectangle (longest edges run east-west). */
+  const EW_RECT: Vec2[] = [
+    [0, 0],
+    [30, 0],
+    [30, 10],
+    [0, 10],
+  ];
+
+  function closedRect(
+    id: number,
+    tags: Record<string, string>,
+    x: number,
+    z: number,
+    w: number,
+    d: number,
+  ) {
+    const ll = (px: number, pz: number) => ({
+      lon: ORIGIN.lon + px / (COS * 111320),
+      lat: ORIGIN.lat - pz / 110574,
+    });
+    const corners = [ll(x, z), ll(x + w, z), ll(x + w, z + d), ll(x, z + d)];
+    return { type: 'way' as const, id, tags, geometry: [...corners, corners[0]] };
+  }
+
+  it('1. roof:shape mapping table (item 1)', () => {
+    const cases: Array<[string, string | null]> = [
+      ['gabled', 'gabled'],
+      ['gambrel', 'gabled'],
+      ['saltbox', 'gabled'],
+      ['hipped', 'hipped'],
+      ['half-hipped', 'hipped'],
+      ['side_hipped', 'hipped'],
+      ['mansard', 'hipped'],
+      ['pyramidal', 'pyramidal'],
+      ['cone', 'pyramidal'],
+      ['skillion', 'skillion'],
+      ['lean_to', 'skillion'],
+      ['dome', 'dome'],
+      ['onion', 'onion'],
+      ['round', 'round'],
+      ['Gabled', 'gabled'],
+      ['gabled;hipped', 'gabled'],
+      ['flat', null],
+      ['many', null],
+      ['', null],
+    ];
+    for (const [value, want] of cases) {
+      const roof = roofOf({ 'roof:shape': value }, SQUARE, 30, 0);
+      expect(roof?.shape ?? null, value).toBe(want);
+    }
+    expect(roofOf({}, SQUARE, 30, 0)).toBeNull();
+  });
+
+  it('2. roof.h: roof:height (ft-aware), roof:levels × 3, per-shape defaults, clamp, drop', () => {
+    const at = (tags: Record<string, string>, h = 30, minH = 0) =>
+      roofOf({ 'roof:shape': 'gabled', ...tags }, SQUARE, h, minH);
+    expect(at({ 'roof:height': '4' })!.h).toBeCloseTo(4, 5);
+    expect(at({ 'roof:height': '12 ft' })!.h).toBeCloseTo(3.7, 5);
+    expect(at({ 'roof:levels': '2' })!.h).toBeCloseTo(6, 5);
+    expect(at({ 'roof:height': '4', 'roof:levels': '2' })!.h).toBeCloseTo(4, 5);
+    // Defaults per shape.
+    const def = (shape: string) => roofOf({ 'roof:shape': shape }, SQUARE, 30, 0)!.h;
+    expect(def('gabled')).toBeCloseTo(3, 5);
+    expect(def('hipped')).toBeCloseTo(3, 5);
+    expect(def('skillion')).toBeCloseTo(3, 5);
+    expect(def('round')).toBeCloseTo(3, 5);
+    expect(def('pyramidal')).toBeCloseTo(4, 5);
+    // dome = 0.5 · R, R = √(400 / π) ≈ 11.28 → 5.64 → 5.6
+    expect(def('dome')).toBeCloseTo(5.6, 5);
+    // onion = 1.2 · R ≈ 13.54 → 13.5
+    expect(def('onion')).toBeCloseTo(13.5, 5);
+    // Clamp to h − minH − 1 (and up to 0.5).
+    expect(at({ 'roof:height': '10' }, 8, 0)!.h).toBeCloseTo(7, 5);
+    expect(at({ 'roof:height': '10' }, 20, 12)!.h).toBeCloseTo(7, 5);
+    expect(at({ 'roof:height': '0.2' })!.h).toBeCloseTo(0.5, 5);
+    // Dropped when h − minH − 1 < 0.5.
+    expect(at({}, 5, 3.6)).toBeNull();
+    expect(at({}, 3, 0)).not.toBeNull(); // 3 − 0 − 1 = 2 ≥ 0.5
+    expect(at({}, 4, 2.6)).toBeNull();
+  });
+
+  it('3. roof.dir: roof:direction numbers and compass letters, orientation=across', () => {
+    const dir = (tags: Record<string, string>, ring: Vec2[] = SQUARE) =>
+      roofOf({ 'roof:shape': 'gabled', ...tags }, ring, 30, 0)!.dir;
+    expect(dir({ 'roof:direction': '90' })).toBe(90);
+    expect(dir({ 'roof:direction': 'NE' })).toBe(45);
+    expect(compassToDeg('WSW')).toBeCloseTo(247.5, 5);
+    expect(dir({ 'roof:direction': 'WSW' })).toBe(248);
+    expect(dir({ 'roof:direction': '360' })).toBe(0);
+    expect(dir({ 'roof:direction': 'nnw' })).toBe(338);
+    expect(dir({ 'roof:direction': 'sideways' })).toBeUndefined();
+    expect(dir({})).toBeUndefined();
+    expect(dir({ 'roof:orientation': 'along' }, EW_RECT)).toBeUndefined();
+    expect(dir({ 'roof:orientation': 'across' }, EW_RECT)).toBe(0);
+    // A north-south rectangle: longest edge bearing 0 → across = 90 (east).
+    const NS_RECT: Vec2[] = [
+      [0, 0],
+      [10, 0],
+      [10, 30],
+      [0, 30],
+    ];
+    expect(dir({ 'roof:orientation': 'across' }, NS_RECT)).toBe(90);
+    // roof:direction wins over orientation.
+    expect(dir({ 'roof:direction': 'S', 'roof:orientation': 'across' }, EW_RECT)).toBe(180);
+  });
+
+  it('4. colours: #rgb, #rrggbb / bare hex, CSS names, first ; item, colour fallback', () => {
+    expect(parseColour('#FFF')).toBe(0xffffff);
+    expect(parseColour('#8b0000')).toBe(0x8b0000);
+    expect(parseColour('8b0000')).toBe(0x8b0000);
+    expect(parseColour('light_grey')).toBe(0xd3d3d3);
+    expect(parseColour('lightgray')).toBe(0xd3d3d3);
+    expect(parseColour('Dark Red')).toBe(0x8b0000);
+    expect(parseColour('dark-red')).toBe(0x8b0000);
+    expect(parseColour('red;blue')).toBe(0xff0000);
+    expect(parseColour('rebeccapurple')).toBe(0x663399);
+    expect(parseColour('brickish')).toBeUndefined();
+    expect(parseColour('fff')).toBeUndefined();
+    expect(parseColour('')).toBeUndefined();
+    expect(parseColour(undefined)).toBeUndefined();
+
+    const city = convertOverpass(
+      {
+        elements: [
+          closedRect(1, { building: 'yes', colour: 'white', 'roof:colour': '#800' }, 0, 0, 10, 10),
+          closedRect(2, { building: 'yes', 'building:colour': 'red', colour: 'white' }, 20, 0, 10, 10),
+          closedRect(3, { building: 'yes', 'roof:colour': 'brickish' }, 40, 0, 10, 10),
+        ],
+      },
+      { origin: ORIGIN },
+    );
+    const byId = (id: number) => city.buildings.find((b) => b.id === id)!;
+    expect(byId(1).osmColor).toBe(0xffffff);
+    expect(byId(1).roofColor).toBe(0x880000);
+    expect(byId(2).osmColor).toBe(0xff0000);
+    expect(byId(3)).not.toHaveProperty('roofColor');
+    expect(byId(3)).not.toHaveProperty('osmColor');
+    expect(() => validateCity(city)).not.toThrow();
+  });
+
+  it('5. materials: every item-5 mapping, unknown → absent', () => {
+    const cases: Array<[string, string]> = [
+      ['brick', 'brick'],
+      ['stone', 'stone'],
+      ['sandstone', 'stone'],
+      ['limestone', 'stone'],
+      ['granite', 'stone'],
+      ['marble', 'stone'],
+      ['concrete', 'concrete'],
+      ['cement_block', 'concrete'],
+      ['reinforced_concrete', 'concrete'],
+      ['glass', 'glass'],
+      ['mirror', 'glass'],
+      ['metal', 'metal'],
+      ['steel', 'metal'],
+      ['aluminium', 'metal'],
+      ['metal_plates', 'metal'],
+      ['wood', 'wood'],
+      ['timber_framing', 'wood'],
+      ['plaster', 'plaster'],
+      ['stucco', 'plaster'],
+      ['render', 'plaster'],
+      ['Brick;glass', 'brick'],
+    ];
+    for (const [value, want] of cases) {
+      expect(materialOf({ 'building:material': value }), value).toBe(want);
+    }
+    expect(materialOf({ 'building:material': 'vinyl' })).toBeUndefined();
+    expect(materialOf({})).toBeUndefined();
+  });
+
+  it('6. a part keeps its own roof; a replaced outline leaks nothing but its name', () => {
+    const city = convertOverpass(
+      {
+        elements: [
+          closedRect(
+            1,
+            {
+              building: 'yes',
+              name: 'Hall',
+              height: '30',
+              'roof:shape': 'gabled',
+              'building:colour': 'red',
+              'roof:colour': 'blue',
+              'building:material': 'brick',
+            },
+            0,
+            0,
+            40,
+            40,
+          ),
+          closedRect(2, { 'building:part': 'yes', height: '20' }, 5, 5, 10, 10),
+          closedRect(
+            3,
+            {
+              'building:part': 'yes',
+              height: '40',
+              min_height: '30',
+              'roof:shape': 'dome',
+              'roof:height': '20',
+              'building:material': 'glass',
+            },
+            20,
+            20,
+            10,
+            10,
+          ),
+        ],
+      },
+      { origin: ORIGIN },
+    );
+    expect(city.buildings.some((b) => b.id === 1)).toBe(false);
+    const plain = city.buildings.find((b) => b.id === 2)!;
+    const domed = city.buildings.find((b) => b.id === 3)!;
+    for (const key of ['roof', 'osmColor', 'roofColor', 'material']) {
+      expect(plain).not.toHaveProperty(key);
+    }
+    expect(domed.name).toBe('Hall');
+    expect(domed.roof!.shape).toBe('dome');
+    // Clamped to h − minH − 1 = 40 − 30 − 1 = 9.
+    expect(domed.roof!.h).toBeCloseTo(9, 5);
+    expect(domed.material).toBe('glass');
+    expect(domed).not.toHaveProperty('osmColor');
+    expect(() => validateCity(city)).not.toThrow();
+  });
+
+  it('8. a fixture without S3DB tags converts with no new keys', () => {
+    const city = convert();
+    expect(city.buildings.length).toBeGreaterThan(0);
+    const allowed = new Set(['id', 'h', 'minH', 'name', 'poly']);
+    for (const b of city.buildings) {
+      for (const key of Object.keys(b)) expect(allowed.has(key), key).toBe(true);
+    }
+    const stripped = structuredClone(city);
+    for (const b of stripped.buildings) {
+      delete b.roof;
+      delete b.osmColor;
+      delete b.roofColor;
+      delete b.material;
+    }
+    expect(city).toStrictEqual(stripped);
   });
 });
