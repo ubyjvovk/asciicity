@@ -295,7 +295,12 @@ Building is one flat 380 m slab. Rules:
 2. **Convert**: a part becomes a `buildings[]` entry with `h` from `height`
    (ft honoured) else `building:levels × 3.3 + 2`, and `minH` from
    `min_height` else `building:min_level × 3.3` (absent → 0; `minH` is
-   omitted when 0 and must satisfy `0 <= minH < h − 1`).
+   omitted when 0 and must satisfy `0 <= minH < h − 1`). **Thin raised
+   parts (wave 21, T-0160):** when `minH > 0` and `h − minH < 1.2`, the part
+   keeps its altitude and becomes a 1.2 m slab: `h = round1(minH + 1.2)`
+   (previously such parts were grounded into full-height towers — e.g. the
+   Nelson's Column capital, `min_height 43 / height 44`, became a solid
+   0–44 m block).
 3. **Outline replacement**: an outline that CONTAINS the centroid of at least
    one part is dropped — the parts represent it. A part BELONGS to the
    SMALLEST (by area) outline containing its centroid (T-0089: a large
