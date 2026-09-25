@@ -118,3 +118,53 @@ export function rippleFade(d: number): number {
 export function distanceRoughness(r: number, d: number): number {
   return r + (Math.max(r, ROUGH_FLOOR) - r) * smoothstepJs(ROUGH_FADE_NEAR, ROUGH_FADE_FAR, d);
 }
+
+// PBR detail textures (wave 23, T-0167): horizontal world-xz mapping.
+/** Asphalt: one repeat per 3 m of world xz. */
+export const PBR_ASPHALT_M = 3;
+/** Paving (ground / terrain): one repeat per 2 m of world xz. */
+export const PBR_PAVING_M = 2;
+/** Anti-tiling second sample: uv rotated by this (degrees) … */
+export const PBR_ROT_DEG = 37;
+/** … and scaled by this (a larger repeat). */
+export const PBR_ROT_SCALE = 0.43;
+/** Frequency (m⁻¹) of the `vnoise` that blends the two samples. */
+export const PBR_BLEND_FREQ = 0.05;
+
+/** World xz → texture uv for a horizontal surface with the given repeat (m): u = x, v = −z (B = −z). */
+export function horizontalUv(x: number, z: number, repeatM: number): [number, number] {
+  return [x / repeatM, -z / repeatM];
+}
+
+/** Rotate a 2-vector by `deg` degrees (counter-clockwise). */
+export function rotate2(x: number, y: number, deg: number): [number, number] {
+  const a = (deg * Math.PI) / 180;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return [c * x - s * y, s * x + c * y];
+}
+
+/** The anti-tiling second uv: `rotate(uv, 37°) · 0.43`. */
+export function antiTileUv(u: number, v: number): [number, number] {
+  const [ru, rv] = rotate2(u, v, PBR_ROT_DEG);
+  return [ru * PBR_ROT_SCALE, rv * PBR_ROT_SCALE];
+}
+
+/** Blend weight of the rotated sample at world (x, z): `vnoise(xz · 0.05)`. */
+export function antiTileBlend(x: number, z: number): number {
+  return vnoise(x * PBR_BLEND_FREQ, z * PBR_BLEND_FREQ);
+}
+
+/**
+ * Horizontal TBN (T = +x, B = −z, N = +y): a tangent-space normal-map texel
+ * `t` (components in [0, 1]) → unit world normal, xy scaled by `strength`.
+ */
+export function horizontalTbn(t: readonly [number, number, number], strength = 1): [number, number, number] {
+  const nx = (t[0] * 2 - 1) * strength;
+  const ny = (t[1] * 2 - 1) * strength;
+  const nz = t[2] * 2 - 1;
+  // world = T·nx + B·ny + N·nz
+  const w: [number, number, number] = [nx, nz, -ny];
+  const len = Math.hypot(w[0], w[1], w[2]) || 1;
+  return [w[0] / len, w[1] / len, w[2] / len];
+}

@@ -322,3 +322,138 @@ export function windowLitP(seed: number, code = MAT_NONE): number {
   const p = isDarkBuilding(seed) ? DARK_WINDOW_LIT_P : WINDOW_LIT_P;
   return Math.round(code) === MAT_GLASS ? Math.min(GLASS_LIT_MAX, p * GLASS_LIT_MULT) : p;
 }
+
+// ---------------------------------------------------------------------------
+// PBR detail textures (wave 23, T-0167): CC0 ambientCG sets modulate the
+// procedural materials (architecture.md §4.11 "PBR detail textures").
+// ---------------------------------------------------------------------------
+
+/** The six CC0 sets under `public/textures/cc0/<set>/`. */
+export type PbrSetName = 'asphalt' | 'concrete' | 'brick' | 'metal' | 'paving' | 'plaster';
+/** Every set name, in README order. */
+export const PBR_SET_NAMES: readonly PbrSetName[] = ['asphalt', 'concrete', 'brick', 'metal', 'paving', 'plaster'];
+
+/** Albedo modulation `tex / mean` is clamped to this band. */
+export const PBR_ALBEDO_MIN = 0.45;
+export const PBR_ALBEDO_MAX = 1.8;
+/** Roughness = mix(procedural, tex.r, PBR_ROUGH_MIX). */
+export const PBR_ROUGH_MIX = 0.6;
+/** Tangent-space normal-map strength. */
+export const PBR_NORMAL_STRENGTH = 0.8;
+/** Distance fade (m): texture pattern → its mean, normal → flat over 15 → 60 m. */
+export const PBR_FADE_NEAR_M = DETAIL_FADE_NEAR_M;
+export const PBR_FADE_FAR_M = DETAIL_FADE_FAR_M;
+/** Facades: wall uv × 6 = one repeat per 4 m. */
+export const PBR_WALL_UV_SCALE = UV_TILE_M / 4;
+/** Roofs: one repeat per 6 m of world xz. */
+export const PBR_ROOF_M = 6;
+/** Stone facades use concrete tinted by this (linear rgb). */
+export const PBR_STONE_TINT: readonly [number, number, number] = [0.9, 0.87, 0.8];
+/** Hash salts for the per-building anti-tiling rolls. */
+export const HASH_SALT_PBR_SWAP = 139;
+export const HASH_SALT_PBR_OU = 151;
+export const HASH_SALT_PBR_OV = 163;
+
+/**
+ * Albedo modulation of one channel: `tex / mean` clamped to [0.45, 1.8]
+ * (exactly 1 at the texture mean), pulled toward 1 by `fade` (1 near, 0 far).
+ */
+export function pbrAlbedoMod(tex: number, mean: number, fade = 1): number {
+  const m = Math.min(PBR_ALBEDO_MAX, Math.max(PBR_ALBEDO_MIN, tex / Math.max(mean, 1e-4)));
+  return 1 + (m - 1) * fade;
+}
+
+/** Texture detail weight at view distance `d` (m): 1 at ≤ 15 m, 0 at ≥ 60 m, smooth and monotone. */
+export function pbrFade(d: number): number {
+  return detailFade(d);
+}
+
+/** Per-building anti-tiling: 0/90° uv swap and a uv offset in [0, 1)². */
+export interface PbrAntiTile {
+  swap: boolean;
+  offsetU: number;
+  offsetV: number;
+}
+
+/** Deterministic anti-tiling roll for building seed `seed` (same hashes in the shader). */
+export function pbrAntiTile(seed: number): PbrAntiTile {
+  return {
+    swap: facadeHash(seed * 29, HASH_SALT_PBR_SWAP) < 0.5,
+    offsetU: facadeHash(seed * 31, HASH_SALT_PBR_OU),
+    offsetV: facadeHash(seed * 37, HASH_SALT_PBR_OV),
+  };
+}
+
+/**
+ * Wall texture uv for a building: `uv · 6 + offset`, u/v swapped when the
+ * roll says so. Only isotropic sets (concrete, plaster) take the swap —
+ * bricks and standing seams would turn on their side.
+ */
+export function pbrWallUv(u: number, v: number, seed: number, allowSwap: boolean): [number, number] {
+  const t = pbrAntiTile(seed);
+  const su = u * PBR_WALL_UV_SCALE;
+  const sv = v * PBR_WALL_UV_SCALE;
+  const swap = allowSwap && t.swap;
+  return [(swap ? sv : su) + t.offsetU, (swap ? su : sv) + t.offsetV];
+}
+
+/** Texture set (or null = procedural only) and albedo tint for a facade. */
+export interface PbrFacadeSet {
+  set: PbrSetName | null;
+  tint: readonly [number, number, number];
+}
+
+const NO_TINT: readonly [number, number, number] = [1, 1, 1];
+
+/**
+ * OSM `extra.w` material code → texture set: brick → brick, metal → metal,
+ * plaster → plaster, stone → concrete × {@link PBR_STONE_TINT}, glass / wood →
+ * none, concrete / none / unknown → concrete.
+ */
+export function pbrFacadeSet(code: number): PbrFacadeSet {
+  switch (Math.round(code)) {
+    case MAT_BRICK:
+      return { set: 'brick', tint: NO_TINT };
+    case MAT_METAL:
+      return { set: 'metal', tint: NO_TINT };
+    case MAT_PLASTER:
+      return { set: 'plaster', tint: NO_TINT };
+    case MAT_STONE:
+      return { set: 'concrete', tint: PBR_STONE_TINT };
+    case MAT_GLASS:
+    case MAT_WOOD:
+      return { set: null, tint: NO_TINT };
+    default:
+      return { set: 'concrete', tint: NO_TINT };
+  }
+}
+
+/** Wall sampler branch index: 0 none, 1 concrete, 2 brick, 3 metal, 4 plaster. */
+export const PBR_WALL_SETS: readonly (PbrSetName | null)[] = [null, 'concrete', 'brick', 'metal', 'plaster'];
+
+/** Branch index of a facade set in {@link PBR_WALL_SETS}. */
+export function pbrWallIndex(set: PbrSetName | null): number {
+  const i = PBR_WALL_SETS.indexOf(set);
+  return i < 0 ? 0 : i;
+}
+
+/** sRGB-encoded byte → linear [0, 1]. */
+export function srgbByteToLinear(b: number): number {
+  const c = b / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** Mean linear rgb of RGBA8 sRGB pixels (the `TEX_MEAN` of a colour map). */
+export function linearMeanRgb(rgba: ArrayLike<number>): [number, number, number] {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  const n = Math.floor(rgba.length / 4);
+  if (n === 0) return [1, 1, 1];
+  for (let i = 0; i < n * 4; i += 4) {
+    r += srgbByteToLinear(rgba[i]);
+    g += srgbByteToLinear(rgba[i + 1]);
+    b += srgbByteToLinear(rgba[i + 2]);
+  }
+  return [r / n, g / n, b / n];
+}

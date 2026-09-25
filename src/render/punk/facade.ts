@@ -31,6 +31,16 @@ import {
 import { fbm2Node, hash2Node, vnoiseNode } from './noise';
 import { rippleNormal, type WetUniforms } from './ripples';
 import {
+  decodeNormal,
+  horizontalPbrNormal,
+  makeWallSamplers,
+  pbrAlbedoMul,
+  samplePbr,
+  uvPerturbNormal,
+  wallSetUniform,
+  type PbrSets,
+} from './pbr';
+import {
   ALBEDO_CHROMA,
   ALBEDO_MIN,
   ALBEDO_RANGE,
@@ -53,6 +63,9 @@ import {
   GLASS_METALNESS,
   GLASS_ROUGHNESS,
   HASH_SALT_BLINDS,
+  HASH_SALT_PBR_OU,
+  HASH_SALT_PBR_OV,
+  HASH_SALT_PBR_SWAP,
   HASH_SALT_DARK,
   HASH_SALT_FLICKER,
   HASH_SALT_INT,
@@ -78,6 +91,13 @@ import {
   OSM_ROOF_NIGHT,
   OSM_WALL_NIGHT,
   PANEL_SEAM_M,
+  PBR_FADE_FAR_M,
+  PBR_FADE_NEAR_M,
+  PBR_NORMAL_STRENGTH,
+  PBR_ROOF_M,
+  PBR_ROUGH_MIX,
+  PBR_STONE_TINT,
+  PBR_WALL_UV_SCALE,
   RIPPLE_SCALE,
   ROOF_ALBEDO_MIN,
   ROOF_ALBEDO_RANGE,
@@ -135,20 +155,27 @@ const MULLION = vec3(0.012, 0.011, 0.01);
 /**
  * Build the facade materials. `windowTex` is the 64×64 window atlas
  * (`world/textures.ts`) or null for stone cities (Minas Tirith) — then no
- * windows or shopfronts, just the weathered material.
+ * windows or shopfronts, just the weathered material. With `pbr` (wave 23,
+ * T-0167) the CC0 detail textures modulate albedo / roughness / normal;
+ * without it the graphs are exactly the procedural ones.
  */
-export function makeFacadeMaterials(windowTex: THREE.Texture | null, u: WetUniforms): FacadeMaterials {
+export function makeFacadeMaterials(windowTex: THREE.Texture | null, u: WetUniforms, pbr?: PbrSets): FacadeMaterials {
   const withWindows = windowTex !== null;
   return {
-    walls: makeWalls(u, withWindows, false),
-    roof: makeRoof(u, false),
-    wallsOsm: makeWalls(u, withWindows, true),
-    roofOsm: makeRoof(u, true),
+    walls: makeWalls(u, withWindows, false, pbr),
+    roof: makeRoof(u, false, pbr),
+    wallsOsm: makeWalls(u, withWindows, true, pbr),
+    roofOsm: makeRoof(u, true, pbr),
   };
 }
 
+/** Texture detail weight: 1 → 0 over 15 → 60 m (mirror of `pbrFade`). */
+function pbrFadeNode(): F {
+  return float(1).sub(smoothstep(PBR_FADE_NEAR_M, PBR_FADE_FAR_M, length(positionView)));
+}
+
 /** Bitumen roof; with `osm`, an OSM roof colour (rgb ≥ 0) replaces the bitumen as `roofColor · 0.15`. */
-function makeRoof(u: WetUniforms, osm: boolean): THREE.MeshStandardNodeMaterial {
+function makeRoof(u: WetUniforms, osm: boolean, pbr?: PbrSets): THREE.MeshStandardNodeMaterial {
   const roof = new THREE.MeshStandardNodeMaterial();
   const xz = positionWorld.xz;
   const nRoof = vnoiseNode(xz.mul(0.4));
@@ -162,22 +189,61 @@ function makeRoof(u: WetUniforms, osm: boolean): THREE.MeshStandardNodeMaterial 
   roof.colorNode = mix(dry, vec3(0.02, 0.02, 0.022), puddle);
   roof.roughnessNode = mix(float(0.52), float(0.03), puddle);
   roof.metalnessNode = mix(float(0.15), float(0.9), puddle);
-  roof.normalNode = rippleNormal(u, RIPPLE_SCALE, mix(float(0.12), float(1.2), puddle));
+  const ripple = rippleNormal(u, RIPPLE_SCALE, mix(float(0.12), float(1.2), puddle));
+  roof.normalNode = ripple;
+  if (pbr) {
+    // Concrete, 6 m per repeat on world xz (u = x, v = −z); fades under puddles.
+    const c = pbr.concrete;
+    const tex = samplePbr(c, vec2(xz.x, xz.y.negate()).div(PBR_ROOF_M));
+    const dryAmt = c.ready.mul(puddle.oneMinus());
+    roof.colorNode = mix(dry.mul(pbrAlbedoMul(tex.col, c.mean, pbrFadeNode().mul(c.ready))), vec3(0.02, 0.02, 0.022), puddle);
+    roof.roughnessNode = mix(mix(float(0.52), tex.rough, c.ready.mul(PBR_ROUGH_MIX)), float(0.03), puddle);
+    roof.normalNode = horizontalPbrNormal(ripple, tex.tn, pbrFadeNode().mul(dryAmt));
+  }
   return roof;
 }
 
 /** Wall material; `osm` switches on the `extra`-driven colour and material patterns. */
-function makeWalls(u: WetUniforms, withWindows: boolean, osm: boolean): THREE.MeshStandardNodeMaterial {
+function makeWalls(u: WetUniforms, withWindows: boolean, osm: boolean, pbr?: PbrSets): THREE.MeshStandardNodeMaterial {
   const walls = new THREE.MeshStandardNodeMaterial();
   const st = wallNodes(u, withWindows, osm);
   walls.colorNode = st.color;
   walls.roughnessNode = st.roughness;
   walls.metalnessNode = st.metalness;
   walls.emissiveNode = st.emissive;
+  let baseN: Node<'vec3'> = normalView;
+  if (pbr) {
+    // Detail textures (§4.11 "PBR detail textures"): 4 m per repeat, per-building
+    // offset (+ 0/90° swap for the isotropic sets), one set per fragment.
+    const seed = st.seed;
+    const uvB = uv().mul(PBR_WALL_UV_SCALE);
+    // 1 when the swap roll < 0.5 (mirror of `pbrAntiTile`); arithmetic, no branch.
+    const swap = float(1).sub(step(0.5, hash2Node(vec2(seed.mul(29), HASH_SALT_PBR_SWAP))));
+    const off = vec2(hash2Node(vec2(seed.mul(31), HASH_SALT_PBR_OU)), hash2Node(vec2(seed.mul(37), HASH_SALT_PBR_OV)));
+    const uvAniso = uvB.add(off);
+    const uvIso = mix(uvB, uvB.yx, swap).add(off);
+    const samplers = makeWallSamplers(pbr);
+    const col = samplers.color(st.pbrIdx, uvIso, uvAniso);
+    const rough = samplers.rough(st.pbrIdx, uvIso, uvAniso).x;
+    const nt = samplers.normal(st.pbrIdx, uvIso, uvAniso);
+    const on = wallSetUniform(pbr, st.pbrIdx, 'ready').mul(st.texMask);
+    const amt = st.fade.mul(on);
+    const tint = mix(vec3(1, 1, 1), st.tint, on);
+    walls.colorNode = st.color.mul(pbrAlbedoMul(col, wallSetUniform(pbr, st.pbrIdx, 'mean'), amt)).mul(tint);
+    walls.roughnessNode = mix(st.roughness, rough, on.mul(PBR_ROUGH_MIX));
+    // Concrete / plaster (1 / 4) read the swapped uv: swap the tangent axes back.
+    // Arithmetic (not `select`): a select here compiles to an if/else that
+    // would nest the sampling branch and its derivatives.
+    const isoF = step(abs(st.pbrIdx.sub(1)), float(0.5)).add(step(abs(st.pbrIdx.sub(4)), float(0.5)));
+    const swapF = swap.mul(isoF);
+    const tn = decodeNormal(nt);
+    const txy = mix(tn.xy, tn.yx, swapF).mul(amt.mul(PBR_NORMAL_STRENGTH));
+    baseN = uvPerturbNormal(txy, uvB);
+  }
   // Screen-space bumpMap of a tall height graph fails to compile in time on
   // the WebGL2 fallback and races style restore; perturb the view normal instead
   // (architecture.md: "bumpMap on a height node or perturb normalNode").
-  walls.normalNode = normalize(normalView.add(vec3(st.seam.mul(SEAM_BUMP), st.band.mul(0.2), st.ridge.mul(0.25))));
+  walls.normalNode = normalize(baseN.add(vec3(st.seam.mul(SEAM_BUMP), st.band.mul(0.2), st.ridge.mul(0.25))));
   return walls;
 }
 
@@ -329,6 +395,19 @@ function wallNodes(u: WetUniforms, withWindows: boolean, osm: boolean) {
   let mGlass: F | null = null;
   let curtainMullion: F = float(0);
   let litMul: F = float(1);
+  // PBR set branch index (`PBR_WALL_SETS`, mirror of `pbrWallIndex(pbrFacadeSet(code).set)`)
+  // and albedo tint; only read when detail textures are on.
+  let pbrIdx: F = float(1);
+  let tint: Node<'vec3'> = vec3(1, 1, 1);
+  if (osm) {
+    const code = attribute<'vec4'>('extra', 'vec4').w;
+    pbrIdx = float(1)
+      .add(isMat(code, MAT_BRICK))
+      .add(isMat(code, MAT_METAL).mul(2))
+      .add(isMat(code, MAT_PLASTER).mul(3))
+      .sub(isMat(code, MAT_GLASS).add(isMat(code, MAT_WOOD)));
+    tint = mix(vec3(1, 1, 1), vec3(PBR_STONE_TINT[0], PBR_STONE_TINT[1], PBR_STONE_TINT[2]), isMat(code, MAT_STONE));
+  }
   if (osm) {
     // Facades × OSM: rgb ≥ 0 → `osm · 0.18` night albedo with 25 % of the
     // procedural grime / bands on top; rgb < 0 → the procedural look above.
@@ -363,6 +442,11 @@ function wallNodes(u: WetUniforms, withWindows: boolean, osm: boolean) {
       seam: vLine,
       band: hBump,
       ridge: float(0),
+      seed,
+      fade,
+      pbrIdx,
+      tint,
+      texMask: float(1),
     };
   }
 
@@ -443,5 +527,20 @@ function wallNodes(u: WetUniforms, withWindows: boolean, osm: boolean) {
 
   // No panel seams across glass: they read as vertical stripes inside windows.
   const seam = vLine.mul(inWindow.oneMinus());
-  return { color, roughness, metalness, emissive, seam, band: hBump, ridge: ridge.mul(shutterOn) };
+  // Detail textures: shutters are metal; glass (windows, lit shop span) is untextured.
+  const texMask = select(inShop, select(isShutter, float(1), inSpan.oneMinus()), inWindow.oneMinus());
+  return {
+    color,
+    roughness,
+    metalness,
+    emissive,
+    seam,
+    band: hBump,
+    ridge: ridge.mul(shutterOn),
+    seed,
+    fade,
+    pbrIdx: mix(pbrIdx, float(3), shutterOn),
+    tint: mix(tint, vec3(1, 1, 1), shutterOn),
+    texMask,
+  };
 }
