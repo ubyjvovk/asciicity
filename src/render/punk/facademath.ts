@@ -1,0 +1,238 @@
+/**
+ * Pure facade decisions and constants (wave 20b). No three/webgpu — the
+ * TSL graph in `facade.ts` imports these numbers and hashes the same inputs
+ * with `hash2Node` so unit tests and the shader cannot drift.
+ * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Facades".
+ */
+import { hash2 } from './noise';
+
+/** JS mirror of `hash2Node` — every facade roll uses this, never another hash. */
+export function facadeHash(x: number, y: number): number {
+  return hash2(x, y);
+}
+
+/** Rec.709 luma weights for `mix(luma(vc), vc, ALBEDO_CHROMA)`. */
+export const LUMA_R = 0.2126;
+export const LUMA_G = 0.7152;
+export const LUMA_B = 0.0722;
+
+/** UV unit in metres (`buildings.ts`: u = perimeter/24, v = (y − base)/24). */
+export const UV_TILE_M = 24;
+/** Window-cell size (m): `u·8`, `v·8` index these. */
+export const WINDOW_CELL_M = 3;
+/** Atlas cell size (px); window occupies x∈[2, 6), y∈[1, 6). */
+export const ATLAS_CELL_PX = 8;
+export const WINDOW_PX_X0 = 2;
+export const WINDOW_PX_X1 = 6;
+export const WINDOW_PX_Y0 = 1;
+export const WINDOW_PX_Y1 = 6;
+
+/** Shopfront band height (m) above wall base; no lit windows below this. */
+export const SHOPFRONT_HEIGHT_M = 4;
+/** Shopfront segment length (m of u). */
+export const SHOPFRONT_SEGMENT_M = 6;
+/** Roll-down shutter share of shopfront segments (PM GPU review: 55 % read as a neon strip). */
+export const SHUTTER_SHARE = 0.75;
+/** Shutter albedo range: `SHUTTER_ALBEDO_MIN + SHUTTER_ALBEDO_RANGE · r` (dark metal, no emission). */
+export const SHUTTER_ALBEDO_MIN = 0.02;
+export const SHUTTER_ALBEDO_RANGE = 0.03;
+/** Shutter ridge spacing (m). */
+export const SHUTTER_RIDGE_M = 0.12;
+/** Dark mullion spacing on shop glass (m). */
+export const MULLION_M = 1.5;
+/** Shop-glass emissive range: 0.18–0.55. */
+export const SHOP_EMISSIVE_MIN = 0.18;
+export const SHOP_EMISSIVE_RANGE = 0.37;
+/** Lit width (m) of shop glass, centred in its segment; the rest are dark piers. */
+export const SHOP_LIT_WIDTH_M = 3.6;
+/** Dark pier width (m) each side of the lit shop glass. */
+export const SHOP_PIER_M = (SHOPFRONT_SEGMENT_M - SHOP_LIT_WIDTH_M) / 2;
+
+/** Fine-detail fade distance (m): seams / mullions / blinds contrast × `1 − smoothstep(NEAR, FAR, d)`. */
+export const DETAIL_FADE_NEAR_M = 15;
+export const DETAIL_FADE_FAR_M = 60;
+
+/** Floor-band spacing (m) — every `v·8` integer line. */
+export const FLOOR_BAND_M = 3;
+/** Floor-band thickness (m). */
+export const FLOOR_BAND_WIDTH_M = 0.22;
+/** Floor-band albedo darkening (35 %). */
+export const FLOOR_BAND_DARKEN = 0.35;
+/** Vertical panel-seam spacing (m) — every `u·16`. */
+export const PANEL_SEAM_M = 1.5;
+/** Max bump strength for seams (≤ 0.35). */
+export const SEAM_BUMP = 0.35;
+
+/** Grime / rain-streak `vnoise(u·STREAK_U_SCALE, v·STREAK_V_SCALE)`. */
+export const STREAK_U_SCALE = 24;
+export const STREAK_V_SCALE = 1.5;
+/** Max albedo darkening from streaks (35 %). */
+export const STREAK_DARKEN = 0.35;
+/** Max roughness drop from wet streaks. */
+export const STREAK_ROUGHNESS_DROP = 0.25;
+
+/** Mix of vertex colour vs luma for base albedo. */
+export const ALBEDO_CHROMA = 0.25;
+/** Base albedo scale: `ALBEDO_MIN + ALBEDO_RANGE · bs`. */
+export const ALBEDO_MIN = 0.2;
+export const ALBEDO_RANGE = 0.12;
+
+/** Unlit glass. */
+export const GLASS_ALBEDO = 0.015;
+export const GLASS_ROUGHNESS = 0.08;
+export const GLASS_METALNESS = 0.6;
+
+/** Dry concrete / metal wall. */
+export const WALL_ROUGHNESS = 0.62;
+export const WALL_METALNESS = 0.18;
+
+/** Share of buildings that stay dark. */
+export const DARK_BUILDING_SHARE = 0.25;
+/**
+ * Lit probability inside a dark building (0 → a dark building's lit
+ * fraction is 0 ≤ 0.03). Non-dark buildings use {@link WINDOW_LIT_P}.
+ */
+export const DARK_WINDOW_LIT_P = 0;
+/**
+ * Lit probability inside a non-dark building. Overall (25 % dark at 0) is
+ * `0.75 · WINDOW_LIT_P` ≈ 0.109, inside the 8–14 % band.
+ */
+export const WINDOW_LIT_P = 0.145;
+
+/** Intensity: `INTENSITY_MIN + INTENSITY_RANGE · r³`. */
+export const INTENSITY_MIN = 0.15;
+export const INTENSITY_RANGE = 0.75;
+
+/**
+ * Window tint palette (linear RGB): tungsten, fluorescent, cyan, magenta.
+ * Shares: 60 / 20 / 12 / 8 %.
+ */
+export const WINDOW_TINTS: readonly (readonly [number, number, number])[] = [
+  [1.0, 0.62, 0.32],
+  [0.75, 0.85, 1.0],
+  [0.1, 0.85, 1.0],
+  [1.0, 0.12, 0.62],
+];
+/** Tint shares in palette order; must sum to 1. */
+export const TINT_SHARES: readonly [number, number, number, number] = [0.6, 0.2, 0.12, 0.08];
+/** Cumulative tint thresholds (0.60 / 0.80 / 0.92). */
+export const TINT_THRESH: readonly [number, number, number] = [0.6, 0.8, 0.92];
+
+/** Share of lit windows that show blinds. */
+export const BLINDS_SHARE = 0.3;
+/** Share of lit windows that flicker. */
+export const FLICKER_SHARE = 0.02;
+
+/** Roof bitumen albedo range. */
+export const ROOF_ALBEDO_MIN = 0.03;
+export const ROOF_ALBEDO_RANGE = 0.02;
+/** Roof / street puddle mask: `smoothstep(LO, HI, fbm2(xz · FREQ))`. */
+export const ROOF_PUDDLE_LO = 0.54;
+export const ROOF_PUDDLE_HI = 0.62;
+export const ROOF_PUDDLE_FREQ = 0.07;
+/** `rippleNormal` UV scale for roofs. */
+export const RIPPLE_SCALE = 4.8;
+
+/** Hash salts so each decision is an independent `hash2` on the same inputs. */
+export const HASH_SALT_DARK = 19;
+export const HASH_SALT_LIT = 3;
+export const HASH_SALT_INT = 11;
+export const HASH_SALT_TINT = 23;
+export const HASH_SALT_BLINDS = 41;
+export const HASH_SALT_SHOP = 61;
+export const HASH_SALT_FLICKER = 73;
+export const HASH_SALT_SHOP_INT = 91;
+export const HASH_SALT_SHOP_TINT = 103;
+export const HASH_SALT_SHUTTER = 127;
+
+/** Building seed `bs` = h(vertexColor.rg · 97 + vertexColor.b · 13). */
+export function buildingSeed(r: number, g: number, b: number): number {
+  return facadeHash(r * 97 + b * 13, g * 97 + b * 13);
+}
+
+/** True for {@link DARK_BUILDING_SHARE} of seeds. */
+export function isDarkBuilding(seed: number): boolean {
+  return facadeHash(seed, HASH_SALT_DARK) < DARK_BUILDING_SHARE;
+}
+
+/** Tint index 0..3 (tungsten / fluorescent / cyan / magenta). */
+export type WindowTint = 0 | 1 | 2 | 3;
+
+/** Per-window lighting decision (cell id + building seed). */
+export interface WindowLight {
+  lit: boolean;
+  intensity: number;
+  tint: WindowTint;
+  blinds: boolean;
+}
+
+const UNLIT: WindowLight = { lit: false, intensity: 0, tint: 0, blinds: false };
+
+/** Intensity from a unit hash, skewed low: `0.15 + 0.75 · r³`. */
+export function windowIntensity(r: number): number {
+  return INTENSITY_MIN + INTENSITY_RANGE * r * r * r;
+}
+
+/** Tint index from a unit hash using {@link TINT_THRESH}. */
+export function windowTintIndex(r: number): WindowTint {
+  if (r < TINT_THRESH[0]) return 0;
+  if (r < TINT_THRESH[1]) return 1;
+  if (r < TINT_THRESH[2]) return 2;
+  return 3;
+}
+
+/**
+ * Lit / intensity / tint / blinds for window cell `(cellU, cellV)`.
+ * No lights when the cell bottom is below {@link SHOPFRONT_HEIGHT_M}.
+ */
+export function windowLight(cellU: number, cellV: number, seed: number): WindowLight {
+  const cu = Math.floor(cellU);
+  const cv = Math.floor(cellV);
+  if (cv * WINDOW_CELL_M < SHOPFRONT_HEIGHT_M) return UNLIT;
+  const dark = isDarkBuilding(seed);
+  const pLit = dark ? DARK_WINDOW_LIT_P : WINDOW_LIT_P;
+  const hLit = facadeHash(cu + seed * 17, cv + seed * 9 + HASH_SALT_LIT);
+  if (hLit >= pLit) return UNLIT;
+  const rInt = facadeHash(cu + seed * 5, cv + HASH_SALT_INT);
+  const rTint = facadeHash(cu + seed * 2, cv + HASH_SALT_TINT);
+  const rBlinds = facadeHash(cu + seed * 13, cv + HASH_SALT_BLINDS);
+  return {
+    lit: true,
+    intensity: windowIntensity(rInt),
+    tint: windowTintIndex(rTint),
+    blinds: rBlinds < BLINDS_SHARE,
+  };
+}
+
+/** Ground-floor treatment for a 6 m u-segment. */
+export type ShopfrontKind = 'shutter' | 'shop';
+
+/** 75 % roll-down shutter, 25 % lit shop glass, per 6 m of u. */
+export function shopfrontKind(segment: number, seed: number): ShopfrontKind {
+  const seg = Math.floor(segment);
+  return facadeHash(seg + seed * 8, HASH_SALT_SHOP) < SHUTTER_SHARE ? 'shutter' : 'shop';
+}
+
+/** Shutter albedo 0.02–0.05 for a 6 m segment (same roll in the shader). */
+export function shutterAlbedo(segment: number, seed: number): number {
+  const seg = Math.floor(segment);
+  return SHUTTER_ALBEDO_MIN + SHUTTER_ALBEDO_RANGE * facadeHash(seg + seed * 6, HASH_SALT_SHUTTER);
+}
+
+/** Shop-glass emissive strength 0.18–0.55 for a 6 m segment. */
+export function shopEmissive(segment: number, seed: number): number {
+  const seg = Math.floor(segment);
+  return SHOP_EMISSIVE_MIN + SHOP_EMISSIVE_RANGE * facadeHash(seg + seed * 3, HASH_SALT_SHOP_INT);
+}
+
+/** True when metre `uM` along the wall falls in the lit middle 3.6 m of its shop segment. */
+export function inShopLitSpan(uM: number): boolean {
+  const x = uM - Math.floor(uM / SHOPFRONT_SEGMENT_M) * SHOPFRONT_SEGMENT_M;
+  return x >= SHOP_PIER_M && x < SHOPFRONT_SEGMENT_M - SHOP_PIER_M;
+}
+
+/** Fine-detail contrast at view distance `d` (m): 1 near, 0 beyond 60 m (smoothstep 15 → 60). */
+export function detailFade(d: number): number {
+  const t = Math.min(1, Math.max(0, (d - DETAIL_FADE_NEAR_M) / (DETAIL_FADE_FAR_M - DETAIL_FADE_NEAR_M)));
+  return 1 - t * t * (3 - 2 * t);
+}
