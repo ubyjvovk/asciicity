@@ -1784,7 +1784,8 @@ signs — a bunch of cyberpunk-style signs, start with Tokyo"):*
   - Per cell: exactly three merged meshes (faces, frames+brackets, glow
     cards) → 3 draw calls per cell regardless of sign count.
   - Budgets (unit-tested on the Tokyo tiles now in `public/data/tokyo/`):
-    Shinjuku cell of tile −6_−1: 150–600 signs; any cell ≤ 800 signs and
+    the Shinjuku East-Exit cell (−24, −4) (77 buildings ≥ 8 m, PM estimate
+    125–250): 100–600 signs; any cell ≤ 800 signs and
     ≤ 60 k triangles; placement of a whole Tokyo tile ≤ 250 ms in node.
 
 *Atmosphere (`punk/atmosphere.ts` + pure `punk/fogmath.ts`, T-0157):*
