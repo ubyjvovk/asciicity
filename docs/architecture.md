@@ -1630,12 +1630,13 @@ plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
     full height; rooftop clutter 1–4 items inside the footprint (inset ≥ 2 m,
     point-in-polygon checked): water tank (8-gon r 1.2 h 2.5), AC box
     2 × 1.2 × 1 m, antenna mast 0.1 × 6 m.
-  - Vertex colours dark greys 0.08–0.18; one `MeshStandardNodeMaterial`
-    (vertexColors, roughness 0.55, metalness 0.4, `rippleNormal` on up faces).
+  - Vertex colour greys 0.16–0.30 (ledge / balcony top faces +0.06; PM
+    GPU review: 0.08–0.18 vanished at night); one `MeshStandardNodeMaterial`
+    (vertexColors, roughness 0.45, metalness 0.4, `rippleNormal` on up faces).
   - Layer: `CellStreamer` buildRadius 450 m, disposeRadius 600 m,
     maxBuildsPerFrame 1. Stats: `cells`, `pending`, `buildMs`, `triangles`.
   - Budgets (unit-tested on `public/data/london/tiles/0_0.json`): ≤ 60 k
-    triangles per 250 m cell average over the tile's cells, ≤ 150 k max;
+    triangles (= positions.length / 9) per 250 m cell average over the tile's cells, ≤ 150 k max;
     whole-tile build ≤ 400 ms in node.
 
 *Street props (`punk/propsmesh.ts` pure + `punk/props.ts`, T-0155):*
