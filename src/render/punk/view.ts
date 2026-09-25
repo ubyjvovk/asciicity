@@ -12,6 +12,7 @@
  * night look and restored on deactivate.
  */
 import * as THREE from 'three/webgpu';
+import { cameraPosition, clamp, exp, float, fog, max, mix, normalWorldGeometry, positionWorld, pow, step, uniform, vec3 } from 'three/tsl';
 import { createPipeline, type PunkPipeline } from './pipeline';
 import { createRain, type Rain } from './rain';
 import { WetDressing } from './wet';
@@ -21,6 +22,44 @@ import { EXPERIMENTAL, LAYER_FACTORIES } from './layers';
 import { QualityController } from './quality';
 import { disposePbrSets, loadPbrSets, type PbrSets } from './pbr';
 import type { HeightFn } from '../../data/types';
+
+/**
+ * Night sky with a city light-pollution dome (wave 25): near-black zenith,
+ * a warm magenta glow on the horizon — dark highrises read as silhouettes.
+ */
+function makeNightSky(): THREE.Node {
+  const up = clamp(normalWorldGeometry.y, 0, 1);
+  const glow = pow(float(1).sub(up), 7);
+  const band = pow(float(1).sub(up), 40);
+  const zenith = vec3(0.012, 0.01, 0.028);
+  const dome = vec3(0.13, 0.045, 0.16);
+  const rim = vec3(0.22, 0.09, 0.1);
+  return mix(mix(zenith, dome, glow), rim, band);
+}
+
+/** Street-level night fog density (exp² shape, as the old FogExp2). */
+const NIGHT_FOG_DENSITY = 0.0045;
+/**
+ * Height-fog scale height (m): density falls by e every FOG_H metres above
+ * the ground under the camera, so highrise tops read as crisp silhouettes
+ * over a hazy street (wave 25). Street-level rays are unchanged.
+ */
+const FOG_H = 25;
+
+/**
+ * Scene fog node: exp² of the optical depth integrated along the camera →
+ * fragment ray through an exponential height profile (same analytic form as
+ * atmosphere.ts). `ground` = ground height under the camera.
+ */
+function makeHeightFog(color: THREE.Color, uD: THREE.UniformNode<'float', number>, uG: THREE.UniformNode<'float', number>): THREE.Node {
+  const d = positionWorld.sub(cameraPosition).length();
+  const delta = positionWorld.y.sub(cameraPosition.y).div(FOG_H);
+  const avg = mix(float(1), float(1).sub(exp(delta.negate())).div(delta), step(float(1e-3), delta.abs()));
+  const base = exp(max(cameraPosition.y.sub(uG), 0).negate().div(FOG_H));
+  const tau = uD.mul(d).mul(base).mul(avg);
+  const factor = float(1).sub(exp(tau.mul(tau).negate()));
+  return fog(vec3(color.r, color.g, color.b), factor);
+}
 
 /** Construction inputs from main.ts. */
 export interface PunkViewOptions {
@@ -121,6 +160,11 @@ export function punkFlags(search: string = typeof location === 'undefined' ? '' 
 
 /** The running WebGPU view. */
 export class PunkView {
+  /** Height-fog density (street level) and the ground height under the camera. */
+  private readonly fogDensity = uniform(NIGHT_FOG_DENSITY);
+  private readonly fogGround = uniform(0);
+  private readonly skyNode = makeNightSky();
+  private readonly fogNode = makeHeightFog(new THREE.Color(0x0c0b18), this.fogDensity, this.fogGround);
   readonly canvas: HTMLCanvasElement;
   readonly renderer: THREE.WebGPURenderer;
   private readonly pipeline: PunkPipeline;
@@ -265,9 +309,12 @@ export class PunkView {
         lights,
       };
       scene.background = NIGHT_BG;
+      scene.backgroundNode = this.skyNode;
       scene.environment = this.env;
       scene.environmentIntensity = 0.45;
-      scene.fog = new THREE.FogExp2(NIGHT_FOG, 0.0045);
+      scene.fog = new THREE.FogExp2(NIGHT_FOG, NIGHT_FOG_DENSITY);
+      // Materials use the height fog; `scene.fog` stays for code that reads it.
+      scene.fogNode = this.fogNode;
       this.sky.visible = false;
       for (const { light } of lights) {
         if (light instanceof THREE.AmbientLight) {
@@ -295,6 +342,8 @@ export class PunkView {
       scene.background = s.background;
       scene.environment = s.environment;
       scene.fog = s.fog;
+      scene.fogNode = null;
+      scene.backgroundNode = null;
       this.sky.visible = s.sky;
       for (const rec of s.lights) {
         rec.light.color.copy(rec.color);
@@ -309,7 +358,8 @@ export class PunkView {
   /** Fog density hook: main.ts thins fog with altitude; keep the same ratio. */
   setFogScale(k: number): void {
     const fog = this.scene.fog;
-    if (this.active && fog instanceof THREE.FogExp2) fog.density = 0.0045 * k;
+    if (this.active && fog instanceof THREE.FogExp2) fog.density = NIGHT_FOG_DENSITY * k;
+    this.fogDensity.value = NIGHT_FOG_DENSITY * k;
   }
 
   /** Match the WebGL canvas size (CSS pixels). */
@@ -349,6 +399,7 @@ export class PunkView {
     this.wet.uTime.value = t;
     this.pipeline.glass.time.value = t;
     camera.updateMatrixWorld();
+    this.fogGround.value = this.ctx.groundAt(camera.position.x, camera.position.z);
     const dt = Math.min(0.1, Math.max(0, t - this.lastT));
     this.lastT = t;
     for (const l of this.layers) if (l.on) l.layer.update(this.ctx, t, dt);
