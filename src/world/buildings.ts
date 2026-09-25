@@ -11,6 +11,7 @@ import {
   type RoofShape,
   type Vec2,
 } from '../data/types';
+import { pointInPolygon } from './collision';
 import { colorFor } from './palette';
 import { EXTRA_NONE, MeshBuilder, toGeometry, type MeshData, type UV, type Vec3 } from './mesh';
 
@@ -739,6 +740,24 @@ function emitRoofedWalls(mesh: MeshBuilder, ring: Vec2[], tops: number[], base: 
   }
 }
 
+/** One culled tier wall quad from `s.base` to `s.top`; `v = (y − wallBase) / 24` (§4.2 "Tiers"). */
+function emitTierWall(mesh: MeshBuilder, s: TierSeg, wallBase: number, color: Vec3): void {
+  const v0 = (s.base - wallBase) / TILE_M;
+  const v1 = (s.top - wallBase) / TILE_M;
+  mesh.quad(
+    [s.a[0], s.base, s.a[1]],
+    [s.a[0], s.top, s.a[1]],
+    [s.b[0], s.top, s.b[1]],
+    [s.b[0], s.base, s.b[1]],
+    [s.nx, 0, s.nz],
+    [s.u0, v0],
+    [s.u0, v1],
+    [s.u1, v1],
+    [s.u1, v0],
+    color,
+  );
+}
+
 /** Upward-facing flat-shaded triangle (winding flipped when needed so normal.y > 0). */
 function emitUpTri(mesh: MeshBuilder, a: Vec3, b: Vec3, c: Vec3, color: Vec3): void {
   const uv: UV = [0, 0];
@@ -821,9 +840,120 @@ function domeProfile(): [number, number][] {
   return out;
 }
 
+/** One exterior wall quad of a building (architecture §4.2 "Tiers"): edge `a → b`, y span, outward unit normal. */
+export interface WallSeg {
+  a: Vec2;
+  b: Vec2;
+  base: number;
+  top: number;
+  nx: number;
+  nz: number;
+}
+
+/** Outward probe distance for interior-wall culling (§4.2 "Tiers"). */
+const TIER_PROBE = 0.3;
+
+/** A tier wall segment plus its texture `u` span along the tier ring. */
+interface TierSeg extends WallSeg {
+  u0: number;
+  u1: number;
+}
+
+/** A building's tier rings (normalised, degenerate ones dropped) with their cap heights. */
+interface TierRing {
+  ring: Vec2[];
+  top: number;
+}
+
+/** True when `b` is drawn as its `tiers` (present, non-empty, no curated `shape`). */
+function hasTiers(b: Building): boolean {
+  return b.tiers !== undefined && b.tiers.length > 0 && b.shape === undefined;
+}
+
+/** Normalised usable tier rings of `b` with `top = envelopeTop + tier.h`. */
+function tierRings(b: Building, envelopeTop: number): TierRing[] {
+  const out: TierRing[] = [];
+  for (const t of b.tiers ?? []) {
+    if (t.poly.length < 3) continue;
+    const ring = normalizeRing(t.poly);
+    if (Math.abs(ringArea(ring)) < AREA_EPS) continue;
+    out.push({ ring, top: envelopeTop + t.h });
+  }
+  return out;
+}
+
+/**
+ * Exterior walls of every tier: an edge whose 0.3 m outward probe lies in
+ * another tier keeps only the part above that tier's top (dropped if none).
+ */
+function tierWalls(tiers: TierRing[], wallBase: number): TierSeg[] {
+  const out: TierSeg[] = [];
+  for (let i = 0; i < tiers.length; i++) {
+    const { ring, top } = tiers[i]!;
+    const n = ring.length;
+    let dist = 0;
+    for (let k = 0; k < n; k++) {
+      const a = ring[k]!;
+      const b = ring[(k + 1) % n]!;
+      const dx = b[0] - a[0];
+      const dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz);
+      if (len === 0) continue;
+      const nx = dz / len;
+      const nz = -dx / len;
+      const probe: Vec2 = [(a[0] + b[0]) / 2 + nx * TIER_PROBE, (a[1] + b[1]) / 2 + nz * TIER_PROBE];
+      let base = wallBase;
+      for (let j = 0; j < tiers.length; j++) {
+        if (j === i) continue;
+        const other = tiers[j]!;
+        if (other.top > base && pointInPolygon(probe, other.ring)) base = other.top;
+      }
+      if (base < top) out.push({ a, b, base, top, nx, nz, u0: dist / TILE_M, u1: (dist + len) / TILE_M });
+      dist += len;
+    }
+  }
+  return out;
+}
+
+/**
+ * Exterior wall segments of a building (§4.2 "Tiers"): its tier walls after
+ * interior culling, else (no tiers / curated `shape`) its envelope walls
+ * from `base + minH` to `top + h`.
+ */
+export function exteriorWalls(b: Building, heightAt: HeightFn = FLAT_HEIGHT): WallSeg[] {
+  const ring = normalizeRing(b.poly);
+  const { base, top } = ringHeights(ring, heightAt);
+  const wallBase = base + (b.minH ?? 0);
+  if (hasTiers(b)) {
+    return tierWalls(tierRings(b, top), wallBase).map(({ a, b: q, base: y0, top: y1, nx, nz }) => ({
+      a,
+      b: q,
+      base: y0,
+      top: y1,
+      nx,
+      nz,
+    }));
+  }
+  const out: WallSeg[] = [];
+  const roofY = top + b.h;
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const a = ring[i]!;
+    const q = ring[(i + 1) % n]!;
+    const dx = q[0] - a[0];
+    const dz = q[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (len === 0) continue;
+    out.push({ a, b: q, base: wallBase, top: roofY, nx: dz / len, nz: -dx / len });
+  }
+  return out;
+}
+
 /**
  * Build wall/roof mesh data: walls run from `minH` (default 0) to `h` above
- * terrain; a downward-facing bottom cap is emitted when `minH > 0`.
+ * terrain; a downward-facing bottom cap is emitted when `minH > 0`. A building
+ * with `tiers` (and no curated `shape`) draws its culled tier walls and one
+ * flat cap per tier instead of the envelope (§4.2 "Tiers").
  */
 export function buildBuildingsMesh(
   buildings: Building[],
@@ -846,6 +976,8 @@ export function buildBuildingsMesh(
       dense: Vec2[] | null;
       tops: number[];
     } | null;
+    /** Tier rings drawn instead of the envelope walls + roof (§4.2 "Tiers"), else null. */
+    tiers: TierRing[] | null;
   }[] = [];
   for (const building of buildings) {
     const ring = normalizeRing(building.poly);
@@ -878,7 +1010,8 @@ export function buildBuildingsMesh(
       roofY,
       minH: building.minH ?? 0,
       extras: buildingExtras(building),
-      roof,
+      roof: hasTiers(building) ? null : roof,
+      tiers: hasTiers(building) ? tierRings(building, top) : null,
     });
   }
 
@@ -893,10 +1026,14 @@ export function buildBuildingsMesh(
     }
   };
 
-  for (const { ring, building, base, roofY, minH, extras, roof } of usable) {
+  for (const { ring, building, base, roofY, minH, extras, roof, tiers } of usable) {
     const color = vertexColor(building);
     const wallBase = base + minH;
     useExtra(extras?.wall);
+    if (tiers !== null) {
+      for (const s of tierWalls(tiers, wallBase)) emitTierWall(mesh, s, wallBase, color);
+      continue;
+    }
     if (roof !== null && roof.dense !== null) {
       emitRoofedWalls(mesh, roof.dense, roof.tops, wallBase, color);
       continue;
@@ -915,10 +1052,12 @@ export function buildBuildingsMesh(
   }
   mesh.endGroup(0);
 
-  for (const { ring, building, roofY, minH, base, extras, roof } of usable) {
+  for (const { ring, building, roofY, minH, base, extras, roof, tiers } of usable) {
     const color = vertexColor(building);
     useExtra(extras?.roof);
-    if (roof === null) {
+    if (tiers !== null) {
+      for (const t of tiers) emitRoof(mesh, t.ring, t.top, color);
+    } else if (roof === null) {
       emitRoof(mesh, ring, roofY, color);
     } else if (roof.dense !== null) {
       const shape = roof.shape;

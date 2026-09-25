@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { FLAT_HEIGHT, type Building, type BuildingRoof, type Vec2 } from '../src/data/types';
-import { buildBuildingsMesh, MATERIAL_CODE, normalizeRing } from '../src/world/buildings';
+import { buildBuildingsMesh, exteriorWalls, MATERIAL_CODE, normalizeRing } from '../src/world/buildings';
+import { createHash } from 'node:crypto';
 import { type MeshData } from '../src/world/mesh';
 import { readFileSync } from 'node:fs';
 import {
@@ -713,5 +714,229 @@ describe('roof runtime clamp (PM, after T-0159)', () => {
     const flatTiny = buildBuildingsMesh([{ id: 2, h: 1.2, minH: 0.5, poly }]);
     expect(Array.from(tiny.positions)).toEqual(Array.from(flatTiny.positions));
     expect(flat.positions.length).toBeGreaterThan(0);
+  });
+});
+
+/** Hand-made 3-tier building (T-0165): podium 20 m (west), C-shaped tower 60 m, penthouse 66 m in the notch. */
+const TIER_PODIUM: Vec2[] = [
+  [0, 0],
+  [20, 0],
+  [20, 30],
+  [0, 30],
+];
+const TIER_TOWER: Vec2[] = [
+  [20, 0],
+  [40, 0],
+  [40, 10],
+  [30, 10],
+  [30, 20],
+  [40, 20],
+  [40, 30],
+  [20, 30],
+];
+const TIER_PENT: Vec2[] = [
+  [30, 10],
+  [40, 10],
+  [40, 20],
+  [30, 20],
+];
+
+function tieredBuilding(partial: Partial<Building> = {}): Building {
+  return {
+    id: 7,
+    h: 66,
+    poly: [
+      [0, 0],
+      [40, 0],
+      [40, 30],
+      [0, 30],
+    ],
+    tiers: [
+      { h: 20, poly: TIER_PODIUM },
+      { h: 60, poly: TIER_TOWER },
+      { h: 66, poly: TIER_PENT },
+    ],
+    ...partial,
+  };
+}
+
+/** Wall (group 0) quads as [minX, maxX, minZ, maxZ, minY, maxY] per 6-vertex quad. */
+function wallQuads(m: MeshData): number[][] {
+  const g = m.groups[0]!;
+  const out: number[][] = [];
+  for (let v = g.start; v < g.start + g.count; v += 6) {
+    const q = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity];
+    for (let k = 0; k < 6; k++) {
+      const i = (v + k) * 3;
+      const x = m.positions[i]!;
+      const y = m.positions[i + 1]!;
+      const z = m.positions[i + 2]!;
+      q[0] = Math.min(q[0]!, x);
+      q[1] = Math.max(q[1]!, x);
+      q[2] = Math.min(q[2]!, z);
+      q[3] = Math.max(q[3]!, z);
+      q[4] = Math.min(q[4]!, y);
+      q[5] = Math.max(q[5]!, y);
+    }
+    out.push(q);
+  }
+  return out;
+}
+
+/** Half-plane clip (Sutherland–Hodgman) of a ring to `sign · (x − c) ≥ 0`. */
+function clipX(ring: Vec2[], c: number, sign: 1 | -1): Vec2[] {
+  const out: Vec2[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i]!;
+    const q = ring[(i + 1) % ring.length]!;
+    const dp = sign * (p[0] - c);
+    const dq = sign * (q[0] - c);
+    if (dp >= 0) out.push(p);
+    if ((dp >= 0) !== (dq >= 0)) {
+      const t = dp / (dp - dq);
+      out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+    }
+  }
+  return out;
+}
+
+const SLOPE = (x: number, z: number): number => 0.1 * x + 0.05 * z;
+
+describe('tiers (wave 22, architecture §4.2 "Tiers")', () => {
+  it('1. 3-tier building: max y = base-top + 66; no envelope walls; each tier has a cap at its top', () => {
+    const m = buildBuildingsMesh([tieredBuilding()], SLOPE);
+    const top = 0.1 * 40 + 0.05 * 30; // envelope ring max of SLOPE
+    let maxY = -Infinity;
+    for (let i = 1; i < m.positions.length; i += 3) maxY = Math.max(maxY, m.positions[i]!);
+    expect(maxY).toBeCloseTo(top + 66, 4);
+    // No envelope wall: only the penthouse's own walls rise above the tower top.
+    const quads = wallQuads(m);
+    for (const q of quads) {
+      const penthouse = q[0]! > 29.99 && q[1]! < 40.01 && q[2]! > 9.99 && q[3]! < 20.01;
+      if (!penthouse) expect(q[5]!).toBeLessThan(top + 60 + 1e-3);
+    }
+    // Every wall quad lies on a tier ring edge (never a full-height 0..66 envelope wall).
+    expect(quads.some((q) => q[5]! > top + 65.9 && q[1]! - q[0]! + q[3]! - q[2]! > 10.01)).toBe(false);
+    // Caps (group 1): one horizontal level per tier top, covering each tier's area.
+    const g = m.groups[1]!;
+    const areaAt = new Map<number, number>();
+    for (let v = g.start; v < g.start + g.count; v += 3) {
+      const p = (k: number): number[] => [m.positions[(v + k) * 3]!, m.positions[(v + k) * 3 + 1]!, m.positions[(v + k) * 3 + 2]!];
+      const [a, b, c] = [p(0), p(1), p(2)];
+      expect(a[1]).toBeCloseTo(b[1]!, 6);
+      expect(a[1]).toBeCloseTo(c[1]!, 6);
+      const area = Math.abs((b[0]! - a[0]!) * (c[2]! - a[2]!) - (c[0]! - a[0]!) * (b[2]! - a[2]!)) / 2;
+      const key = Math.round((a[1]! - top) * 1000) / 1000;
+      areaAt.set(key, (areaAt.get(key) ?? 0) + area);
+    }
+    expect([...areaAt.keys()].sort((x, y) => x - y)).toEqual([20, 60, 66]);
+    expect(areaAt.get(20)).toBeCloseTo(600, 3);
+    expect(areaAt.get(60)).toBeCloseTo(500, 3);
+    expect(areaAt.get(66)).toBeCloseTo(100, 3);
+  });
+
+  it('2. interior culling: the tower wall facing into the podium starts at podium top; walls fully inside a taller tier are not emitted', () => {
+    const walls = exteriorWalls(tieredBuilding(), FLAT_HEIGHT);
+    const at = (x0: number, z0: number, x1: number, z1: number) =>
+      walls.filter(
+        (w) =>
+          (Math.abs(w.a[0] - x0) < 1e-9 && Math.abs(w.a[1] - z0) < 1e-9 && Math.abs(w.b[0] - x1) < 1e-9 && Math.abs(w.b[1] - z1) < 1e-9) ||
+          (Math.abs(w.a[0] - x1) < 1e-9 && Math.abs(w.a[1] - z1) < 1e-9 && Math.abs(w.b[0] - x0) < 1e-9 && Math.abs(w.b[1] - z0) < 1e-9),
+      );
+    // Shared podium/tower edge x = 20: the tower side (normal −x) from 20 to 60, the podium side gone.
+    const shared = at(20, 0, 20, 30);
+    expect(shared).toHaveLength(1);
+    expect(shared[0]!.nx).toBeCloseTo(-1, 9);
+    expect(shared[0]!.base).toBeCloseTo(20, 9);
+    expect(shared[0]!.top).toBeCloseTo(60, 9);
+    // Tower notch walls (fully inside the taller penthouse) are dropped; penthouse walls there run 60 → 66.
+    for (const [x0, z0, x1, z1] of [
+      [40, 10, 30, 10],
+      [30, 10, 30, 20],
+      [30, 20, 40, 20],
+    ] as const) {
+      const segs = at(x0, z0, x1, z1);
+      expect(segs).toHaveLength(1);
+      expect(segs[0]!.base).toBeCloseTo(60, 9);
+      expect(segs[0]!.top).toBeCloseTo(66, 9);
+    }
+    // Penthouse street wall (east) is full height; podium: 3 exterior walls 0 → 20.
+    const east = at(40, 10, 40, 20);
+    expect(east.map((w) => [w.base, w.top])).toEqual([[0, 66]]);
+    expect(walls.filter((w) => w.top === 20).map((w) => w.base)).toEqual([0, 0, 0]);
+    expect(walls).toHaveLength(3 + 5 + 4);
+    // The mesh agrees: no wall quad on x = 20 below the podium top.
+    const m = buildBuildingsMesh([tieredBuilding()]);
+    for (const q of wallQuads(m)) {
+      if (q[0]! > 19.99 && q[1]! < 20.01) expect(q[4]!).toBeCloseTo(20, 6);
+    }
+  });
+
+  it('3. exteriorWalls of a tier-less building equals its envelope walls (count + coordinates)', () => {
+    const b: Building = { id: 3, h: 12, minH: 2, poly: [[0, 0], [0, 8], [5, 12], [10, 8], [10, 0]] };
+    const walls = exteriorWalls(b, SLOPE);
+    const ring = normalizeRing(b.poly);
+    let base = Infinity;
+    let top = -Infinity;
+    for (const [x, z] of ring) {
+      base = Math.min(base, SLOPE(x, z));
+      top = Math.max(top, SLOPE(x, z));
+    }
+    expect(walls).toHaveLength(ring.length);
+    walls.forEach((w, i) => {
+      const a = ring[i]!;
+      const q = ring[(i + 1) % ring.length]!;
+      expect(w.a).toEqual(a);
+      expect(w.b).toEqual(q);
+      expect(w.base).toBeCloseTo(base + 2, 9);
+      expect(w.top).toBeCloseTo(top + 12, 9);
+      const len = Math.hypot(q[0] - a[0], q[1] - a[1]);
+      expect(w.nx).toBeCloseTo((q[1] - a[1]) / len, 9);
+      expect(w.nz).toBeCloseTo(-(q[0] - a[0]) / len, 9);
+    });
+    // Curated shape wins: tiers ignored, envelope walls + the landmark cap as today.
+    const shaped = tieredBuilding({ shape: 'spire' });
+    expect(exteriorWalls(shaped)).toHaveLength(4);
+    const { tiers: _t, ...plain } = shaped;
+    const mShaped = buildBuildingsMesh([shaped]);
+    const mPlain = buildBuildingsMesh([plain]);
+    expect(Array.from(mShaped.positions)).toEqual(Array.from(mPlain.positions));
+  });
+
+  it('6. byte-identical output for buildings without tiers (pre-wave-22 sha256, london tile 0_0 on a slope)', () => {
+    const tile = JSON.parse(readFileSync('public/data/london/tiles/0_0.json', 'utf8')) as { buildings: Building[] };
+    const m = buildBuildingsMesh(tile.buildings, (x, z) => 0.01 * x + 0.02 * z);
+    const h = createHash('sha256');
+    for (const a of [m.positions, m.normals, m.uvs, m.colors, m.extra ?? new Float32Array()]) {
+      h.update(Buffer.from(a.buffer, a.byteOffset, a.byteLength));
+    }
+    h.update(JSON.stringify(m.groups));
+    expect(h.digest('hex')).toBe('adda40e7de5d7bb5c3f171b7870fba059942b9fc5f6da965068624b35d71699c');
+  });
+
+  it('7. budget: tiers ≤ 2× envelope triangles (london tile 0_0 envelopes cut into 3 synthetic tiers)', () => {
+    const tile = JSON.parse(readFileSync('public/data/london/tiles/0_0.json', 'utf8')) as { buildings: Building[] };
+    const flat = tile.buildings.map(({ roof: _r, shape: _s, ...b }) => b);
+    const tiered: Building[] = flat.map((b) => {
+      const xs = b.poly.map((p) => p[0]);
+      const x0 = Math.min(...xs);
+      const x1 = Math.max(...xs);
+      const c1 = x0 + (x1 - x0) / 3;
+      const c2 = x0 + (2 * (x1 - x0)) / 3;
+      const west = clipX(b.poly, c1, -1);
+      const mid = clipX(clipX(b.poly, c1, 1), c2, -1);
+      const east = clipX(b.poly, c2, 1);
+      const tiers = [
+        { h: Math.max(1, b.h * 0.4), poly: west },
+        { h: b.h, poly: mid },
+        { h: Math.max(1, b.h * 0.7), poly: east },
+      ].filter((t) => t.poly.length >= 3);
+      return { ...b, tiers };
+    });
+    const tris = (m: MeshData): number => m.positions.length / 9;
+    const env = tris(buildBuildingsMesh(flat));
+    const tier = tris(buildBuildingsMesh(tiered));
+    console.log(`tiers budget: london 0_0 buildings=${flat.length} envelope tris=${env} tiered tris=${tier} ratio=${(tier / env).toFixed(3)}`);
+    expect(tier).toBeLessThanOrEqual(2 * env);
   });
 });
