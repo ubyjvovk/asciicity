@@ -601,6 +601,33 @@ export const SPAWN_PRESETS: Record<string, SpawnPreset> = {
     label: 'Shinjuku East Exit, facing Kabukicho',
     city: 'tokyo',
   },
+  // Neon v3 presets (T-0169): narrow night-life streets seen from street
+  // level. Both are road vertices read out of the committed tiles (never
+  // hand-typed), unprojected to WGS84.
+  kabukicho: {
+    // South end vertex (−5978.0, −1386.5) of OSM "Kabukicho Ichibangai-dori
+    // Street" (way 155235354, tile −6_−2) where it meets Yasukuni Street —
+    // the red-gate entrance. Bearing 17° = the street's own direction to its
+    // vertex (−5951.2, −1475.7), i.e. north into Ichibangai. 8 m of building
+    // clearance on the 3×3 tiles centred on −6_−2.
+    lon: 139.700988,
+    lat: 35.693739,
+    bearingDeg: 17,
+    label: 'Kabukicho Ichibangai gate, facing north',
+    city: 'tokyo',
+  },
+  centergai: {
+    // Vertex (−6060.9, 2356.3) of OSM "Shibuya Center-gai Street" (pedestrian
+    // way 542478931, tile −7_2), ≈ 40 m up the street from its Scramble end (−6036.8, 2388.1).
+    // Bearing 313° = the street's direction to its next vertex
+    // (−6079.6, 2339.1), north-west up Center Gai. The street is narrow:
+    // 4 m of building clearance (not 6 m) on the 3×3 tiles centred on −7_2.
+    lon: 139.700071,
+    lat: 35.65989,
+    bearingDeg: 313,
+    label: 'Shibuya Center Gai, facing north-west',
+    city: 'tokyo',
+  },
   // Sydney presets (wave 14, docs/architecture.md §4.13 wave-14 table). All
   // coordinates are DERIVED FROM the committed tiled Sydney dataset (T-0116
   // refetch) — never hand-typed. For each preset a road vertex was picked

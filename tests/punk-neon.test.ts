@@ -17,9 +17,14 @@ import {
   NEON_WARM_WHITE,
   NeonSlotTable,
   WORDS,
+  NEON_GLOW_SCALE,
+  NEON_GLOW_STRENGTH,
   buildNeonMeshes,
   neonAtlasKey,
+  neonBladeOffset,
   neonColours,
+  neonProfile,
+  neonSignSize,
   neonKeyHash,
   neonSlotUv,
   parseNeonAtlasKey,
@@ -28,6 +33,9 @@ import {
 } from '../src/render/punk/neonplace';
 import { exteriorWalls, normalizeRing, ringHeights } from '../src/world/buildings';
 import { createHash } from 'node:crypto';
+import { SPAWN_PRESETS } from '../src/data/spawn';
+import { project } from '../src/geo';
+import { loadTiledIndex, loadTiledTile } from './tiledCity';
 
 const tilePath = join(dirname(fileURLToPath(import.meta.url)), '../public/data/london/tiles/0_0.json');
 const tile = JSON.parse(readFileSync(tilePath, 'utf8')) as { buildings: Building[]; roads: Road[] };
@@ -56,7 +64,7 @@ interface Located {
 
 function locate(sign: Sign, building: Building, heightAt: HeightFn): Located | null {
   const ring = normalizeRing(building.poly);
-  const off = sign.kind === 'blade' ? 0.6 : 0.15;
+  const off = sign.kind === 'blade' ? neonBladeOffset(sign.width) : 0.15;
   const wx = sign.x - sign.nx * off;
   const wz = sign.z - sign.nz * off;
   const { base } = ringHeights(ring, heightAt);
@@ -341,7 +349,7 @@ describe('tiers (wave 22, architecture §4.2 "Tiers")', () => {
     let tall = 0;
     for (const sign of signs) {
       const b = byId.get(sign.buildingId)!;
-      const off = sign.kind === 'blade' ? 0.6 : 0.15;
+      const off = sign.kind === 'blade' ? neonBladeOffset(sign.width) : 0.15;
       const wx = sign.x - sign.nx * off;
       const wz = sign.z - sign.nz * off;
       const seg = exteriorWalls(b, heightAt).find((w) => {
@@ -396,15 +404,6 @@ const fakeUv = (kind: string): { u0: number; v0: number; u1: number; v1: number;
   neonSlotUv(0, kind === 'blade');
 
 describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
-  it('1. tokyo Shinjuku cell (−24, −4): 100–600 signs; every cell of tile −6_−1 ≤ 800', () => {
-    expect(shinjuku).toBeDefined();
-    const n = shinjuku?.signs.length ?? 0;
-    console.log(`[neon v2] tokyo Shinjuku cell -24_-4: ${n} signs; tile -6_-1: ${tokyoSigns.length} signs`);
-    expect(n).toBeGreaterThanOrEqual(100);
-    expect(n).toBeLessThanOrEqual(600);
-    for (const { signs } of tokyoPlaced) expect(signs.length).toBeLessThanOrEqual(800);
-  });
-
   it('2. per-building cap, 1.2 m spacing on one wall, storey-slot bottoms ≤ min(h − 2, 30); eye-level bias', () => {
     const byBuilding = new Map<number, Sign[]>();
     for (const sign of tokyoSigns) {
@@ -414,10 +413,10 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
     }
     for (const [id, list] of byBuilding) {
       const b = tokyoById.get(id)!;
-      expect(list.length).toBeLessThanOrEqual(Math.min(8, 2 + Math.floor(b.h / 15)));
+      expect(list.length).toBeLessThanOrEqual(Math.min(10, 3 + Math.floor(b.h / 12)));
       const base = wallBaseOf(b);
       const feet = list.map((sign) => {
-        const off = sign.kind === 'blade' ? 0.6 : 0.15;
+        const off = sign.kind === 'blade' ? neonBladeOffset(sign.width) : 0.15;
         const wx = sign.x - sign.nx * off;
         const wz = sign.z - sign.nz * off;
         const along = wx * -sign.nz + wz * sign.nx;
@@ -477,18 +476,6 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
         const n = sign.panels?.length ?? 0;
         expect(n).toBeGreaterThanOrEqual(2);
         expect(n).toBeLessThanOrEqual(4);
-        expect(sign.width).toBeCloseTo(1.6, 6);
-        expect(sign.height).toBeCloseTo(n * 0.9 + (n - 1) * 0.1, 6);
-      } else if (sign.kind === 'blade') {
-        expect(sign.width).toBeGreaterThanOrEqual(0.8);
-        expect(sign.width).toBeLessThanOrEqual(1.2);
-        expect(sign.height).toBeGreaterThanOrEqual(3);
-        expect(sign.height).toBeLessThanOrEqual(7);
-      } else {
-        expect(sign.width).toBeGreaterThanOrEqual(3 - 1e-9);
-        expect(sign.width).toBeLessThanOrEqual(7);
-        expect(sign.height).toBeGreaterThanOrEqual(1);
-        expect(sign.height).toBeLessThanOrEqual(1.6);
       }
       if (sign.kind !== 'stack') expect(sign.panels).toBeUndefined();
     }
@@ -613,16 +600,13 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
     expect(pair.size).toBeGreaterThan(100);
   });
 
-  it('7. geometry budget: ≤ 60 k triangles and 3 meshes per cell; tile placement ≤ 250 ms', () => {
-    console.log(`[neon v2] tokyo -6_-1 placement: ${tokyoMs.toFixed(1)} ms`);
-    expect(tokyoMs).toBeLessThanOrEqual(250);
-    for (const { cell, signs } of tokyoPlaced) {
+  it('7. meshes: 3 per cell, one glow card per sign (3 × the sign, colour × 0.45)', () => {
+    expect(NEON_GLOW_SCALE).toBe(3);
+    expect(NEON_GLOW_STRENGTH).toBeCloseTo(0.45, 9);
+    for (const { signs } of tokyoPlaced) {
       if (signs.length === 0) continue;
       const m = buildNeonMeshes(signs, fakeUv);
       expect(Object.keys(m).sort()).toEqual(['faces', 'frames', 'glow']);
-      const tris = (m.faces.index.length + m.frames.index.length + m.glow.index.length) / 3;
-      if (cell.key === '-24_-4') console.log(`[neon v2] Shinjuku cell triangles: ${tris}`);
-      expect(tris, cell.key).toBeLessThanOrEqual(60_000);
       // One glow card (2 triangles) per sign; faces carry uv + flicker + gain, glow uv + colour.
       expect(m.glow.index.length).toBe(signs.length * 6);
       expect(m.faces.gain.length).toBe(m.faces.position.length / 3);
@@ -637,5 +621,179 @@ describe('neon v2 (wave 23b, §4.11 "Neon v2")', () => {
       expect(again).toEqual(signs);
       if (signs.length > 0) expect(buildNeonMeshes(again, fakeUv)).toEqual(buildNeonMeshes(signs, fakeUv));
     }
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Neon v3 (T-0169): tokyo signs scale with building height, p 1, cap
+// min(10, 3 + ⌊h/12⌋), 20 m road reach; kabukicho / centergai presets.
+
+/** Tokyo 3×3 tiles around `centre`, bucketed and placed the way CellStreamer does. */
+function placeAround(centre: [number, number]): { signs: Sign[]; byId: Map<number, Building> } {
+  const index = loadTiledIndex('tokyo');
+  const src = new Map<string, PunkSource>();
+  for (let di = -1; di <= 1; di++) {
+    for (let dj = -1; dj <= 1; dj++) {
+      const key = `${centre[0] + di}_${centre[1] + dj}`;
+      if (!(key in index.tiles)) continue;
+      const t = loadTiledTile('tokyo', key);
+      src.set(key, { buildings: t.buildings, roads: t.roads });
+    }
+  }
+  const byId = new Map<number, Building>();
+  const signs: Sign[] = [];
+  for (const cell of bucketSources(src).values()) {
+    for (const b of cell.buildings) byId.set(b.id, b);
+    signs.push(...placeSigns(cell.buildings, cell.roads, FLAT_HEIGHT, 'tokyo'));
+  }
+  return { signs, byId };
+}
+
+describe('neon v3 (T-0169, §4.11 "Neon v3")', () => {
+  it('1. tokyo blade/panel/stack sizes follow the height formulas (sampled)', () => {
+    const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+    const seen = { blade: 0, stack: 0, panel: 0, screen: 0 };
+    for (const sign of tokyoSigns) {
+      const h = tokyoById.get(sign.buildingId)!.h;
+      seen[sign.kind]++;
+      if (sign.kind === 'blade') {
+        expect(sign.width).toBeCloseTo(clamp(0.9 + h / 40, 0.9, 2.2), 9);
+        expect(sign.height).toBeCloseTo(clamp(3 + h / 6, 3, 10), 9);
+        // Wider blades stand further off the wall so they never cut into it.
+        const bottom = sign.y - sign.height / 2 - wallBaseOf(tokyoById.get(sign.buildingId)!);
+        expect(bottom).toBeGreaterThanOrEqual(3 - 1e-6);
+        expect(bottom).toBeLessThanOrEqual(7 + 1e-6);
+      } else if (sign.kind === 'stack') {
+        const n = sign.panels!.length;
+        expect(sign.width).toBeCloseTo(clamp(1.6 + h / 50, 1.6, 2.8), 9);
+        const ph = clamp(0.9 + h / 120, 0.9, 1.4);
+        expect(ph).toBeGreaterThanOrEqual(0.9);
+        expect(ph).toBeLessThanOrEqual(1.4);
+        expect(sign.height).toBeCloseTo(n * ph + (n - 1) * 0.1, 9);
+      } else if (sign.kind === 'panel') {
+        expect(sign.width).toBeGreaterThanOrEqual(3 - 1e-9);
+        expect(sign.width).toBeLessThanOrEqual(9);
+        expect(sign.height).toBeGreaterThanOrEqual(1);
+        expect(sign.height).toBeLessThanOrEqual(1.6);
+      } else {
+        expect(sign.width).toBeGreaterThanOrEqual(6 - 1e-9);
+        expect(sign.width).toBeLessThanOrEqual(12);
+        expect(sign.height).toBeGreaterThanOrEqual(4);
+        expect(sign.height).toBeLessThanOrEqual(8);
+      }
+    }
+    for (const k of ['blade', 'stack', 'panel', 'screen'] as const) expect(seen[k], k).toBeGreaterThan(0);
+    // Sampled heights, incl. both clamps.
+    const at = (h: number): ReturnType<typeof neonSignSize> => neonSignSize(h);
+    expect(at(8)).toMatchObject({ bladeW: 1.1, stackW: 1.76 });
+    expect(at(8).bladeH).toBeCloseTo(3 + 8 / 6, 9);
+    expect(at(8).stackH).toBeCloseTo(0.9 + 8 / 120, 9);
+    expect(at(30)).toMatchObject({ bladeW: 1.65, bladeH: 8, stackW: 2.2, stackH: 1.15 });
+    expect(at(100)).toMatchObject({ bladeW: 2.2, bladeH: 10, stackW: 2.8, stackH: 1.4 });
+    // Panels span 3–9 m wide on tokyo (v2 was 3–7).
+    const panels = tokyoSigns.filter((s) => s.kind === 'panel').map((s) => s.width);
+    expect(Math.max(...panels)).toBeGreaterThan(7);
+    expect(neonBladeOffset(0.9)).toBeCloseTo(0.6, 9);
+    expect(neonBladeOffset(2.2)).toBeCloseTo(1.2, 9);
+  });
+
+  it('2. tokyo cap and p; road reach 20 m (tokyo) / 12 m (default)', () => {
+    const tokyo = neonProfile('tokyo');
+    expect(tokyo.p).toBe(1);
+    expect(tokyo.reach).toBe(20);
+    expect(tokyo.scaled).toBe(true);
+    for (const [h, cap] of [[8, 3], [12, 4], [30, 5], [60, 8], [84, 10], [200, 10]] as const) expect(tokyo.cap(h), `h ${h}`).toBe(cap);
+    const def = neonProfile('london');
+    expect(def).toMatchObject({ p: 0.24, minEdge: 6, dense: false, reach: 12, scaled: false });
+    expect(def.cap(100)).toBe(2);
+    // p = 1: every qualifying tokyo wall is active, so a lone street-facing wall always gets signs.
+    // Street facade 16 m from the road centreline: tokyo (20 m) places, the default (12 m) does not.
+    for (const [gap, tokyoSigns, londonSigns] of [[10, true, true], [16, true, false], [24, false, false]] as const) {
+      const block = street(8, 30, gap - 4);
+      expect(placeSigns(block.buildings, block.roads, FLAT_HEIGHT, 'tokyo').length > 0, `tokyo @ ${gap} m`).toBe(tokyoSigns);
+      expect(placeSigns(block.buildings, block.roads, FLAT_HEIGHT, 'london').length > 0, `london @ ${gap} m`).toBe(londonSigns);
+    }
+    // Every tokyo sign sits on an exterior wall segment whose midpoint is within 20 m of a same-cell road.
+    let beyond12 = 0;
+    for (const { cell, signs } of tokyoPlaced) {
+      for (const sign of signs) {
+        const b = tokyoById.get(sign.buildingId)!;
+        const off = sign.kind === 'blade' ? neonBladeOffset(sign.width) : 0.15;
+        const wx = sign.x - sign.nx * off;
+        const wz = sign.z - sign.nz * off;
+        const dists = exteriorWalls(b, FLAT_HEIGHT)
+          .filter((w) => {
+            if (w.nx * sign.nx + w.nz * sign.nz < 0.999) return false;
+            const dx = w.b[0] - w.a[0];
+            const dz = w.b[1] - w.a[1];
+            const t = ((wx - w.a[0]) * dx + (wz - w.a[1]) * dz) / (dx * dx + dz * dz);
+            return t >= -1e-6 && t <= 1 + 1e-6 && Math.abs((wx - w.a[0]) * w.nx + (wz - w.a[1]) * w.nz) < 1e-4;
+          })
+          .map((w) => roadDist((w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2, cell.roads));
+        expect(dists.length, cell.key).toBeGreaterThan(0);
+        const d = Math.min(...dists);
+        expect(d, cell.key).toBeLessThanOrEqual(20 + 1e-6);
+        if (d > 12) beyond12++;
+      }
+    }
+    console.log(`[neon v3] tokyo -6_-1 signs on walls 12–20 m from a road: ${beyond12}`);
+    expect(beyond12).toBeGreaterThan(0);
+  });
+
+  it('3. budgets: Shinjuku cell 150–1200 signs; every cell of tile −6_−1 ≤ 1500 signs and ≤ 120 k triangles; placement ≤ 400 ms', () => {
+    expect(shinjuku).toBeDefined();
+    const n = shinjuku?.signs.length ?? 0;
+    let maxSigns = 0;
+    let maxTris = 0;
+    let shinjukuTris = 0;
+    for (const { cell, signs } of tokyoPlaced) {
+      maxSigns = Math.max(maxSigns, signs.length);
+      expect(signs.length, cell.key).toBeLessThanOrEqual(1500);
+      if (signs.length === 0) continue;
+      const m = buildNeonMeshes(signs, fakeUv);
+      const tris = (m.faces.index.length + m.frames.index.length + m.glow.index.length) / 3;
+      if (cell.key === '-24_-4') shinjukuTris = tris;
+      maxTris = Math.max(maxTris, tris);
+      expect(tris, cell.key).toBeLessThanOrEqual(120_000);
+    }
+    console.log(
+      `[neon v3] Shinjuku cell -24_-4: ${n} signs, ${shinjukuTris} triangles; tile -6_-1: ${tokyoSigns.length} signs, ` +
+        `max cell ${maxSigns} signs / ${maxTris} triangles; placement ${tokyoMs.toFixed(1)} ms`,
+    );
+    expect(n).toBeGreaterThanOrEqual(150);
+    expect(n).toBeLessThanOrEqual(1200);
+    expect(tokyoMs).toBeLessThanOrEqual(400);
+  }, 30_000);
+
+  it('4. kabukicho and centergai: ≥ 40 signs with bottom ≤ 10 m within 60 m', () => {
+    const origin = loadTiledIndex('tokyo').origin;
+    for (const [key, centre] of [
+      ['kabukicho', [-6, -2]],
+      ['centergai', [-7, 2]],
+    ] as const) {
+      const preset = SPAWN_PRESETS[key] as { lon: number; lat: number };
+      const [px, pz] = project(preset.lon, preset.lat, origin);
+      const { signs, byId } = placeAround([centre[0], centre[1]]);
+      const near = signs.filter(
+        (s) => s.y - s.height / 2 - wallBaseOf(byId.get(s.buildingId)!) <= 10 + 1e-6 && Math.hypot(s.x - px, s.z - pz) <= 60,
+      ).length;
+      console.log(`[neon v3] ${key} (${px.toFixed(1)}, ${pz.toFixed(1)}): ${near} signs with bottom ≤ 10 m within 60 m`);
+      expect(near, key).toBeGreaterThanOrEqual(40);
+    }
+  }, 60_000);
+
+  it('5. default profile unchanged: london tile 0_0 sign sha256 pinned (see tiers case 6); v2 sizes', () => {
+    for (const sign of londonSigns) {
+      if (sign.kind === 'blade') {
+        expect(sign.width).toBeCloseTo(0.9, 9);
+        expect(neonBladeOffset(sign.width)).toBeCloseTo(0.6, 9);
+      } else {
+        expect(sign.width).toBeGreaterThanOrEqual(3);
+        expect(sign.width).toBeLessThanOrEqual(7);
+      }
+    }
+    expect(createHash('sha256').update(JSON.stringify(placeSigns(tile.buildings, tile.roads, (x, z) => 0.01 * x + 0.02 * z, 'london'))).digest('hex')).toBe(
+      '9fd8f94377698afdefc2b0bb07dc7f3593e3f87318693a0782fb12e2a4b8263e',
+    );
   });
 });
