@@ -46,6 +46,22 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 24 (2026-09-26 ~00:00) — stutter fix (PM, measured)
+- User: "still stutters a lot, even without cars". PM harness
+  (scratchpad stutter.mjs: sprint + turns 20 s, rAF frame times + long
+  tasks; prof.mjs: CDP CPU profile). London bank before: 163 frames in
+  20 s, 12.7 s long tasks (400–700 ms each). Cause: neon/props toggled
+  PointLight.visible → WebGPU lights-node change → every lit material's
+  node program rebuilt (7.5 s of NodeBuilder.build per 15 s). Fix: fixed
+  light pools parked at intensity 0. Also CellStreamer dropped ALL cells
+  on any tile event → per-cell signature diff + shared bucketing; cars'
+  first-draw compiles → zero-matrix warm-up one bucket/frame.
+- After (1aabccf): bank 1196 frames, 0 > 100 ms, ~170 ms long tasks;
+  maidan/kabukicho 0 long tasks; uncapped fps unchanged (300 / 240).
+  Rules written to §4.11 "Stutter rules" + AGENTS.md.
+- Remaining: ~3 × 60 ms tasks on a tile arrival (detail cell build /
+  tile parse) — candidate: move detailmesh/neonplace builds to a worker.
+
 ## Wave 23b/23c (2026-09-25 night) — wetness/window tune, neon v2/v3, cars
 - User: still stutters where reflections are dense; London "one big
   puddle", dry rocks next to puddles; windows too bright; more neon (Tokyo
