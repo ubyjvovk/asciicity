@@ -42,6 +42,8 @@ export interface PunkViewOptions {
   cityId: string;
   /** Live resident city chunks for layers (mutated by main.ts; see `layer.ts`). */
   sources: ReadonlyMap<string, PunkSource>;
+  /** Live car fleet mesh for the vehicles layer (see `PunkLayerContext.traffic`). */
+  traffic: () => THREE.InstancedMesh | null;
   /** Experimental layers the user switched on (persisted by main.ts), e.g. `['neon']`. */
   experimental?: readonly string[];
 }
@@ -177,6 +179,7 @@ export class PunkView {
       groundAt: opts.groundAt,
       cityId: opts.cityId,
       sources: opts.sources,
+      traffic: opts.traffic,
     };
     const expOn = new Set(opts.experimental ?? []);
     for (const make of LAYER_FACTORIES) {

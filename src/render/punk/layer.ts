@@ -33,6 +33,15 @@ export interface PunkLayerContext {
    * built (build new keys, dispose vanished keys). Never mutate it.
    */
   sources: ReadonlyMap<string, PunkSource>;
+  /**
+   * The live passenger-car fleet (wave 23c): the `CarFleet` InstancedMesh
+   * (one instance per car, matrices updated every frame by main.ts; its
+   * position y = ground + CAR_HALF_HEIGHT, rotation.y = −heading), or null
+   * when the city has no cars or the CARS setting is off. A getter because
+   * tiled cities rebuild the fleet. Read-only: layers may toggle its
+   * `visible` only while active and must restore it on detach.
+   */
+  traffic(): THREE.InstancedMesh | null;
 }
 
 /** A pluggable part of the cyberpunk city. */

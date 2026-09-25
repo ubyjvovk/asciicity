@@ -1788,6 +1788,43 @@ signs — a bunch of cyberpunk-style signs, start with Tokyo"):*
     125–250): 100–600 signs; any cell ≤ 800 signs and
     ≤ 60 k triangles; placement of a whole Tokyo tile ≤ 250 ms in node.
 
+*Vehicles — real car models in cyberpunk (wave 23c, T-0170):*
+  - Assets (PM-curated): `public/models/cars/<id>/lod0.glb` (≤ 20 k
+    triangles, textures ≤ 1024²) and `lod1.glb` (≤ 2.5 k, textures ≤ 256²),
+    produced offline with `@gltf-transform/cli` (simplify via meshoptimizer,
+    resize, dedup/weld) from the Sketchfab originals; `manifest.json` lists
+    per model: `id`, `label` (the real car name), `weight` (share of the
+    fleet), `yaw` (radians to rotate the model so it faces +z), `length` (m,
+    real-world bumper-to-bumper), `lights` ({ front: [[x,y,z]…], rear: […] }
+    in normalised model space, optional — else derived from the bbox), and
+    `credit` (author, url, licence). `CREDITS.md` next to it is the
+    human-readable attribution list.
+  - Layer `punk/vehicles.ts` (browser) + pure `punk/vehiclemath.ts`:
+    registered in `layers.ts` after `props`. Loads the manifest + GLBs with
+    `GLTFLoader` (three/addons, allowed in punk/), merges each LOD into one
+    geometry per material (≤ 4 materials per model), normalises: scale so
+    the bbox length (z after `yaw`) equals `length`, origin at the bbox
+    bottom-centre.
+  - Every frame, for each car instance i of `ctx.traffic()`: model =
+    weighted pick by `hash(i)` (stable), LOD = distance to camera (< 45 m →
+    lod0, < 350 m → lod1, beyond → hidden); world matrix = the fleet's
+    instance matrix with the y offset −CAR_HALF_HEIGHT (fleet boxes are
+    centred) and the per-model yaw/scale baked into the geometry; written
+    into one `InstancedMesh` per (model, LOD, material) sized for the whole
+    fleet (count set per frame). The fleet's box mesh is hidden while the
+    layer is attached (restored on detach). `ctx.traffic()` null → nothing drawn.
+  - Lights: per car two headlight quads (warm white, emissive 6) and two
+    taillight quads (red, emissive 4) — instanced, facing ±z, placed from
+    the manifest or at the bbox front/rear corners (x ±0.38·width, y
+    0.45·height); plus an additive "beam" quad on the road ahead (4 m long,
+    opacity 0.15) for lod0 cars only. They reflect in the wet street via SSR.
+  - Paint: keep the GLB materials but force `metalness ≥ 0.4, roughness ≤
+    0.45` on body materials (the largest-area material) so cars catch neon.
+  - Budgets: ≤ 1.2 M triangles for the whole fleet in view at bank (lod
+    counts in stats: `vehicles.lod0`, `vehicles.lod1`, `vehicles.hidden`,
+    `vehicles.triangles`), ≤ 3 draws per (model, LOD) → ≤ 60 draws total;
+    GPU memory for all models ≤ 64 MB.
+
 *Atmosphere (`punk/atmosphere.ts` + pure `punk/fogmath.ts`, T-0157):*
   - Height fog: density ρ(y) = ρ0 · exp(−(y − y0)/H), H = 18 m, y0 = camera
     ground height (camera y − 1.7 when walking; uniform from the pipeline),

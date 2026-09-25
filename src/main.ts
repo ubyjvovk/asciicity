@@ -1107,6 +1107,8 @@ async function main(): Promise<void> {
             groundAt,
             cityId: cityId ?? 'synthetic',
             sources: punkSources,
+            traffic: () =>
+              cars && settings.cars && cars.object instanceof THREE.InstancedMesh ? cars.object : null,
             // `?neon=1` / `?neon=0` override the persisted experimental set.
             experimental: ((): string[] => {
               // Experimental layers default ON so they get seen; `N` / `?neon=0` turn neon off.
