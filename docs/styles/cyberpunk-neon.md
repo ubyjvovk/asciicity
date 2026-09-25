@@ -82,7 +82,7 @@ share the rest 45 : 25 : 22); after fit rejections the city-wide share on
 tile `−6_−1` is ≈ 8 % (blade 43.7, stack 25.4, panel 22.7, screen 8.1 %).
 
 Measured on tile `−6_−1` (`FLAT_HEIGHT`, node): Shinjuku East-Exit cell
-`(−24, −4)` 166 signs / ≈ 16 k triangles; busiest cell 497 signs / ≈ 45 k
+`(−24, −4)` 166 signs / ≈ 16 k triangles; busiest cell 497 signs / ≈ 43 k
 triangles; the whole tile 2 221 signs placed in ≈ 90 ms.
 
 ## Words and colours
