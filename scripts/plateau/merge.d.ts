@@ -34,7 +34,7 @@ export function buildingTileKey(poly: number[][], tileSize: number): string;
 export function coveredShare(ring: number[][], others: number[][][]): number;
 /** OSM `building:part` flags (raised parts and 3D-massing stacks). */
 export function osmPartFlags(osm: { poly: Vec2[] | number[][]; h: number; minH?: number }[]): boolean[];
-/** Merge rules 3–5: kept OSM + named, un-suppressed PLATEAU buildings. */
+/** Merge rules 3 (+3b fallback), 4, 5: kept OSM + named, un-suppressed PLATEAU buildings. */
 export function mergeBuildings(
   plateau: PlateauRow[],
   osm: Building[],

@@ -212,7 +212,11 @@ export function osmPartFlags(osm) {
  * - rule 3: each kept PLATEAU building is named after its best-IoU non-part
  *   OSM partner when IoU ≥ 0.5 and that partner has a name; else after the
  *   named non-part OSM building it covers ≥ 50 % (largest overlap wins);
- *   else its PLATEAU `gml:name` (`plateauName`); else no name.
+ *   else its PLATEAU `gml:name` (`plateauName`); else no name;
+ * - rule 3b: then every replaced named OSM building whose name reached none
+ *   of the PLATEAU buildings overlapping it names the still-unnamed one it
+ *   overlaps most (> 0 m²; ties → larger PLATEAU footprint). Larger OSM
+ *   footprints pick first; a name is never overwritten.
  *
  * Output order: kept OSM buildings (input order: parts and rule-4 keeps
  * interleaved as given), then kept PLATEAU buildings (input order). Inputs
@@ -240,8 +244,10 @@ export function mergeBuildings(plateau, osm) {
   const osmKeep = osm.map((_, i) => isPart[i]);
   /** best IoU partner per kept PLATEAU building: [iou, osmIndex] */
   const best = kept.map(() => [0, -1]);
-  /** rule-3b candidate per kept PLATEAU building: [overlap m², osmIndex] */
+  /** rule-3 cover candidate per kept PLATEAU building: [overlap m², osmIndex] */
   const cover = kept.map(() => [0, -1]);
+  /** named non-part OSM index → its overlaps with kept PLATEAU buildings, [k, m²] (rule 3b) */
+  const overlaps = new Map();
   let osmKept = 0;
   osm.forEach((b, i) => {
     if (isPart[i]) return;
@@ -253,6 +259,10 @@ export function mergeBuildings(plateau, osm) {
       const u = Math.min(1, inter / (area + ringArea(plateauRings[k]) - inter));
       if (u > best[k][0]) best[k] = [u, i];
       if (b.name !== undefined && inter >= 0.5 * area && inter > cover[k][0]) cover[k] = [inter, i];
+      if (b.name !== undefined) {
+        if (!overlaps.has(i)) overlaps.set(i, []);
+        overlaps.get(i).push([k, inter]);
+      }
     }
     if (coveredShare(b.poly, cand.map((k) => plateauRings[k])) < 0.2) {
       osmKeep[i] = true;
@@ -263,21 +273,55 @@ export function mergeBuildings(plateau, osm) {
   let byIou = 0;
   let byCover = 0;
   let byPlateau = 0;
+  /** name per kept PLATEAU building after rules 1–3 (then 3b) */
+  const names = kept.map((r, k) => {
+    const [u, j] = best[k];
+    if (u >= 0.5 && osm[j].name !== undefined) {
+      byIou++;
+      return osm[j].name;
+    }
+    if (cover[k][1] >= 0) {
+      byCover++;
+      return osm[cover[k][1]].name;
+    }
+    if (r.plateauName) {
+      byPlateau++;
+      return r.plateauName;
+    }
+    return undefined;
+  });
+
+  // Rule 3b: a replaced named OSM building whose name reached none of the
+  // PLATEAU buildings overlapping it gives the name to the unnamed one it
+  // overlaps most (ties → larger PLATEAU footprint, then input order).
+  // Larger OSM footprints choose first; a piece named here is taken.
+  let byFallback = 0;
+  const pending = [...overlaps.keys()]
+    .filter((i) => !osmKeep[i] && !overlaps.get(i).some(([k]) => names[k] === osm[i].name))
+    .map((i) => [ringArea(osm[i].poly), i])
+    .sort((p, q) => q[0] - p[0] || p[1] - q[1]);
+  for (const [, i] of pending) {
+    let pick = -1;
+    let pickInter = 0;
+    let pickArea = 0;
+    for (const [k, inter] of overlaps.get(i)) {
+      if (names[k] !== undefined) continue;
+      const a = ringArea(plateauRings[k]);
+      if (inter > pickInter || (inter === pickInter && (a > pickArea || (a === pickArea && k < pick)))) {
+        pick = k;
+        pickInter = inter;
+        pickArea = a;
+      }
+    }
+    if (pick < 0) continue;
+    names[pick] = osm[i].name;
+    byFallback++;
+  }
+
   const out = kept.map((r, k) => {
     const b = { ...r.building };
     delete b.name;
-    let name;
-    const [u, j] = best[k];
-    if (u >= 0.5 && osm[j].name !== undefined) {
-      name = osm[j].name;
-      byIou++;
-    } else if (cover[k][1] >= 0) {
-      name = osm[cover[k][1]].name;
-      byCover++;
-    } else if (r.plateauName) {
-      name = r.plateauName;
-      byPlateau++;
-    }
+    const name = names[k];
     // Keep the Building key order of `toBuilding`: id, h, name, …, poly.
     return name === undefined ? b : { id: b.id, h: b.h, name, ...b };
   });
@@ -295,6 +339,8 @@ export function mergeBuildings(plateau, osm) {
       namesByIou: byIou,
       namesByCover: byCover,
       namesFromPlateau: byPlateau,
+      namesByFallback: byFallback,
+      namesUnplaced: pending.length - byFallback,
     },
   };
 }

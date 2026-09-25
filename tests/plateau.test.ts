@@ -616,6 +616,32 @@ describe('T-0163 merge rules 3/4/5', () => {
     expect(PLATEAU[0]!.building.name).toBeUndefined();
   });
 
+  it('rule 3b: Shibuya-like split complex: name lands on the most-overlapping unnamed piece; an already named piece is never overwritten', () => {
+    const osm: Building[] = [
+      { id: 21, h: 30, name: 'Shibuya', poly: box(0, 0, 100, 40) }, // split in 3, no IoU/cover match
+      { id: 22, h: 30, name: 'Echo', poly: box(200, 0, 300, 40) }, // every piece already named
+    ];
+    const plateau = [
+      prow(21, box(0, 0, 30, 40)), // 1200 m² overlap, 1200 m² footprint
+      prow(22, box(30, 0, 70, 40), 'Named piece'), // most overlap (1600 m²) but named
+      prow(23, box(70, -40, 100, 40)), // 1200 m² overlap tie, larger footprint → wins
+      prow(24, box(200, 0, 240, 40), 'Gamma'),
+      prow(25, box(240, 0, 270, 40), 'Kappa'),
+      prow(26, box(270, 0, 300, 40), 'Lambda'),
+    ];
+    const m = mergeBuildings(plateau, osm);
+    const by = new Map(m.buildings.map((b) => [b.id, b]));
+    const name = (k: number) => by.get(PLATEAU_ID_BASE + k)!.name;
+    expect(m.buildings.some((b) => !isPlateauId(b.id))).toBe(false); // both OSM replaced
+    expect(name(23)).toBe('Shibuya');
+    expect(name(22)).toBe('Named piece');
+    expect(name(21)).toBeUndefined();
+    expect([name(24), name(25), name(26)]).toEqual(['Gamma', 'Kappa', 'Lambda']);
+    expect(m.stats).toMatchObject({ namesByIou: 0, namesByCover: 0, namesFromPlateau: 4, namesByFallback: 1, namesUnplaced: 1 });
+    // The main fixture transfers every name by rules 1–3: 3b does nothing there.
+    expect(stats).toMatchObject({ namesByFallback: 0, namesUnplaced: 0 });
+  });
+
   it('determinism: the same input gives byte-identical merge + retile output', () => {
     const again = mergeBuildings(
       PLATEAU.map((r) => ({ ...r, building: { ...r.building } })),

@@ -126,7 +126,13 @@ untouched. It refuses a dataset that already holds PLATEAU ids (ids in
 7. **Names** (rule 3, non-part OSM only): the best-IoU partner's name at
    IoU ≥ 0.5 (if that partner is named); else the named OSM building the
    PLATEAU footprint covers ≥ 50 % (largest overlap); else the PLATEAU
-   `gml:name`; else none.
+   `gml:name`; else none. **Rule 3b** (PM, rework 1): then every
+   replaced named OSM building whose name reached none of the PLATEAU
+   buildings overlapping it gives the name to the still-unnamed PLATEAU
+   building it overlaps most (> 0 m²; ties → larger PLATEAU footprint, then
+   input order). Larger OSM footprints choose first; a name set by rules
+   1–3 or by an earlier 3b pick is never overwritten. Kept OSM buildings
+   (rules 4/5) keep their own name and take no part.
 8. **Retile** (`retile`, same anchor as `scripts/tile-city.mjs`: unrounded
    vertex mean, `Math.floor(c / tileSize)`): each tile keeps its roads /
    trees / woods and gets kept OSM buildings (old tile order) then PLATEAU
@@ -156,17 +162,17 @@ took ≈ 2 min, 105 s of it transfers):
 | OSM parts kept (rule 5) | 439 |
 | **OSM kept, < 20 % covered (rule 4)** | **7 341** |
 | OSM replaced by PLATEAU | 162 839 of 170 619 |
-| names: IoU partner / ≥ 50 % covered / PLATEAU `gml:name` | 13 854 / 752 / 688 |
+| names: IoU partner / ≥ 50 % covered / PLATEAU `gml:name` / fallback 3b | 13 854 / 752 / 688 / 277 (241 OSM buildings found every overlapping piece already named) |
 | roof kinds (in bbox) | LOD1-only 118 695, flat 35 823, stepped 15 514, complex 12 457, gabled 7 029, hipped 2 130, skillion 878, pyramidal 283 |
 | `roof` emitted | gabled 6 855, hipped 2 114, skillion 869, pyramidal 278 |
 | `tiers` emitted | 23 540 buildings, 92 900 tiers (max 63 per building) |
 | tiers rejected → envelope | single level 2 665, overlap 1 724, > 64 3 |
-| buildings / landmarks / tiles | 200 424 / 15 856 / 129 (none created or removed) |
-| **bytes** (index + tiles) | 28 325 662 → **50 460 465** (≤ 60 MB budget) |
-| **max tile** | 646 815 → **1 347 629** (`1_-3`) |
+| buildings / landmarks / tiles | 200 424 / 16 133 / 129 (none created or removed) |
+| **bytes** (index + tiles) | 28 325 662 → **50 487 274** (≤ 60 MB budget) |
+| **max tile** | 646 815 → **1 347 764** (`1_-3`) |
 | validation | 129 tiles + index + 200 424 buildings: 0 errors |
-| wall time (warm cache) | 128 s (PLATEAU parse + convert 73 s, merge 54 s) |
-| determinism | three runs on fresh copies: byte-identical (sha1 of every file) |
+| wall time (warm cache) | 120 s (PLATEAU parse + convert 63 s, merge 56 s) |
+| determinism | runs on fresh copies: byte-identical (sha1 of every file; re-checked after rule 3b) |
 
 Without `splitHoles` the overlap check rejected 6 837 tier sets (podiums
 around towers) and the dataset was 45.4 MB; with it, 23 540 buildings keep
@@ -179,12 +185,13 @@ suppressed), `Akihabara` (now a PLATEAU building, 20.3 m, anchor moved
 32 m), `Tokyo Station` (OSM, unchanged), `Shinjuku` (PLATEAU, 20.7 m, 10
 tiers) all resolve. **`Shibuya`** (the station-building outline; only
 comments in `spawn.ts` cite its anchor, the `shibuya` preset uses fixed
-coordinates) does NOT: PLATEAU splits the complex into buildings that
-neither match it at IoU ≥ 0.5 nor cover it ≥ 50 %. Across the dataset,
-455 of 14 496 distinct OSM building names (3 %) are lost the same way,
-682 new names come in (PLATEAU `gml:name`s). A rule-3 fallback ("a named
-OSM building whose name went nowhere → the PLATEAU building overlapping
-it most") would recover them. That is a PM rule change, not implemented.
+coordinates) resolves through rule 3b: PLATEAU splits the complex into
+buildings that neither match it at IoU ≥ 0.5 nor cover it ≥ 50 %, and the
+most-overlapping unnamed piece takes the name (anchor moved 75.6 m).
+Before rule 3b, 455 of 14 496 distinct OSM building names (3 %) were lost
+that way; with it 212 (1.5 %) are, all on OSM buildings whose overlapping
+PLATEAU pieces are already named. 682 new names come in (PLATEAU
+`gml:name`s).
 
 ## Q1 — Access
 

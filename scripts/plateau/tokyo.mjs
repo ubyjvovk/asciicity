@@ -259,7 +259,7 @@ async function main() {
     seconds: { plateau: (tParse - t0) / 1000, merge: (tMerge - tParse) / 1000, total: 0 },
   };
   const o = stats.output;
-  console.log(`merge: PLATEAU kept ${m.plateauKept} / ${m.plateauIn} (suppressed by OSM parts ${m.suppressedByParts}); OSM parts kept ${m.osmParts}, OSM kept (< 20 % covered) ${m.osmKeptUncovered}, OSM replaced ${m.osmDropped}; names: IoU ${m.namesByIou}, cover ${m.namesByCover}, PLATEAU gml:name ${m.namesFromPlateau}`);
+  console.log(`merge: PLATEAU kept ${m.plateauKept} / ${m.plateauIn} (suppressed by OSM parts ${m.suppressedByParts}); OSM parts kept ${m.osmParts}, OSM kept (< 20 % covered) ${m.osmKeptUncovered}, OSM replaced ${m.osmDropped}; names: IoU ${m.namesByIou}, cover ${m.namesByCover}, PLATEAU gml:name ${m.namesFromPlateau}, fallback 3b ${m.namesByFallback} (unplaced ${m.namesUnplaced})`);
   console.log(`roofs ${JSON.stringify(o.roofs)}; tiers: ${o.buildingsWithTiers} buildings, ${o.tiers} tiers (max ${o.maxTiers}; rejected ${JSON.stringify(p.tierRejects)})`);
   console.log(`output: ${o.buildings} buildings, ${o.landmarks} landmarks, ${o.tiles} tiles (created ${o.tilesCreated.join(',') || '-'}, removed ${o.tilesRemoved.join(',') || '-'})`);
   console.log(`bytes: ${bytesBefore} → ${bytesAfter} (${(bytesAfter / 1e6).toFixed(2)} MB); max tile ${maxBefore} → ${maxAfter} (${maxKey})`);
