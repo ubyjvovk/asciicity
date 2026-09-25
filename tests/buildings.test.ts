@@ -691,3 +691,27 @@ describe('roofs (wave 21, architecture §4.2 "Roofs + OSM facade data")', () => 
     expect(m.extra).toBeUndefined();
   });
 });
+
+describe('roof runtime clamp (PM, after T-0159)', () => {
+  it('clamps roof.h to h − minH − 1 and drops the roof when that is < 0.5', async () => {
+    const { buildBuildingsMesh } = await import('../src/world/buildings');
+    const poly: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 10],
+      [0, 10],
+    ];
+    const tall = buildBuildingsMesh([{ id: 1, h: 6, poly, roof: { shape: 'gabled', h: 9 } }]);
+    let minY = Infinity;
+    for (let i = 1; i < tall.positions.length; i += 3) minY = Math.min(minY, tall.positions[i]);
+    expect(minY).toBeGreaterThanOrEqual(-1e-6); // walls never go below the base
+    let maxY = -Infinity;
+    for (let i = 1; i < tall.positions.length; i += 3) maxY = Math.max(maxY, tall.positions[i]);
+    expect(maxY).toBeCloseTo(6);
+    const flat = buildBuildingsMesh([{ id: 2, h: 6, poly }]);
+    const tiny = buildBuildingsMesh([{ id: 2, h: 1.2, minH: 0.5, poly, roof: { shape: 'hipped', h: 3 } }]);
+    const flatTiny = buildBuildingsMesh([{ id: 2, h: 1.2, minH: 0.5, poly }]);
+    expect(Array.from(tiny.positions)).toEqual(Array.from(flatTiny.positions));
+    expect(flat.positions.length).toBeGreaterThan(0);
+  });
+});

@@ -124,16 +124,19 @@ OSM colours/materials reach ONLY the cyberpunk facades.
     gabled `1 − |t|/W`; hipped `clamp(min(1 − |t|/W, (L − |s|)/W), 0, 1)`;
     pyramidal `clamp(1 − max(|s|/L, |t|/W), 0, 1)`; skillion `(t + W)/(2W)`;
     round `sqrt(max(0, 1 − (t/W)²))`.
-  - Mesh for height-field shapes (ONLY buildings with a height-field roof
-    are densified — flat buildings stay byte-identical): densify the
-    (normalised CCW) ring so no edge exceeds 2 m; triangulate with the same triangulator `emitRoof`
-    uses; refine conformingly: split every INTERIOR edge longer than 4 m at
-    its midpoint (midpoints cached per undirected edge), re-triangulate each
-    triangle by its number of split edges (1 → 2, 2 → 3, 3 → 4 triangles),
-    up to 4 passes; boundary edges (≤ 2 m) are never split, so walls and
-    roof share every boundary vertex. Per-triangle face normals (flat
-    shading). Walls: emit per densified edge a trapezoid from wall base to
-    `wallTop + roof.h · f(vertex)` at each end — gable ends close, no cracks.
+  - Mesh for height-field shapes (as shipped by T-0159 — supersedes the
+    original densify-and-refine recipe, which blew the budget ×18 and could
+    not put a vertex exactly on a gable apex): split the ring where its
+    edges cross the shape's ACTIVE crease lines (ridge, hips, pyramid
+    diagonals, 7 facet lines for round = 8-facet barrel); triangulate with
+    `ShapeUtils` like `emitRoof`; cut triangles along the crease lines with
+    crossings cached per undirected edge (no T-junctions); boundary edges
+    are never split, so walls share every roof boundary vertex. Exact for
+    all shapes but round. Walls rise to `wallTop + roof.h · f(vertex)` at
+    each split-ring vertex. Flat buildings are untouched (byte-identical).
+  - Runtime clamp (PM, after T-0158's flag): `roof.h` is re-clamped to
+    `h − minH − 1` at build time and the roof dropped below 0.5 m, because
+    landmark fixes may lower `h` after conversion.
   - dome / onion: walls to `wallTop`, a flat cap at `wallTop`, then a
     12-segment lathe centred on the footprint centroid with radius
     R = min(L, W): dome = quarter circle (8 rings) of height roof.h; onion

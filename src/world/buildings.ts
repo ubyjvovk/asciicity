@@ -853,7 +853,12 @@ export function buildBuildingsMesh(
     const { base, top } = ringHeights(ring, heightAt);
     const roofY = top + building.h;
     let roof: (typeof usable)[number]['roof'] = null;
-    const r = building.roof;
+    // Runtime clamp (T-0158 flag): landmark fixes may lower `h` after
+    // conversion, so re-apply the data-format bound `roof.h ≤ h − minH − 1`
+    // (and drop the roof below 0.5 m) — otherwise the walls would invert.
+    const rawRoof = building.roof;
+    const roofMax = building.h - (building.minH ?? 0) - 1;
+    const r = rawRoof !== undefined && roofMax >= 0.5 ? { ...rawRoof, h: Math.min(rawRoof.h, roofMax) } : undefined;
     if (r !== undefined && building.shape === undefined) {
       const wallTop = roofY - r.h;
       const frame = roofFrame(ring, r.dir);
