@@ -138,6 +138,33 @@ node scripts/fetch-osm.mjs --bbox 139.692,35.645,139.820,35.715 \
   `npm run fetch-data:tokyo` against the same cached tile reproduces the
   same `terrain` / `waterLevels` byte-for-byte, so nothing else drifts.
 
+## Wave 21 regeneration (T-0160)
+
+`public/data/london/` and `public/data/kyiv/` were re-fetched on 2026-09-25
+with the unchanged aliases (`npm run fetch-data`, `npm run fetch-data:kyiv`),
+so the tiles now carry the Simple-3D-Buildings keys (`roof`, `osmColor`,
+`roofColor`, `material`). Same bbox, origin, flags and 1000 m tiling.
+
+| | London before → after | Kyiv before → after |
+|---|---|---|
+| tile bytes (index + tiles) | 3 434 093 → 4 426 114 | 3 604 059 → 3 862 872 |
+| largest tile | 322 774 → 421 815 | 201 204 → 248 743 |
+| buildings | 9 061 → 13 865 | 8 183 → 9 129 |
+| with `minH` (parts) | 0 → 1 653+ | 0 → 315 |
+| `roof` (all non-flat) | — → 14.1 % | — → 10.5 % |
+| `osmColor` | — → 28.3 % | — → 11.0 % |
+| `roofColor` | — → 36.1 % | — → 8.1 % |
+| `material` | — → 27.1 % | — → 5.3 % |
+
+The building growth is mostly `building:part` massing: both datasets were
+last converted before T-0086's part support reached them (T-0096 migrated
+the old monolithic files in place), so this is their first fetch with parts.
+Kyiv `terrain` keeps its 323×270 @ 20 m grid; 201 of 87 210 heights moved
+(max 8.6 m) together with the water rings (51 → 57 `waterLevels`).
+Overpass mirrors served slightly different snapshots on back-to-back runs
+(London 8 099 vs 8 194 roads, and Nelson's Column's outline name was missing
+from one run), so check the landmark names after any refetch.
+
 ## Tiling and chunked fetch (wave 11 — sector streaming)
 
 Past Manhattan-scale density a city ships **tiled**: `public/data/<city>/`
