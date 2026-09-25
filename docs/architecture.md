@@ -124,8 +124,9 @@ OSM colours/materials reach ONLY the cyberpunk facades.
     gabled `1 − |t|/W`; hipped `clamp(min(1 − |t|/W, (L − |s|)/W), 0, 1)`;
     pyramidal `clamp(1 − max(|s|/L, |t|/W), 0, 1)`; skillion `(t + W)/(2W)`;
     round `sqrt(max(0, 1 − (t/W)²))`.
-  - Mesh for height-field shapes: densify the (normalised CCW) ring so no
-    edge exceeds 2 m; triangulate with the same triangulator `emitRoof`
+  - Mesh for height-field shapes (ONLY buildings with a height-field roof
+    are densified — flat buildings stay byte-identical): densify the
+    (normalised CCW) ring so no edge exceeds 2 m; triangulate with the same triangulator `emitRoof`
     uses; refine conformingly: split every INTERIOR edge longer than 4 m at
     its midpoint (midpoints cached per undirected edge), re-triangulate each
     triangle by its number of split edges (1 → 2, 2 → 3, 3 → 4 triangles),
