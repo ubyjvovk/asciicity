@@ -57,6 +57,7 @@ import { TouchControls, mergeInput } from './player/touch';
 import { makeCamera, makeRenderer, makeScene } from './render/scene';
 import { StyleRenderer } from './render/post';
 import type { PunkView } from './render/punk/view';
+import type { PunkSource } from './render/punk/layer';
 import { STYLE_ORDER } from './render/style';
 import { STYLES } from './render/styles/index';
 import { mountCrt, setCrt } from './render/crt';
@@ -156,6 +157,15 @@ declare global {
         error: string;
         /** Rain collision height at world (x, z), `null` outside the rain box or when not ready. */
         probe(x: number, z: number): Promise<number | null>;
+        /** Experimental layers switched on (e.g. `['neon']`; `N` toggles neon). */
+        experimental: string[];
+        /** Flat layer / renderer stats (`PunkView.stats`), `{}` when not ready. */
+        stats(): Record<string, number>;
+        /**
+         * Scene census for restore checks: meshes in the scene graph and how
+         * many carry a node material (must be 0 whenever cyberpunk is not active).
+         */
+        census(): { meshes: number; nodeMaterials: number };
       };
     };
   }
@@ -606,6 +616,9 @@ async function main(): Promise<void> {
   // Declared this early because tile disposal (`applyTileEvent`) hands
   // outgoing groups to it.
   let punk: PunkView | null = null;
+  // City chunks fed to the cyberpunk layers (wave 20b): `"base"` + one per
+  // resident tile, kept in step with tile add/remove below.
+  const punkSources = new Map<string, PunkSource>();
   const punkDebug: Window['__asciicity']['punk'] = {
     status: 'off',
     backend: '',
@@ -613,6 +626,19 @@ async function main(): Promise<void> {
     glass: true,
     error: '',
     probe: (x: number, z: number) => (punk ? punk.probeRain(x, z) : Promise.resolve(null)),
+    experimental: [],
+    stats: () => (punk ? punk.stats() : {}),
+    census: () => {
+      let meshes = 0;
+      let nodeMaterials = 0;
+      scene.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        meshes++;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        if (mats.some((m) => (m as { isNodeMaterial?: boolean }).isNodeMaterial === true)) nodeMaterials++;
+      });
+      return { meshes, nodeMaterials };
+    },
   };
   const camera = makeCamera(
     Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight),
@@ -686,6 +712,12 @@ async function main(): Promise<void> {
     // Permanent pseudo-tile: whole bridge polylines, never streamed.
     scene.add(makeRoadsObject(tileIndex.bridgeRoads, groundAt, humps));
   }
+  // Cyberpunk layers' base chunk: the whole city (non-tiled) or the global
+  // extras + bridge roads (tiled; tiles arrive via applyTileEvent).
+  punkSources.set('base', {
+    buildings: city.buildings,
+    roads: tileIndex ? tileIndex.bridgeRoads : city.roads,
+  });
 
   // TRAFFIC — red buses on the primaries + grey Thames boats + boxy cars on
   // the whole drivable network (architecture.md §4.21). Pure ambience. Tiled
@@ -776,6 +808,7 @@ async function main(): Promise<void> {
       scene.add(group);
       tileGroups.set(e.key, group);
       tileResident.set(e.key, e.tile);
+      punkSources.set(e.key, { buildings, roads: e.tile.roads });
       collision.addSource(e.key, buildings, corridorsOf(e.tile.roads));
     } else {
       const group = tileGroups.get(e.key);
@@ -789,6 +822,7 @@ async function main(): Promise<void> {
       const prev = tileResident.get(e.key);
       if (prev?.trees?.length) treeCount -= prev.trees.length;
       tileResident.delete(e.key);
+      punkSources.delete(e.key);
       collision.removeSource(e.key);
     }
   };
@@ -1017,7 +1051,7 @@ async function main(): Promise<void> {
   // lazily imported WebGPU view on its own canvas over `#view`; until it is
   // ready (or if it fails) the style's WebGL fallback fragment runs.
   const PUNK_KEY = 'asciicity.punk';
-  const punkPrefs = ((): { look?: string; glass?: boolean } => {
+  const punkPrefs = ((): { look?: string; glass?: boolean; experimental?: string[] } => {
     try {
       const raw: unknown = JSON.parse(localStorage.getItem(PUNK_KEY) ?? '{}');
       if (raw && typeof raw === 'object') {
@@ -1025,6 +1059,9 @@ async function main(): Promise<void> {
         return {
           look: typeof r.look === 'string' ? r.look : undefined,
           glass: typeof r.glass === 'boolean' ? r.glass : undefined,
+          experimental: Array.isArray(r.experimental)
+            ? r.experimental.filter((x): x is string => typeof x === 'string')
+            : undefined,
         };
       }
     } catch {
@@ -1036,8 +1073,12 @@ async function main(): Promise<void> {
     if (!punk) return;
     punkDebug.look = punk.look.id;
     punkDebug.glass = punk.glass;
+    punkDebug.experimental = punk.experimental;
     try {
-      localStorage.setItem(PUNK_KEY, JSON.stringify({ look: punk.look.id, glass: punk.glass }));
+      localStorage.setItem(
+        PUNK_KEY,
+        JSON.stringify({ look: punk.look.id, glass: punk.glass, experimental: punk.experimental }),
+      );
     } catch {
       /* ignore */
     }
@@ -1055,7 +1096,23 @@ async function main(): Promise<void> {
             windowTex: wallTex === windowTex ? windowTex : null,
             sky,
             look: punkPrefs.look,
-            glass: punkPrefs.glass,
+            // `?glass=0|1` overrides the persisted lens-rain state (review / screenshots).
+            glass: ((): boolean | undefined => {
+              const q = new URLSearchParams(location.search).get('glass');
+              return q === '0' ? false : q === '1' ? true : punkPrefs.glass;
+            })(),
+            groundAt,
+            cityId: cityId ?? 'synthetic',
+            sources: punkSources,
+            // `?neon=1` / `?neon=0` override the persisted experimental set.
+            experimental: ((): string[] => {
+              // Experimental layers default ON so they get seen; `N` / `?neon=0` turn neon off.
+              const set = new Set(punkPrefs.experimental ?? ['neon']);
+              const q = new URLSearchParams(location.search).get('neon');
+              if (q === '1') set.add('neon');
+              if (q === '0') set.delete('neon');
+              return [...set];
+            })(),
           }),
         )
         .then((view) => {
@@ -1648,6 +1705,12 @@ async function main(): Promise<void> {
     // Cyberpunk only: `L` cycles the colour grade, `G` toggles lens rain.
     if (punk?.active && ev.code === 'KeyL') {
       toast.show(`LOOK: ${punk.cycleLook(ev.shiftKey ? -1 : 1).label}`);
+      savePunkPrefs();
+      return;
+    }
+    if (punk?.active && ev.code === 'KeyN') {
+      const on = punk.toggleLayer('neon');
+      toast.show(`NEON SIGNS (EXPERIMENTAL): ${on ? 'ON' : 'OFF'}`);
       savePunkPrefs();
       return;
     }

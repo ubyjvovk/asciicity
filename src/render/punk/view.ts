@@ -16,6 +16,9 @@ import { createPipeline, type PunkPipeline } from './pipeline';
 import { createRain, type Rain } from './rain';
 import { WetDressing } from './wet';
 import { LOOK_PRESETS, lookPreset, nextLookPreset, type LookPreset } from './look';
+import type { PunkLayer, PunkLayerContext, PunkSource } from './layer';
+import { EXPERIMENTAL, LAYER_FACTORIES } from './layers';
+import type { HeightFn } from '../../data/types';
 
 /** Construction inputs from main.ts. */
 export interface PunkViewOptions {
@@ -31,6 +34,14 @@ export interface PunkViewOptions {
   look?: string;
   /** Initial lens-rain state. */
   glass?: boolean;
+  /** Ground sampler for layers (terrain + decks). */
+  groundAt: HeightFn;
+  /** City id for layers (`'synthetic'` when none). */
+  cityId: string;
+  /** Live resident city chunks for layers (mutated by main.ts; see `layer.ts`). */
+  sources: ReadonlyMap<string, PunkSource>;
+  /** Experimental layers the user switched on (persisted by main.ts), e.g. `['neon']`. */
+  experimental?: readonly string[];
 }
 
 /** Saved scene state for {@link PunkView.setActive}. */
@@ -106,6 +117,9 @@ export class PunkView {
   private startedAt = performance.now();
   private _look: LookPreset;
   private _glass: boolean;
+  private readonly layers: { layer: PunkLayer; root: THREE.Group; on: boolean }[] = [];
+  private readonly ctx: PunkLayerContext;
+  private lastT = 0;
 
   private constructor(opts: PunkViewOptions, canvas: HTMLCanvasElement, renderer: THREE.WebGPURenderer) {
     this.canvas = canvas;
@@ -122,6 +136,21 @@ export class PunkView {
     this.pipeline.applyLook(this._look);
     this._glass = opts.glass ?? true;
     this.pipeline.setGlass(this._glass);
+    this.ctx = {
+      scene: opts.scene,
+      camera: opts.camera,
+      renderer,
+      groundAt: opts.groundAt,
+      cityId: opts.cityId,
+      sources: opts.sources,
+    };
+    const expOn = new Set(opts.experimental ?? []);
+    for (const make of LAYER_FACTORIES) {
+      const layer = make();
+      const root = new THREE.Group();
+      root.name = `punk:${layer.id}`;
+      this.layers.push({ layer, root, on: !EXPERIMENTAL.has(layer.id) || expOn.has(layer.id) });
+    }
     if (new URLSearchParams(location.search).get('punkdebug') === 'height') {
       this.pipeline.showHeightMap(this.rain.heightTexture);
     }
@@ -215,11 +244,13 @@ export class PunkView {
       }
       scene.add(this.rain.group);
       this.wet.apply(scene);
+      for (const l of this.layers) if (l.on) this.attachLayer(l);
       this.canvas.style.display = 'block';
     } else {
       const s = this.saved;
       if (!s) return;
       scene.remove(this.rain.group);
+      for (const l of this.layers) if (l.on) this.detachLayer(l);
       this.wet.restore();
       scene.background = s.background;
       scene.environment = s.environment;
@@ -278,8 +309,66 @@ export class PunkView {
     this.wet.uTime.value = t;
     this.pipeline.glass.time.value = t;
     camera.updateMatrixWorld();
-    this.rain.update(this.renderer, scene, camera, t, []);
-    this.pipeline.render();
+    const dt = Math.min(0.1, Math.max(0, t - this.lastT));
+    this.lastT = t;
+    for (const l of this.layers) if (l.on) l.layer.update(this.ctx, t, dt);
+    const hide = this.layers.filter((l) => l.on && l.layer.rainPassThrough).map((l) => l.root);
+    this.rain.update(this.renderer, scene, camera, t, hide);
+    this.pipeline.render(t);
+  }
+
+  private attachLayer(l: { layer: PunkLayer; root: THREE.Group }): void {
+    this.scene.add(l.root);
+    l.layer.attach(this.ctx, l.root);
+  }
+
+  private detachLayer(l: { layer: PunkLayer; root: THREE.Group }): void {
+    this.scene.remove(l.root);
+    l.layer.detach(this.ctx);
+  }
+
+  /** Experimental layer ids currently on (persist these). */
+  get experimental(): string[] {
+    return this.layers.filter((l) => l.on && EXPERIMENTAL.has(l.layer.id)).map((l) => l.layer.id);
+  }
+
+  /**
+   * Toggle a layer by id (`N` → `'neon'`). Returns the new state, or `null`
+   * for an unknown id.
+   */
+  toggleLayer(id: string): boolean | null {
+    const l = this.layers.find((x) => x.layer.id === id);
+    if (!l) return null;
+    l.on = !l.on;
+    if (this.active) {
+      if (l.on) this.attachLayer(l);
+      else this.detachLayer(l);
+    }
+    return l.on;
+  }
+
+  /**
+   * Flat debug stats: every layer's `stats()` prefixed `<id>.`, plus
+   * `<id>.on` (0/1), `<id>.objects` (meshes under its root), the
+   * atmosphere's stats, and `renderer.calls` / `renderer.triangles` of the
+   * last frame.
+   */
+  stats(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const l of this.layers) {
+      out[`${l.layer.id}.on`] = l.on ? 1 : 0;
+      let n = 0;
+      l.root.traverse((o) => {
+        if (o instanceof THREE.Mesh) n++;
+      });
+      out[`${l.layer.id}.objects`] = n;
+      for (const [k, v] of Object.entries(l.layer.stats())) out[`${l.layer.id}.${k}`] = v;
+    }
+    for (const [k, v] of Object.entries(this.pipeline.stats())) out[`atmosphere.${k}`] = v;
+    const info = this.renderer.info.render as { calls?: number; triangles?: number };
+    out['renderer.calls'] = info.calls ?? 0;
+    out['renderer.triangles'] = info.triangles ?? 0;
+    return out;
   }
 
   /** Every look preset id (for the menu / tests). */
@@ -290,6 +379,7 @@ export class PunkView {
   /** Free everything and drop the canvas. */
   dispose(): void {
     this.setActive(false);
+    for (const l of this.layers) l.layer.dispose();
     this.pipeline.dispose();
     this.rain.dispose();
     this.wet.dispose();

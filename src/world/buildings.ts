@@ -34,7 +34,7 @@ export function normalizeRing(poly: Vec2[]): Vec2[] {
 }
 
 /** Min/max of `heightAt` over a ring's vertices (the building's terrain slab). */
-function ringHeights(ring: Vec2[], heightAt: HeightFn): { base: number; top: number } {
+export function ringHeights(ring: Vec2[], heightAt: HeightFn): { base: number; top: number } {
   let base = Infinity;
   let top = -Infinity;
   for (const p of ring) {

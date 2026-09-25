@@ -30,6 +30,15 @@ in your report instead of guessing.
   dither/gameboy, pico8, edges, hatch, matrix; `R` cycles, `?render=<id>`).
   A style is a fragment shader over the low-res scene target — read
   `style.ts` and architecture.md §4.11 before writing one.
+- `src/render/punk/` — the `cyberpunk` style (wave 20): a WebGPURenderer
+  (WebGL2 fallback) on its own `#punk` canvas, TSL node materials + post.
+  Contract: architecture.md §4.11 "`cyberpunk`" and "`cyberpunk` v2 (wave
+  20b)". PM-owned there: `layer.ts`, `layers.ts`, `cells.ts`, `noise.ts`,
+  `ripples.ts`, `view.ts`, `pipeline.ts`. TSL: `import * as THREE from
+  'three/webgpu'`, nodes from `'three/tsl'`, addons from
+  `'three/addons/tsl/...'` are allowed in this directory. Browser-only files
+  must not be imported by tests; put testable maths in a pure `*math.ts` /
+  `*mesh.ts` / `*place.ts` sibling (no three/webgpu import).
 - `src/hud/` — pure formatters, `ZoneIndex`, DOM `Hud`.
 - `src/main.ts` — bootstrap and frame loop (architecture.md §5).
 - `tests/` — vitest unit tests `tests/<module>.test.ts`; `tests/fixtures/`.
@@ -109,6 +118,10 @@ in your report instead of guessing.
   Format: data-format.md "Tiled datasets"; runtime (`TileManager`, radii,
   collision sources, HUD/bus rebuilds): architecture.md §4.19. Bridge
   roads are GLOBAL (`index.bridgeRoads`) — never split or tile them.
+- Cyberpunk debug surface (no images needed): `window.__asciicity.punk`
+  → `status`, `backend`, `stats()` (`<layer>.<key>` numbers),
+  `census()`, `probe(x, z)`. `e2e/cyberpunk.spec.ts` must stay green:
+  zero console errors on the WebGL2 fallback and exact scene restore.
 - Visual-verification steps: if your model cannot view images, verify through
   `window.__asciicity` and the HUD text instead and say so in the report —
   the PM does the GPU visual review. Never fail a ticket over that.

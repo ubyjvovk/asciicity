@@ -20,6 +20,10 @@ import {
   sqrt,
   vec2,
   vec3,
+  vec4,
+  cameraViewMatrix,
+  normalWorld,
+  positionWorld,
 } from 'three/tsl';
 import type { Node } from 'three/webgpu';
 
@@ -65,3 +69,23 @@ export const rainRipples = Fn(([uvIn, t]: [Node<'vec2'>, Node<'float'>]) => {
   const c = circles.div(CELL_COUNT);
   return vec3(c, sqrt(max(float(1).sub(dot(c, c)), 0)));
 });
+
+/** Shared time / rain uniforms every wet material reads (owned by `WetDressing`). */
+export interface WetUniforms {
+  /** Seconds since the view started. */
+  uTime: Node<'float'>;
+  /** 1 while raining, 0 when the rain is off (fades ripples out). */
+  uRain: Node<'float'>;
+}
+
+/**
+ * View-space normal for a wet surface: the geometric normal plus ripple
+ * rings (world xz × `scale`) on upward-facing parts only, `strength` ~0–1.5.
+ * Assign to `material.normalNode`. PM-frozen: facade.ts and street.ts both use it.
+ */
+export function rippleNormal(u: WetUniforms, scale: number, strength: Node<'float'>): Node<'vec3'> {
+  const r = rainRipples(positionWorld.xz.mul(scale), u.uTime.mul(3));
+  const up = smoothstep(0.6, 0.9, normalWorld.y);
+  const n = normalize(normalWorld.add(vec3(r.x, 0, r.y).mul(strength).mul(up).mul(u.uRain)));
+  return normalize(cameraViewMatrix.mul(vec4(n, 0)).xyz);
+}

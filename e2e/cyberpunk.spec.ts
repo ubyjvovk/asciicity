@@ -1,29 +1,34 @@
 /**
- * Cyberpunk style e2e (wave 20). Boots
- * `/?synthetic=1&render=cyberpunk&crt=0&hud=0&minimap=0&tags=0`.
+ * Cyberpunk style e2e (wave 20 / 20b quality bar, docs/architecture.md
+ * §4.11 "cyberpunk v2"). Boots `/?synthetic=1&crt=0&hud=0&minimap=0&tags=0`
+ * in `ascii`, takes a scene census, then `Shift+R` into `cyberpunk`.
  *
  * The CI browser is SwiftShader with no WebGPU adapter, so this exercises
- * the WebGPURenderer's WebGL2 fallback backend — the path a browser without
- * WebGPU takes. Asserts:
- *   1. the lazily imported view reaches `status === 'ready'` and `#punk` is
- *      shown over `#view`;
- *   2. the frame is not black (lit windows / wet ground / rain);
- *   3. the rain height probe sees the ground under the player (collision map
- *      exists and is populated);
- *   4. `L` cycles the look and `G` toggles the lens rain;
- *   5. `R` hands the frame back to the WebGL path (`#punk` hidden, scene
- *      restored) and `Shift+R` returns to cyberpunk.
+ * the WebGPURenderer's WebGL2 fallback backend. Asserts:
+ *   1. the lazily imported view reaches `status === 'ready'` and `#punk` is shown;
+ *   2. the frame is not black;
+ *   3. the rain height probe sees the ground under the player;
+ *   4. every registered layer reports stats (`detail.on`, `props.on`, `neon.on`);
+ *   5. `L` cycles the look, `G` toggles lens rain, `N` toggles neon;
+ *   6. `R` hands back to WebGL: `#punk` hidden, and the scene census equals
+ *      the pre-cyberpunk census exactly (same mesh count, zero node materials);
+ *   7. ZERO console errors / page errors for the whole run (third-party
+ *      beacon noise excluded).
  */
 import { test, expect, type Page } from '@playwright/test';
 
 test.use({ viewport: { width: 640, height: 360 } });
 
+type Census = { meshes: number; nodeMaterials: number };
 type PunkApi = {
   status: string;
   backend: string;
   look: string;
   glass: boolean;
+  experimental: string[];
   probe(x: number, z: number): Promise<number | null>;
+  stats(): Record<string, number>;
+  census(): Census;
 };
 type Api = {
   ready: boolean;
@@ -32,15 +37,11 @@ type Api = {
   punk: PunkApi;
 };
 
-async function waitPunk(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const api = (window as unknown as { __asciicity?: Api }).__asciicity;
-      return api?.ready === true && (api.punk.status === 'ready' || api.punk.status === 'failed');
-    },
-    undefined,
-    { timeout: 60_000 },
-  );
+/** Console lines that are not ours (analytics beacon blocked offline). */
+const NOISE = /cloudflareinsights|ERR_FAILED|ERR_NAME_NOT_RESOLVED|net::ERR_/;
+
+async function api<T>(page: Page, fn: (a: Api) => T | Promise<T>): Promise<T> {
+  return page.evaluate(`(${fn.toString()})(window.__asciicity)`) as Promise<T>;
 }
 
 /** Mean luminance (0–255) of a screenshot of `#punk`. */
@@ -63,45 +64,69 @@ async function punkLuma(page: Page): Promise<number> {
   }, png.toString('base64'));
 }
 
-test('cyberpunk: WebGPU view (fallback backend), rain collision, look keys, style round-trip', async ({ page }) => {
-  await page.goto('/?synthetic=1&render=cyberpunk&crt=0&hud=0&minimap=0&tags=0');
-  await waitPunk(page);
-
-  // 1. ready + canvas shown.
-  const punk = await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.punk);
-  expect(punk.status, `punk failed: ${JSON.stringify(punk)}`).toBe('ready');
-  await expect(page.locator('#punk')).toBeVisible();
-
-  // Let a few frames (and the height pass) run.
-  await page.waitForTimeout(1500);
-
-  // 2. something is lit.
-  const luma = await punkLuma(page);
-  expect(luma).toBeGreaterThan(2);
-
-  // 3. the collision map under the player is the ground (synthetic city is flat).
-  const h = await page.evaluate(async () => {
-    const a = (window as unknown as { __asciicity: Api }).__asciicity;
-    return a.punk.probe(a.state.x, a.state.z);
+test('cyberpunk: view, rain collision, layers, keys, exact scene restore, zero console errors', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !NOISE.test(m.text())) errors.push(m.text().slice(0, 300));
   });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message.slice(0, 300)}`));
+
+  await page.goto('/?synthetic=1&render=ascii&crt=0&hud=0&minimap=0&tags=0');
+  await page.waitForFunction(() => (window as unknown as { __asciicity?: Api }).__asciicity?.ready === true, undefined, {
+    timeout: 60_000,
+  });
+  const before = await api(page, (a) => a.punk.census());
+  expect(before.nodeMaterials).toBe(0);
+
+  await page.keyboard.press('Shift+KeyR');
+  await page.waitForFunction(
+    () => {
+      const p = (window as unknown as { __asciicity: Api }).__asciicity.punk;
+      return p.status === 'ready' || p.status === 'failed';
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+  // 1.
+  const punk = await api(page, (a) => ({ status: a.punk.status, render: a.render }));
+  expect(punk.status, JSON.stringify(punk)).toBe('ready');
+  expect(punk.render).toBe('cyberpunk');
+  await expect(page.locator('#punk')).toBeVisible();
+  await page.waitForTimeout(2000);
+
+  // 2.
+  expect(await punkLuma(page)).toBeGreaterThan(2);
+
+  // 3.
+  const h = await api(page, (a) => a.punk.probe(a.state.x, a.state.z));
   expect(h).not.toBeNull();
   expect(Math.abs((h ?? 1e9) - 0)).toBeLessThan(2);
 
-  // 4. look + lens-rain keys.
-  const before = await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.punk.look);
-  await page.keyboard.press('KeyL');
-  const after = await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.punk.look);
-  expect(after).not.toBe(before);
-  const glass0 = await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.punk.glass);
-  await page.keyboard.press('KeyG');
-  const glass1 = await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.punk.glass);
-  expect(glass1).toBe(!glass0);
+  // 4.
+  const stats = await api(page, (a) => a.punk.stats());
+  for (const id of ['detail', 'props', 'neon']) expect(Object.keys(stats), id).toContain(`${id}.on`);
+  expect(stats['renderer.calls']).toBeGreaterThan(0);
 
-  // 5. R → back to WebGL (first style), Shift+R → cyberpunk again.
+  // 5.
+  const look0 = await api(page, (a) => a.punk.look);
+  await page.keyboard.press('KeyL');
+  expect(await api(page, (a) => a.punk.look)).not.toBe(look0);
+  const glass0 = await api(page, (a) => a.punk.glass);
+  await page.keyboard.press('KeyG');
+  expect(await api(page, (a) => a.punk.glass)).toBe(!glass0);
+  const neon0 = await api(page, (a) => a.punk.stats()['neon.on']);
+  await page.keyboard.press('KeyN');
+  expect(await api(page, (a) => a.punk.stats()['neon.on'])).toBe(neon0 === 1 ? 0 : 1);
+  await page.keyboard.press('KeyN');
+
+  // 6.
   await page.keyboard.press('KeyR');
   await expect(page.locator('#punk')).toBeHidden();
-  expect(await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.render)).toBe('ascii');
-  await page.keyboard.press('Shift+KeyR');
-  await expect(page.locator('#punk')).toBeVisible();
-  expect(await page.evaluate(() => (window as unknown as { __asciicity: Api }).__asciicity.render)).toBe('cyberpunk');
+  expect(await api(page, (a) => a.render)).toBe('ascii');
+  const after = await api(page, (a) => a.punk.census());
+  expect(after).toEqual(before);
+
+  // 7.
+  expect(errors, errors.join('\n')).toEqual([]);
 });

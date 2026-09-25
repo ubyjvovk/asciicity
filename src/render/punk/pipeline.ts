@@ -48,6 +48,7 @@ import { smaa } from 'three/addons/tsl/display/SMAANode.js';
 import { film } from 'three/addons/tsl/display/FilmNode.js';
 import { ssr } from 'three/addons/tsl/display/SSRNode.js';
 import { bloomSettings, type LookPreset } from './look';
+import { createAtmosphere } from './atmosphere';
 import { applyRainGlass, createGlassUniforms, type GlassUniforms } from './glass';
 
 const toLinear = (c: readonly [number, number, number]): THREE.Vector3 => {
@@ -73,7 +74,8 @@ function edgeChroma(input: Node<'vec4'>, strength: Node<'float'>, falloff: Node<
 
 /** What the view drives. */
 export interface PunkPipeline {
-  render(): void;
+  render(timeS: number): void;
+  stats(): Record<string, number>;
   applyLook(p: LookPreset): void;
   setGlass(on: boolean): void;
   /** Debug: draw the rain height map (north up, 0–40 m ramp) in the top-left corner. */
@@ -174,15 +176,21 @@ export function createPipeline(
     grainIntensity: uniform(0),
   };
 
-  // Fog + bloom + grade (upstream `buildComposite`).
-  const viewDistance = scenePass.getViewZNode().negate();
-  const linearDepth = scenePass.getLinearDepthNode();
-  const distanceFog = smoothstep(u.fogNear, u.fogFar, viewDistance);
-  const skyFog = smoothstep(float(0.98), float(1.0), linearDepth);
-  const fogBlend = max(distanceFog, skyFog).mul(u.fogEnabled);
-  const hazedRgb = mix(beauty.rgb, u.fogColor, fogBlend.mul(u.fogAmount)).add(
-    bloomAll.rgb.mul(float(1).sub(fogBlend.mul(u.fogBloomSuppress))),
-  );
+  // Fog + light diffusion (atmosphere.ts), then the upstream grade.
+  const cameraWorld = uniform(new THREE.Matrix4());
+  const projectionInverse = uniform(new THREE.Matrix4());
+  const atmosphere = createAtmosphere({
+    beauty,
+    bloom: bloomAll,
+    emissive: emissiveTex,
+    viewZ: scenePass.getViewZNode(),
+    linearDepth: scenePass.getLinearDepthNode(),
+    depth: depthTex.r,
+    cameraWorld,
+    projectionInverse,
+    fog: u,
+  });
+  const hazedRgb = atmosphere.rgb;
   const tinted = hazedRgb.mul(u.gradeTint).add(u.gradeOffset);
   const l1 = luminance(tinted);
   const deGreen = vec3(tinted.r, mix(tinted.g, l1, u.greenSuppress), tinted.b).max(0);
@@ -251,7 +259,14 @@ export function createPipeline(
   }
 
   return {
-    render: () => post.render(),
+    render: (timeS: number) => {
+      camera.updateMatrixWorld();
+      cameraWorld.value.copy(camera.matrixWorld);
+      projectionInverse.value.copy(camera.projectionMatrixInverse);
+      atmosphere.update(camera, timeS);
+      post.render();
+    },
+    stats: () => atmosphere.stats(),
     showHeightMap,
     applyLook,
     setGlass,

@@ -1455,6 +1455,198 @@ notes: `docs/styles/cyberpunk.md`. Ported from ektogamat/threejs-conference
   - `vite.config.ts` pre-bundles `three`, `three/webgpu`, `three/tsl` and the
     TSL display addons together so there is one `three.core`.
 
+**`cyberpunk` v2 (wave 20b) — quality push toward the reference.**
+Reference frame: threejs-conference `public/preview.jpg` (rainy neon alley:
+dark weathered facades, sparse dim windows, protruding neon signs spilling
+coloured light, cluttered facade geometry, lamps, glowing fog, puddled
+asphalt). The v1 prototype reads as "walls of glowing windows on smooth
+boxes". v2 closes the gap in six modules with disjoint files. Everything
+below is the contract; numbers are locked unless a ticket says otherwise.
+
+*Plumbing (PM, landed with the wave):*
+  - `punk/layer.ts` — `PunkLayer` / `PunkLayerContext` / `PunkSource`
+    (PM-owned). `punk/layers.ts` registers `detail`, `props`, `neon` (stubs
+    until their tickets land). `PunkView` gives each layer its own Group,
+    attaches on activate, detaches on deactivate, calls `update` every frame,
+    hides `rainPassThrough` roots from the rain height pass.
+  - `punk/cells.ts` — `CellStreamer` (PM-owned): 250 m cells bucketed from
+    `ctx.sources` (buildings by first vertex, roads by middle vertex), built
+    nearest-first within `buildRadius`, `maxBuildsPerFrame` per frame,
+    disposed beyond `disposeRadius`. Geometry layers MUST use it.
+  - main.ts feeds `sources`: `"base"` (whole city when not tiled; landmark
+    extras + `bridgeRoads` when tiled) + one entry per resident tile
+    (buildings after `applyBuildingFixes`).
+  - Materials split: `punk/facade.ts` (walls, roof — T-0152),
+    `punk/street.ts` (road, ground, terrain, water — T-0153); shared
+    `rippleNormal(u, scale, strength)` in `punk/ripples.ts` (PM-frozen).
+  - `punk/atmosphere.ts` (T-0157): `createAtmosphere(AtmosphereInputs)` →
+    `{ rgb, update, stats }`; the pipeline feeds beauty, bloom, raw emissive,
+    viewZ, linear + raw depth, camera world / projection-inverse uniforms.
+  - Debug: `__asciicity.punk.stats()` (flat `<layer>.<key>` numbers +
+    `renderer.calls`), `.census()` (`{ meshes, nodeMaterials }`),
+    `.experimental`. `?glass=0|1`, `?neon=0|1`, `?punkdebug=height`.
+  - `buildings.ts` exports `ringHeights` (wall base = min ground over the
+    ring + minH, roof = max ground + h) so detail geometry seats identically.
+    Walls: ring normalised CCW (`normalizeRing`), outward normal of edge
+    a→b = (dz, −dx)/len, UV u = perimeter metres / 24, v = (y − base) / 24;
+    the window atlas has 8×8 cells per UV unit (3 m × 3 m cells, window
+    4×5 px inside each 8×8 px cell at x 2–5, y 1–5).
+
+*Quality bar (wave-level, judged by the PM on the GPU against the reference
+at London `bank` / `bigben`, Kyiv `maidan`, and an aerial frame; a ticket
+that meets its criteria but moves a frame AWAY from the reference is
+reworked):*
+  1. No wall-of-windows: lit windows are a minority accent — at `bank`
+     facades read as dark material with scattered warm/neon windows.
+  2. Facades read as a material at 20 m (panels, floor bands, grime/rain
+     streaks, shopfront band) and have silhouette detail (ledges, AC units,
+     balconies, pipes, rooftop clutter).
+  3. Neon signs protrude from street-facing walls, text legible, coloured
+     light visibly spills onto the wall and reflects in the wet street.
+  4. Lights diffuse: halos grow with fog depth, the sky glows near the
+     horizon, low mist near the ground; no banding, no blown-out screen.
+  5. Streets: asphalt grain, distinct puddles (not uniform glitter) with
+     ripples, lamps pooling warm light.
+  6. Performance: ≥ 58 fps median over 5 s at 1280×720 on the PM GPU host
+     (WebGPU), all layers on; SwiftShader e2e stays within its timeouts.
+  7. Robustness: `e2e/cyberpunk.spec.ts` green (zero console errors on the
+     WebGL2 fallback, exact scene restore on `R`); every pure module
+     unit-tested; no WebGL style changes (the smoke style loop unchanged).
+
+*Facades (`punk/facade.ts` + pure `punk/facademath.ts`, T-0152):*
+  - Shared noise (PM-owned `punk/noise.ts`, used by facades AND streets):
+    `hash2` / `vnoise` / `fbm2` as JS mirrors and `hash2Node` /
+    `vnoiseNode` / `fbm2Node` as TSL — same formulas, distribution-equal.
+    Never invent another hash.
+  - Building seed `bs` = h(vertexColor.rg · 97 + vertexColor.b · 13) (vertex
+    colour is per-building). Base albedo: concrete/metal, `mix(luma(vc), vc,
+    0.25) · (0.10 + 0.08·bs)`.
+  - Floor bands: every 3 m (v · 8 integer lines) a 0.22 m band 35 % darker
+    with a bump ridge; vertical panel seams every 1.5 m (u · 16), bump only.
+    Use TSL `bumpMap` on a height node or perturb `normalNode`; seams
+    strength ≤ 0.35.
+  - Grime / rain streaks: `streak = vnoise(u·24, v·1.5)` (≈1 m across,
+    ≈16 m down: stretched vertically), darkens albedo up to 35 %, lowers
+    roughness by up to 0.25 (wet streaks), strongest below cornice-like bands.
+  - Windows: window mask from the atlas geometry (cell 8×8 per UV unit,
+    window px x∈[2,6), y∈[1,6) of 8); glass unlit = albedo 0.015, roughness
+    0.08, metalness 0.6 (reflects neon via SSR/env). Lit decision per window
+    cell id `(floor(u·8), floor(v·8))` + building seed: lit fraction
+    **8–14 % overall**; **25 % of buildings are dark** (≤ 3 % lit);
+    intensity 0.15–0.9 (skewed low: `0.15 + 0.75·r³`); tint shares 60 %
+    tungsten (1.0, 0.62, 0.32), 20 % fluorescent (0.75, 0.85, 1.0), 12 %
+    cyan (0.1, 0.85, 1.0), 8 % magenta (1.0, 0.12, 0.62); 30 % of lit
+    windows show blinds (3 horizontal dark stripes). Flicker ≤ 2 % of lit.
+    No lit windows below 4 m above wall base.
+  - Shopfront band: wall height 0–4 m above wall base, per 6 m of u: 55 %
+    roll-down shutter (ridged dark metal, 0.12 m ridges via bump), 45 %
+    lit shop glass (emissive 0.5–1.1 in a warm or neon tint, dark mullions
+    every 1.5 m).
+  - Roof: dark bitumen 0.03–0.05, puddles as streets, ripples (`rippleNormal`).
+  - Pure exports (facademath.ts): `facadeHash`, `buildingSeed(r,g,b)`,
+    `windowLight(cellU, cellV, seed) → { lit, intensity, tint: 0|1|2|3, blinds }`,
+    `isDarkBuilding(seed)`, `shopfrontKind(segment, seed) → 'shutter'|'shop'`,
+    and the constants above.
+
+*Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
+  - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).
+  - Puddle mask `puddle = smoothstep(0.52, 0.60, fbm2(x·0.07, z·0.07))`:
+    **25–35 % of road area** is puddle (mirror-measured over 200 m × 200 m).
+  - Asphalt: albedo 0.035–0.06 grey (fine grain `vnoise(x·3, z·3)` ±0.01,
+    patch `vnoise(x·0.3, z·0.3)` ±0.012), road vertex colour only as a ±15 %
+    class tint; dry roughness 0.45–0.6, metalness 0.12. Puddle: albedo 0.02,
+    roughness 0.03, metalness 0.9, ripple strength 1.2; damp asphalt ripple
+    0.12. Ripple scale 4.2.
+  - Ground (pavement, off-road): 1.5 m concrete tile grid (bump seams
+    0.02 m wide), albedo 0.05–0.07, puddles at half the road coverage.
+  - Terrain: pavement look × slope darkening (`1 − 0.5·(1 − normalWorld.y)`).
+  - Water: albedo 0.006, roughness 0.02, metalness 0.95; ripple scale 2.2
+    strength 1.4 plus a slow 2-octave wave normal (period 6–12 m, 0.2 m/s).
+  - Pure exports (streetmath.ts): `puddleAt(x, z)`, `asphaltAlbedo(x, z)`, constants.
+
+*Facade detail geometry (`punk/detailmesh.ts` pure + `punk/detail.ts`, T-0154):*
+  - `buildDetailMesh(buildings, heightAt, seed?) → MeshData` (MeshBuilder
+    from `world/mesh.ts`); per building seeded `mulberry32(id)`; seat with
+    `ringHeights` + `normalizeRing` exactly like walls.
+  - Only buildings with h ≥ 6 m and a wall edge ≥ 4 m; per edge (outward
+    normal as walls): ledges — a 0.25 m slab protruding 0.35 m every 12 m of
+    height (h ≥ 15 only); AC units 0.9 × 0.6 × 0.5 m boxes on the 3 m window
+    grid, ~1 per 30 m² of wall below 40 m, at floor + 0.4 m, protruding
+    0.5 m; balconies on 30 % of buildings: every other floor up to 30 m,
+    every 6 m of edge, slab 2.4 × 0.15 × 1.1 m + a 0.05 m railing bar at
+    +1.0 m; vertical pipes 0.2 × 0.2 m, 1 per edge ≥ 10 m (2 if ≥ 25 m),
+    full height; rooftop clutter 1–4 items inside the footprint (inset ≥ 2 m,
+    point-in-polygon checked): water tank (8-gon r 1.2 h 2.5), AC box
+    2 × 1.2 × 1 m, antenna mast 0.1 × 6 m.
+  - Vertex colours dark greys 0.08–0.18; one `MeshStandardNodeMaterial`
+    (vertexColors, roughness 0.55, metalness 0.4, `rippleNormal` on up faces).
+  - Layer: `CellStreamer` buildRadius 450 m, disposeRadius 600 m,
+    maxBuildsPerFrame 1. Stats: `cells`, `pending`, `buildMs`, `triangles`.
+  - Budgets (unit-tested on `public/data/london/tiles/0_0.json`): ≤ 60 k
+    triangles per 250 m cell average over the tile's cells, ≤ 150 k max;
+    whole-tile build ≤ 400 ms in node.
+
+*Street props (`punk/propsmesh.ts` pure + `punk/props.ts`, T-0155):*
+  - Lamps on roads of class primary / secondary / tertiary / residential /
+    pedestrian, every 32 m of polyline length, alternating sides, at
+    `ROAD_WIDTH[cls]/2 + 0.8 m` from the centreline, seated on `groundAt`;
+    skip `bridge` roads' lamps closer than 10 m to a previous lamp. Pole
+    0.15 × 7 m, arm 1.8 m toward the road, head 0.6 × 0.2 × 0.3 m.
+  - Head emissive sodium (1.0, 0.55, 0.2) × 3; faux volumetric cone: open
+    8-segment cone head → ground, radius 3.5 m, additive transparent,
+    depthWrite false, opacity 0.06 fading to 0 at the ground; ground pool:
+    a 4 m disc at +0.03 m, additive radial falloff, opacity 0.22.
+  - Cables across narrow roads (residential / service / pedestrian): every
+    25 m, a catenary of 8 segments spanning road width + 4 m, height 6–9 m,
+    sag 1.2 m, a 0.04 m dark ribbon (double-sided).
+  - ≤ 4 `PointLight`s (warm, distance 18, decay 2) re-assigned every 0.5 s
+    to the nearest lamps within 60° of the view direction.
+  - `rainPassThrough: true`. CellStreamer 450 / 600 m. Stats: `lamps`,
+    `cables`, `lights`, `triangles`, plus the streamer's.
+
+*Neon signs — EXPERIMENTAL (`punk/neonplace.ts` pure, `punk/neonatlas.ts`,
+`punk/neon.ts`, T-0156):* on by default, `N` / `?neon=0|1` toggle, persisted.
+  - Placement per building (h ≥ 8 m) edge ≥ 6 m whose midpoint is within
+    12 m of any road centreline segment of the same cell: probability 0.35,
+    max 2 signs per building, seeded `mulberry32(id ^ 0x9e3779b9)`. Kinds:
+    60 % `blade` (perpendicular to the wall, 0.9 m wide, 3–6 m tall, bottom
+    3.5–5 m above wall base, 0.6 m off the wall, at 25–75 % along the edge),
+    40 % `panel` (flat, 3–7 m wide × 1–1.6 m tall, bottom 4–8 m, 0.15 m off).
+  - Words (never brand names): london/sf/nyc/sydney/synthetic: BAR, HOTEL,
+    NOODLES, 24H, KARAOKE, PHARMACY, CINEMA, RAMEN, OPEN, CAFE, ARCADE,
+    TATTOO; kyiv: КАВА, БАР, АПТЕКА, ГОТЕЛЬ, КІНО, ПИВО, 24/7, ПЕКАРНЯ;
+    tokyo: ラーメン, カラオケ, 居酒屋, 薬, ホテル, 寿司, バー, 喫茶. Blades stack
+    glyphs vertically. Colours: #ff2a6d, #05d9e8, #b967ff, #ffb000,
+    #39ff14, #ff073a.
+  - Atlas: one 2048² canvas, ≤ 64 slots (word × colour × kind), each slot
+    = dark backing, a rounded tube border, text stroked twice (wide glow via
+    `shadowBlur`, thin near-white core). Face material
+    `MeshStandardNodeMaterial` colour 0.02, emissive = atlas × 4 × flicker
+    (8 % of signs flicker: off 5 % of the time, hash-timed). Blade = two
+    faces mirrored so text reads from both sides + a dark frame + 2 brackets.
+  - Spill: ≤ 4 `PointLight`s (sign colour, intensity 6, distance 14),
+    re-assigned every 0.25 s to the nearest visible signs with a 0.3 s fade.
+  - `rainPassThrough: true`. CellStreamer 400 / 550 m. Stats: `signs`,
+    `visible` (in frustum within 150 m), `lights`, `slots`.
+
+*Atmosphere (`punk/atmosphere.ts` + pure `punk/fogmath.ts`, T-0157):*
+  - Height fog: density ρ(y) = ρ0 · exp(−(y − y0)/H), H = 18 m, y0 = camera
+    ground height (camera y − 1.7 when walking; uniform from the pipeline),
+    ρ0 = 0.012 × look `fogAmount`; transmittance along the view ray from the
+    analytic integral (`fogmath.heightFogTransmittance`), combined with the
+    look's distance fog by max().
+  - Light diffusion: the emissive attachment blurred at ¼ resolution with a
+    wide Gaussian (σ ≈ 3 % of screen height) added as halo × (0.25 + fog
+    amount at that pixel) — far lights in fog glow wider/softer; sky pixels
+    (linear depth > 0.98) add the horizon band's mean blurred emissive
+    (light pollution), fading to 0 at 30° above the horizon.
+  - Ground mist: extra density within 2.5 m above y0, 2-octave value noise
+    drifting 0.3 m/s, opacity ≤ 0.25.
+  - Floors: at 300 m a lit window keeps ≥ 35 % of its emissive
+    (unit-tested on the mirror); no channel exceeds the pre-fog max.
+  - Pure exports: `heightFogDensity`, `heightFogTransmittance(camY, pY, dist,
+    rho0, H, y0)`, `mistOpacity`, constants.
+
 ### 4.12 UI shell (wave 7): panels, gear menu, toggles, credits
 
 Layout (all `position: fixed`, all above the canvas, none intercepting
