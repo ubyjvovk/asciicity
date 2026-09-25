@@ -5,9 +5,31 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FLAT_HEIGHT, type HeightFn, type Road } from '../src/data/types';
+import { FLAT_HEIGHT, type Building, type HeightFn, type Road } from '../src/data/types';
 import { ROAD_WIDTH } from '../src/world/roads';
-import { buildPropsMesh, CABLE_CLASSES, LAMP_CLASSES, placeCables, placeLamps } from '../src/render/punk/propsmesh';
+import { bucketSources } from '../src/render/punk/cells';
+import type { PunkSource } from '../src/render/punk/layer';
+import {
+  buildPropsMesh,
+  CABLE_CLASSES,
+  distToPolygon,
+  LAMP_CLASSES,
+  placeCables,
+  placeLamps,
+  pointInPolygon,
+} from '../src/render/punk/propsmesh';
+
+/** A building footprint rectangle: `[x0, z0]` inner corner, `w`/`h` out from the road side. */
+const rect = (id: number, x0: number, z0: number, w: number, h: number): Building => ({
+  id,
+  h: 20,
+  poly: [
+    [x0, z0],
+    [x0 + w, z0],
+    [x0 + w, z0 + h],
+    [x0, z0 + h],
+  ],
+});
 
 /** A straight road along +x starting at the origin. */
 const straight = (cls: Road['cls'], len: number, id = 1, bridge = false): Road => ({
@@ -119,15 +141,89 @@ describe('buildPropsMesh', () => {
   });
 });
 
+describe('building push-out', () => {
+  it('lamp is pushed out of a building that overhangs the class width', () => {
+    // primary road along +x; a building fills the +z side from z=4 out (wall 4 m from the centreline)
+    const b = rect(1, -10, 4, 340, 16);
+    const lamps = placeLamps([straight('primary', 320)], FLAT_HEIGHT, [b]);
+    expect(lamps.length).toBeGreaterThan(0);
+    for (const lamp of lamps) {
+      expect(pointInPolygon(lamp.x, lamp.z, b.poly)).toBe(false);
+      if (lamp.z > 0) {
+        // +z lamps were pushed toward the centreline from 6.8 m to ≤ 3.4 m
+        expect(Math.abs(lamp.z)).toBeLessThanOrEqual(3.4);
+        // the arm still points at the road (centreline z = 0)
+        expect(lamp.dirZ).toBeCloseTo(-1, 1);
+      }
+    }
+  });
+
+  it('lamp is skipped when no free spot >= 1.5 m exists', () => {
+    // primary road 32 m → one lamp on the +z side; building fills the whole +z side from z=0
+    const b = rect(1, -10, 0, 70, 20);
+    const lamps = placeLamps([straight('primary', 32)], FLAT_HEIGHT, [b]);
+    expect(lamps).toHaveLength(0);
+  });
+
+  it('deterministic with buildings: same input yields identical arrays', () => {
+    const roads = [straight('primary', 320), straight('residential', 100, 2)];
+    const b = rect(1, -10, 4, 340, 16);
+    expect(placeLamps(roads, FLAT_HEIGHT, [b])).toEqual(placeLamps(roads, FLAT_HEIGHT, [b]));
+  });
+});
+
+describe('cable clipping', () => {
+  it('cable ends are within 2 m of a footprint edge or at the span end when no building is hit', () => {
+    // residential road along +x (width 6 → half 5); building fills +z from z=2 out
+    const b = rect(1, -10, 2, 70, 18);
+    const cables = placeCables([straight('residential', 25)], FLAT_HEIGHT, [b]);
+    expect(cables.length).toBeGreaterThan(0);
+    const c = cables[0];
+    // -z end: no building → stays at the span end
+    expect(c.pts[0][2]).toBeCloseTo(-5, 1);
+    // +z end: clipped to the building wall at z=2 → on/within 2 m of the edge
+    expect(c.pts[8][2]).toBeCloseTo(2, 1);
+    expect(distToPolygon(c.pts[8][0], c.pts[8][2], b.poly)).toBeLessThanOrEqual(2);
+    // catenary still sags 1.2 m from the (shared) end height
+    const endH = c.pts[0][1];
+    const lowest = Math.min(...c.pts.map((p) => p[1]));
+    expect(lowest).toBeCloseTo(endH - 1.2, 2);
+  });
+});
+
 describe('london tile budget', () => {
-  it('tile 0_0: total lamps between 300 and 1 200, triangles ≤ 250 000', () => {
+  it('tile 0_0: no lamp base lies inside any footprint, total lamps 200–1 200', () => {
     const tile = JSON.parse(
       readFileSync(join(__dirname, '../public/data/london/tiles/0_0.json'), 'utf8'),
-    ) as { roads: Road[] };
-    const lamps = placeLamps(tile.roads, FLAT_HEIGHT);
-    const cables = placeCables(tile.roads, FLAT_HEIGHT);
-    expect(lamps.length).toBeGreaterThanOrEqual(300);
-    expect(lamps.length).toBeLessThanOrEqual(1200);
+    ) as { roads: Road[]; buildings: Building[] };
+    const sources = new Map<string, PunkSource>([['0_0', tile]]);
+    const cells = bucketSources(sources);
+    let total = 0;
+    let maxCellMs = 0;
+    for (const cell of cells.values()) {
+      const t0 = performance.now();
+      const lamps = placeLamps(cell.roads, FLAT_HEIGHT, cell.buildings);
+      maxCellMs = Math.max(maxCellMs, performance.now() - t0);
+      total += lamps.length;
+      for (const lamp of lamps) {
+        for (const b of cell.buildings) {
+          expect(pointInPolygon(lamp.x, lamp.z, b.poly)).toBe(false);
+        }
+      }
+    }
+    process.stdout.write(`tile 0_0 surviving lamps: ${total} (max cell build ${maxCellMs.toFixed(2)} ms)\n`);
+    expect(total).toBeGreaterThanOrEqual(200);
+    expect(total).toBeLessThanOrEqual(1200);
+    // coarse bucket keeps per-cell builds near O(n): worst cell well under the 10 ms budget
+    expect(maxCellMs).toBeLessThan(50);
+  });
+
+  it('tile 0_0: solid+cones+pools triangles ≤ 250 000 for the whole tile', () => {
+    const tile = JSON.parse(
+      readFileSync(join(__dirname, '../public/data/london/tiles/0_0.json'), 'utf8'),
+    ) as { roads: Road[]; buildings: Building[] };
+    const lamps = placeLamps(tile.roads, FLAT_HEIGHT, tile.buildings);
+    const cables = placeCables(tile.roads, FLAT_HEIGHT, tile.buildings);
     const { solid, cones, pools } = buildPropsMesh(lamps, cables);
     const tris =
       (solid.positions.length + cones.positions.length + pools.positions.length) / 9;

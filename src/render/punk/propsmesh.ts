@@ -4,9 +4,161 @@
  * `MeshData`. No `three/webgpu` import — unit-testable in plain node.
  * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Street props".
  */
-import type { HeightFn, Road, RoadClass, Vec2 } from '../../data/types';
+import type { Building, HeightFn, Road, RoadClass, Vec2 } from '../../data/types';
 import { MeshBuilder, type MeshData, type UV, type Vec3 } from '../../world/mesh';
 import { ROAD_WIDTH } from '../../world/roads';
+
+/** Side of the road / cable the lamp sits on or the cable reaches. */
+type Side = 1 | -1;
+
+/** Spatial bucket of building indices on a coarse grid (see {@link makeBuildingBucket}). */
+interface BuildingBucket {
+  cellSize: number;
+  grid: Map<string, number[]>;
+  buildings: readonly Building[];
+}
+
+/** `true` when `(x, z)` is inside the footprint ring `poly` (ray casting; winding-agnostic). */
+export function pointInPolygon(x: number, z: number, poly: readonly Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0];
+    const zi = poly[i][1];
+    const xj = poly[j][0];
+    const zj = poly[j][1];
+    const intersect = zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/** Distance from `(x, z)` to the nearest segment of the ring `poly`, metres. */
+export function distToPolygon(x: number, z: number, poly: readonly Vec2[]): number {
+  let min = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const ax = poly[i][0];
+    const az = poly[i][1];
+    const bx = poly[j][0];
+    const bz = poly[j][1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len2 = dx * dx + dz * dz;
+    let t = len2 === 0 ? 0 : ((x - ax) * dx + (z - az) * dz) / len2;
+    t = Math.max(0, Math.min(1, t));
+    min = Math.min(min, Math.hypot(x - (ax + t * dx), z - (az + t * dz)));
+  }
+  return min;
+}
+
+/**
+ * Index building footprints into a `cellSize`-metre grid (each building in every
+ * cell its bounding box overlaps) so point queries stay near O(1). Deterministic.
+ */
+function makeBuildingBucket(buildings: readonly Building[], cellSize = 20): BuildingBucket {
+  const grid = new Map<string, number[]>();
+  buildings.forEach((b, idx) => {
+    if (b.poly.length < 3) return;
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (const [x, z] of b.poly) {
+      if (x < minX) minX = x;
+      if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x;
+      if (z > maxZ) maxZ = z;
+    }
+    const c0x = Math.floor(minX / cellSize);
+    const c0z = Math.floor(minZ / cellSize);
+    const c1x = Math.floor(maxX / cellSize);
+    const c1z = Math.floor(maxZ / cellSize);
+    for (let ci = c0x; ci <= c1x; ci++) {
+      for (let cj = c0z; cj <= c1z; cj++) {
+        const k = `${ci}_${cj}`;
+        const arr = grid.get(k);
+        if (arr) arr.push(idx);
+        else grid.set(k, [idx]);
+      }
+    }
+  });
+  return { cellSize, grid, buildings };
+}
+
+/** Building indices whose bbox may be near `(x, z)` (the 3×3 cell neighbourhood). */
+function bucketNear(bucket: BuildingBucket, x: number, z: number): number[] {
+  const s = bucket.cellSize;
+  const cx = Math.floor(x / s);
+  const cz = Math.floor(z / s);
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (let di = -1; di <= 1; di++) {
+    for (let dj = -1; dj <= 1; dj++) {
+      const arr = bucket.grid.get(`${cx + di}_${cz + dj}`);
+      if (arr) for (const idx of arr) if (!seen.has(idx)) {
+        seen.add(idx);
+        out.push(idx);
+      }
+    }
+  }
+  return out;
+}
+
+/** `true` when `(x, z)` is inside a footprint or within `margin` m of one (bucket queries). */
+function blockedBy(bucket: BuildingBucket, x: number, z: number, margin: number): boolean {
+  for (const idx of bucketNear(bucket, x, z)) {
+    const poly = bucket.buildings[idx].poly;
+    if (pointInPolygon(x, z, poly) || distToPolygon(x, z, poly) < margin) return true;
+  }
+  return false;
+}
+
+/**
+ * First `t` where the ray from `(ox,oz)` along `(dx,dz)` crosses a footprint edge
+ * (null when the ray runs parallel / misses every candidate segment).
+ */
+function rayCrosses(ox: number, oz: number, dx: number, dz: number, a: Vec2, b: Vec2): number | null {
+  const rx = b[0] - a[0];
+  const rz = b[1] - a[1];
+  const denom = dx * rz - dz * rx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = ((a[0] - ox) * rz - (a[1] - oz) * rx) / denom;
+  const u = ((a[0] - ox) * dz - (a[1] - oz) * dx) / denom;
+  if (t > 0 && u >= 0 && u <= 1) return t;
+  return null;
+}
+
+/**
+ * Clip one cable end to the first footprint edge the ray crosses from the
+ * centreline outward. Returns the clipped distance from the centreline along
+ * `(dx,dz)` (≤ `half`), and `drop` when the resulting end is still > 2 m inside
+ * a footprint (cables that would thread a building end-to-end are abandoned).
+ */
+function clipCableEnd(
+  ox: number,
+  oz: number,
+  dx: number,
+  dz: number,
+  half: number,
+  bucket: BuildingBucket,
+): { t: number; drop: boolean } {
+  let best = half;
+  for (const idx of bucketNear(bucket, ox, oz)) {
+    const poly = bucket.buildings[idx].poly;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const t = rayCrosses(ox, oz, dx, dz, poly[j], poly[i]);
+      if (t !== null && t > 0 && t <= half && t < best) best = t;
+    }
+  }
+  const ex = ox + dx * best;
+  const ez = oz + dz * best;
+  for (const idx of bucketNear(bucket, ex, ez)) {
+    const poly = bucket.buildings[idx].poly;
+    if (pointInPolygon(ex, ez, poly) && distToPolygon(ex, ez, poly) > 2) {
+      return { t: best, drop: true };
+    }
+  }
+  return { t: best, drop: false };
+}
 
 /** Metres of centreline between successive lamps along a lamped road. */
 export const LAMP_SPACING = 32;
@@ -79,15 +231,23 @@ function hashUnit(a: number, b: number): number {
   return s - Math.floor(s);
 }
 
+const MIN_LAMP_OFFSET = 1.5; // push-out floor, metres from the centreline
+const EDGE_MARGIN = 0.6; // a lamp this close to a footprint wall is blocked
+const PUSH_STEP = 0.5; // push the lamp toward the centreline in these steps
+
 /**
  * Place sodium lamps on lamped roads: every `LAMP_SPACING` m of polyline,
  * alternating sides, `ROAD_WIDTH[cls]/2 + 0.8` m from the centreline, seated
- * on `heightAt`. Bridge-road lamps closer than 10 m to an already-placed lamp
- * are skipped (their endpoints overlap the connected street lamps).
+ * on `heightAt`. When `buildings` is given, a candidate base inside a footprint
+ * or within {@link EDGE_MARGIN} of one is pushed toward the centreline in
+ * {@link PUSH_STEP} steps down to {@link MIN_LAMP_OFFSET}; if still blocked the
+ * lamp is skipped (narrow streets keep poles out of facades). Bridge-road lamps
+ * closer than 10 m to an already-placed lamp are skipped.
  */
-export function placeLamps(roads: Road[], heightAt: HeightFn): Lamp[] {
+export function placeLamps(roads: Road[], heightAt: HeightFn, buildings?: readonly Building[]): Lamp[] {
   const lamps: Lamp[] = [];
   const placed: { x: number; z: number }[] = [];
+  const bucket = buildings && buildings.length > 0 ? makeBuildingBucket(buildings) : null;
   for (const road of roads) {
     if (!LAMP_CLASSES.has(road.cls)) continue;
     const len = polylineLength(road.pts);
@@ -95,14 +255,31 @@ export function placeLamps(roads: Road[], heightAt: HeightFn): Lamp[] {
     const offset = ROAD_WIDTH[road.cls] / 2 + 0.8;
     for (let i = 0; i < n; i++) {
       const { p, dx, dz } = along(road.pts, i * LAMP_SPACING);
-      const s = i % 2 === 0 ? 1 : -1; // alternating sides
+      const s: Side = i % 2 === 0 ? 1 : -1; // alternating sides
       const nx = -dz;
       const nz = dx;
-      const x = p[0] + s * offset * nx;
-      const z = p[1] + s * offset * nz;
-      if (road.bridge && placed.some((q) => Math.hypot(q.x - x, q.z - z) < 10)) continue;
-      placed.push({ x, z });
-      lamps.push({ x, y: heightAt(x, z), z, dirX: -s * nx, dirZ: -s * nz });
+      let placedX = 0;
+      let placedZ = 0;
+      let accepted = false;
+      for (let off = offset; off >= MIN_LAMP_OFFSET - 1e-9; off -= PUSH_STEP) {
+        const x = p[0] + s * off * nx;
+        const z = p[1] + s * off * nz;
+        if (bucket && blockedBy(bucket, x, z, EDGE_MARGIN)) continue;
+        placedX = x;
+        placedZ = z;
+        accepted = true;
+        break;
+      }
+      if (!accepted) continue;
+      if (road.bridge && placed.some((q) => Math.hypot(q.x - placedX, q.z - placedZ) < 10)) continue;
+      placed.push({ x: placedX, z: placedZ });
+      lamps.push({
+        x: placedX,
+        y: heightAt(placedX, placedZ),
+        z: placedZ,
+        dirX: -s * nx,
+        dirZ: -s * nz,
+      });
     }
   }
   return lamps;
@@ -111,10 +288,14 @@ export function placeLamps(roads: Road[], heightAt: HeightFn): Lamp[] {
 /**
  * Place overhead cables on cable roads: every `CABLE_SPACING` m, a catenary
  * of 8 segments spanning road width + 4 m, end height 6–9 m above `heightAt`,
- * sag 1.2 m (lowest point = end height − 1.2 m).
+ * sag 1.2 m (lowest point = end height − 1.2 m). When `buildings` is given each
+ * end is clipped to the first footprint edge it crosses from the centreline
+ * outward (cables end on walls, not through buildings); a cable whose clipped
+ * end is still > 2 m inside a footprint is dropped.
  */
-export function placeCables(roads: Road[], heightAt: HeightFn): Cable[] {
+export function placeCables(roads: Road[], heightAt: HeightFn, buildings?: readonly Building[]): Cable[] {
   const cables: Cable[] = [];
+  const bucket = buildings && buildings.length > 0 ? makeBuildingBucket(buildings) : null;
   for (const road of roads) {
     if (!CABLE_CLASSES.has(road.cls)) continue;
     const len = polylineLength(road.pts);
@@ -126,11 +307,22 @@ export function placeCables(roads: Road[], heightAt: HeightFn): Cable[] {
       const nz = dx;
       const baseY = heightAt(p[0], p[1]);
       const endH = 6 + 3 * hashUnit(road.id, i);
+      let tMinus = half;
+      let tPlus = half;
+      if (bucket) {
+        const m = clipCableEnd(p[0], p[1], -nx, -nz, half, bucket);
+        const pl = clipCableEnd(p[0], p[1], nx, nz, half, bucket);
+        if (m.drop || pl.drop) continue;
+        tMinus = m.t;
+        tPlus = pl.t;
+      }
       const pts: Vec3[] = [];
       for (let seg = 0; seg <= 8; seg++) {
         const u = seg / 8;
         const sag = 1.2 * 4 * u * (1 - u); // 0 at ends, 1.2 at the middle
-        pts.push([p[0] + nx * (2 * u - 1) * half, baseY + endH - sag, p[1] + nz * (2 * u - 1) * half]);
+        const ex = p[0] + nx * ((1 - u) * -tMinus + u * tPlus);
+        const ez = p[1] + nz * ((1 - u) * -tMinus + u * tPlus);
+        pts.push([ex, baseY + endH - sag, ez]);
       }
       cables.push({ pts });
     }

@@ -153,8 +153,8 @@ export class PropsLayer implements PunkLayer {
 
   /** Build the three meshes for one streamed cell. */
   private buildCell(ctx: PunkLayerContext, cell: CellData): THREE.Group {
-    const lamps = placeLamps(cell.roads, ctx.groundAt);
-    const cables = placeCables(cell.roads, ctx.groundAt);
+    const lamps = placeLamps(cell.roads, ctx.groundAt, cell.buildings);
+    const cables = placeCables(cell.roads, ctx.groundAt, cell.buildings);
     const { solid, cones, pools } = buildPropsMesh(lamps, cables);
     const group = new THREE.Group();
     group.name = cell.key;

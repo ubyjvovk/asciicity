@@ -23,11 +23,23 @@ shared node materials.
   already-placed lamp is skipped (its endpoint overlaps the connected street).
   `Lamp = { x, y, z, dirX, dirZ }` — base position + the unit horizontal arm
   direction pointing back at the road.
+- **Building push-out (narrow streets, rework 1):** `placeLamps` takes an
+  optional `buildings` list (the streamer passes `cell.buildings`). A
+  candidate base inside a footprint or within `EDGE_MARGIN = 0.6` m of one is
+  pushed toward the centreline in `PUSH_STEP = 0.5` m steps down to
+  `MIN_LAMP_OFFSET = 1.5` m; if still blocked the lamp is skipped (poles stay
+  out of facades on streets narrower than the class width). Footprints are
+  indexed in a 20 m spatial bucket (`pointInPolygon` / `distToPolygon`), so
+  per-cell builds stay near O(n) (≤ 10 ms on london `0_0` cells; measured
+  ≈ 4.8 ms). The arm keeps pointing at the road.
 - **Cables** on `residential / service / pedestrian` roads (service gets
   cables but no lamps), every `CABLE_SPACING = 25` m, an 8-segment catenary
   spanning road width + 4 m, end height 6–9 m above `groundAt`, sag 1.2 m
   (lowest point = end height − 1.2 m). End height is a deterministic hash of
-  the road id + cable index.
+  the road id + cable index. With `buildings`, each end is clipped to the
+  first footprint edge it crosses from the centreline outward (cables end on
+  walls, not through buildings); a cable whose clipped end is still > 2 m
+  inside a footprint is dropped.
 
 ## Geometry (`buildPropsMesh`)
 
@@ -59,5 +71,9 @@ shared node materials.
 Cover: 320 m primary → 10 lamps (±1) alternating at the spec offset with the
 arm toward the road; footway/service no lamps, residential yes; cable classes
 and 25 m spacing; lowest catenary point = end height − 1.2 m; sloped-heightAt
-seating; London tile `0_0` totals (lamps 300–1 200, triangles ≤ 250 000);
-determinism.
+seating; **building push-out** (overhanging wall → offset ≤ 3.4 m & outside;
+no free spot ≥ 1.5 m → skipped; determinism); **cable clipping** (ends on/within
+2 m of a footprint edge or at the span end when no building is hit); London
+tile `0_0` per-cell — no lamp base inside any footprint, total lamps
+200–1 200 (measured 412), whole-tile triangles ≤ 250 000, max per-cell build
+< 50 ms; determinism.
