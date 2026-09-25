@@ -1644,7 +1644,9 @@ plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
 
 *Street props (`punk/propsmesh.ts` pure + `punk/props.ts`, T-0155):*
   - Lamps on roads of class primary / secondary / tertiary / residential /
-    pedestrian, every 32 m of polyline length, alternating sides, at
+    pedestrian: per way at arc-length 16 + 32k m (ways 8–32 m: one at the
+    midpoint; < 8 m: none), global 12 m de-dup across ways (OSM chops City
+    streets into short ways — PM review T-0155), alternating sides, at
     `ROAD_WIDTH[cls]/2 + 0.8 m` from the centreline, seated on `groundAt`;
     skip `bridge` roads' lamps closer than 10 m to a previous lamp. Pole
     0.15 × 7 m, arm 1.8 m toward the road, head 0.6 × 0.2 × 0.3 m.
