@@ -17,12 +17,16 @@ shared node materials.
 ## Placement
 
 - **Lamps** on `primary / secondary / tertiary / residential / pedestrian`
-  roads, every `LAMP_SPACING = 32` m of centreline, alternating sides, at
-  `ROAD_WIDTH[cls]/2 + 0.8` m from the centreline, seated on `groundAt`
-  (`y = heightAt(x, z)`). A bridge road's lamp closer than 10 m to an
-  already-placed lamp is skipped (its endpoint overlaps the connected street).
-  `Lamp = { x, y, z, dirX, dirZ }` — base position + the unit horizontal arm
-  direction pointing back at the road.
+  roads. City roads are chopped into many short OSM ways, so candidates start
+  at `LAMP_SPACING/2 = 16` m along EACH way and repeat every `LAMP_SPACING =
+  32` m (16, 48, 80, …); a way shorter than 32 m but ≥ 8 m gets one candidate
+  at its midpoint. Sides alternate per way (even k → left, odd → right; single
+  candidates → left), at `ROAD_WIDTH[cls]/2 + 0.8` m from the centreline,
+  seated on `groundAt` (`y = heightAt(x, z)`). Candidates are de-duplicated
+  **globally across all ways**: a base within `LAMP_DEDUP = 12` m of an
+  already accepted lamp is dropped (spatial hash, cell 12 m). `Lamp = { x, y,
+  z, dirX, dirZ }` — base position + the unit horizontal arm direction
+  pointing back at the road.
 - **Building push-out (narrow streets, rework 1):** `placeLamps` takes an
   optional `buildings` list (the streamer passes `cell.buildings`). A
   candidate base inside a footprint or within `EDGE_MARGIN = 0.6` m of one is
@@ -31,15 +35,18 @@ shared node materials.
   out of facades on streets narrower than the class width). Footprints are
   indexed in a 20 m spatial bucket (`pointInPolygon` / `distToPolygon`), so
   per-cell builds stay near O(n) (≤ 10 ms on london `0_0` cells; measured
-  ≈ 4.8 ms). The arm keeps pointing at the road.
+  ≈ 3.9 ms). The arm keeps pointing at the road.
 - **Cables** on `residential / service / pedestrian` roads (service gets
-  cables but no lamps), every `CABLE_SPACING = 25` m, an 8-segment catenary
-  spanning road width + 4 m, end height 6–9 m above `groundAt`, sag 1.2 m
-  (lowest point = end height − 1.2 m). End height is a deterministic hash of
-  the road id + cable index. With `buildings`, each end is clipped to the
-  first footprint edge it crosses from the centreline outward (cables end on
-  walls, not through buildings); a cable whose clipped end is still > 2 m
-  inside a footprint is dropped.
+  cables but no lamps). Candidates start at `CABLE_SPACING/2 = 12.5` m along
+  EACH way and repeat every `CABLE_SPACING = 25` m; a way ≥ 10 m but < 25 m
+  gets one at its midpoint. Each cable is an 8-segment catenary spanning road
+  width + 4 m, end height 6–9 m above `groundAt`, sag 1.2 m (lowest point =
+  end height − 1.2 m). End height is a deterministic hash of the road id +
+  arc length. With `buildings`, each end is clipped to the first footprint
+  edge it crosses from the centreline outward (cables end on walls, not
+  through buildings); a cable whose clipped end is still > 2 m inside a
+  footprint is dropped. Cables are de-duplicated globally (centreline base
+  within `CABLE_DEDUP = 8` m of an accepted one).
 
 ## Geometry (`buildPropsMesh`)
 
@@ -68,12 +75,16 @@ shared node materials.
 
 ## Tests (`tests/punk-props.test.ts`)
 
-Cover: 320 m primary → 10 lamps (±1) alternating at the spec offset with the
-arm toward the road; footway/service no lamps, residential yes; cable classes
-and 25 m spacing; lowest catenary point = end height − 1.2 m; sloped-heightAt
-seating; **building push-out** (overhanging wall → offset ≤ 3.4 m & outside;
-no free spot ≥ 1.5 m → skipped; determinism); **cable clipping** (ends on/within
-2 m of a footprint edge or at the span end when no building is hit); London
-tile `0_0` per-cell — no lamp base inside any footprint, total lamps
-200–1 200 (measured 412), whole-tile triangles ≤ 250 000, max per-cell build
-< 50 ms; determinism.
+Cover: 320 m primary → 10 lamps at 16…304 m alternating at the spec offset
+with the arm toward the road; footway/service no lamps, residential yes;
+**short ways** (< 32 m, ≥ 8 m) get one midpoint lamp each (8 m → 1, 7 m → 0);
+**chained short ways** along a straight line give lamps ~every 32 m with no
+two within 12 m; cable classes and 25 m spacing; lowest catenary point = end
+height − 1.2 m; sloped-heightAt seating; **building push-out** (overhanging
+wall → offset ≤ 3.4 m & outside; no free spot ≥ 1.5 m → skipped; determinism);
+**cable clipping** (ends on/within 2 m of a footprint edge or at the span end
+when no building is hit); London tile `0_0` per-cell — no lamp base inside any
+footprint, total lamps 200–1 200 (measured 575), whole-tile triangles ≤
+250 000, max per-cell build < 50 ms; **bank region** (all tiles, `bucketSources`,
+x∈[−150,0], |z|<30) ≥ 8 lamps (measured 12) with none inside any footprint;
+determinism.

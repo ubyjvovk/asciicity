@@ -3,7 +3,7 @@
  * cable placement + mesh triangle budgets. Pure — no three/webgpu.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FLAT_HEIGHT, type Building, type HeightFn, type Road } from '../src/data/types';
 import { ROAD_WIDTH } from '../src/world/roads';
@@ -17,6 +17,7 @@ import {
   placeCables,
   placeLamps,
   pointInPolygon,
+  type Lamp,
 } from '../src/render/punk/propsmesh';
 
 /** A building footprint rectangle: `[x0, z0]` inner corner, `w`/`h` out from the road side. */
@@ -43,13 +44,14 @@ const straight = (cls: Road['cls'], len: number, id = 1, bridge = false): Road =
 });
 
 describe('placeLamps', () => {
-  it('straight 320 m primary road yields 10 lamps, alternating sides, at ROAD_WIDTH.primary/2 + 0.8, arm toward the road', () => {
+  it('straight 320 m primary road yields 10 lamps at 16…304 m, alternating sides, at ROAD_WIDTH.primary/2 + 0.8, arm toward the road', () => {
     const lamps = placeLamps([straight('primary', 320)], FLAT_HEIGHT);
-    expect(lamps.length).toBeGreaterThanOrEqual(9);
-    expect(lamps.length).toBeLessThanOrEqual(11);
+    expect(lamps.length).toBe(10);
     const off = ROAD_WIDTH.primary / 2 + 0.8;
     for (let i = 0; i < lamps.length; i++) {
       const lamp = lamps[i];
+      // candidates at 16, 48, …, 304 m
+      expect(lamp.x).toBeCloseTo(16 + i * 32, 6);
       expect(Math.abs(lamp.z)).toBeCloseTo(off, 1); // ±0.05 from the centreline
       // alternating sides
       if (i > 0) expect(lamp.z).not.toBeCloseTo(0, 3);
@@ -58,6 +60,33 @@ describe('placeLamps', () => {
       expect(Math.abs(lamps[i].dirX)).toBeCloseTo(0, 1);
       expect(lamps[i].dirZ).toBeCloseTo(-Math.sign(lamp.z), 2);
       expect(Math.hypot(lamps[i].dirX, lamps[i].dirZ)).toBeCloseTo(1, 2);
+    }
+  });
+
+  it('short ways (< 32 m, ≥ 8 m) get one lamp each at the midpoint; < 8 m get none', () => {
+    // a 20 m primary way (< 32, ≥ 8) → one lamp at its midpoint, left side
+    const one = placeLamps([straight('primary', 20)], FLAT_HEIGHT);
+    expect(one).toHaveLength(1);
+    expect(one[0].x).toBeCloseTo(10, 6);
+    expect(one[0].z).toBeCloseTo(ROAD_WIDTH.primary / 2 + 0.8, 1); // left
+    expect(one[0].dirZ).toBeCloseTo(-1, 1); // arm points back at the road
+    // a 8 m way → one lamp; a 7 m way (< 8) → none
+    expect(placeLamps([straight('primary', 8)], FLAT_HEIGHT)).toHaveLength(1);
+    expect(placeLamps([straight('primary', 7)], FLAT_HEIGHT)).toHaveLength(0);
+  });
+
+  it('chained short ways along a straight line give lamps ~every 32 m with no two within 12 m', () => {
+    // five 31 m ways chained end-to-end → midpoints 15.5, 46.5, 77.5, 108.5, 139.5
+    const ways: Road[] = [];
+    for (let w = 0; w < 5; w++) {
+      ways.push({ id: w + 1, cls: 'primary', pts: [[w * 31, 0], [w * 31 + 31, 0]] });
+    }
+    const lamps = placeLamps(ways, FLAT_HEIGHT);
+    expect(lamps).toHaveLength(5);
+    for (let i = 1; i < lamps.length; i++) {
+      const gap = lamps[i].x - lamps[i - 1].x;
+      expect(gap).toBeGreaterThanOrEqual(12); // no two within 12 m
+      expect(gap).toBeCloseTo(31, 0); // ~every 32 m
     }
   });
 
@@ -170,6 +199,14 @@ describe('building push-out', () => {
     const b = rect(1, -10, 4, 340, 16);
     expect(placeLamps(roads, FLAT_HEIGHT, [b])).toEqual(placeLamps(roads, FLAT_HEIGHT, [b]));
   });
+
+  it('deterministic with chained short ways: same input yields identical arrays', () => {
+    const ways: Road[] = [];
+    for (let w = 0; w < 5; w++) {
+      ways.push({ id: w + 1, cls: 'residential', pts: [[w * 31, 0], [w * 31 + 31, 0]] });
+    }
+    expect(placeLamps(ways, FLAT_HEIGHT)).toEqual(placeLamps(ways, FLAT_HEIGHT));
+  });
 });
 
 describe('cable clipping', () => {
@@ -228,5 +265,29 @@ describe('london tile budget', () => {
     const tris =
       (solid.positions.length + cones.positions.length + pools.positions.length) / 9;
     expect(tris).toBeLessThanOrEqual(250_000);
+  });
+});
+
+describe('london bank region (all tiles)', () => {
+  it('short chopped OSM ways put ≥ 8 lamps west of Bank (x∈[-150,0], |z|<30), none inside any footprint', () => {
+    const dir = join(__dirname, '../public/data/london/tiles');
+    const sources = new Map<string, PunkSource>();
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      const tile = JSON.parse(readFileSync(join(dir, f), 'utf8')) as PunkSource;
+      sources.set(f.replace(/\.json$/, ''), tile);
+    }
+    const cells = bucketSources(sources);
+    const region: Lamp[] = [];
+    for (const cell of cells.values()) {
+      for (const lamp of placeLamps(cell.roads, FLAT_HEIGHT, cell.buildings)) {
+        if (lamp.x >= -150 && lamp.x <= 0 && Math.abs(lamp.z) < 30) region.push(lamp);
+        for (const b of cell.buildings) {
+          expect(pointInPolygon(lamp.x, lamp.z, b.poly)).toBe(false);
+        }
+      }
+    }
+    process.stdout.write(`bank region (x∈[-150,0], |z|<30) lamps: ${region.length}\n`);
+    expect(region.length).toBeGreaterThanOrEqual(8);
   });
 });

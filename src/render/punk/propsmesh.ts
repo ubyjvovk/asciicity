@@ -234,28 +234,76 @@ function hashUnit(a: number, b: number): number {
 const MIN_LAMP_OFFSET = 1.5; // push-out floor, metres from the centreline
 const EDGE_MARGIN = 0.6; // a lamp this close to a footprint wall is blocked
 const PUSH_STEP = 0.5; // push the lamp toward the centreline in these steps
+const LAMP_DEDUP = 12; // global de-dup: drop a lamp within this of an accepted one
+const CABLE_DEDUP = 8; // global de-dup for cables
+const MIN_LAMP_WAY = 8; // ways shorter than this get no lamp
+const MIN_CABLE_WAY = 10; // ways shorter than this get no cable
 
 /**
- * Place sodium lamps on lamped roads: every `LAMP_SPACING` m of polyline,
- * alternating sides, `ROAD_WIDTH[cls]/2 + 0.8` m from the centreline, seated
- * on `heightAt`. When `buildings` is given, a candidate base inside a footprint
- * or within {@link EDGE_MARGIN} of one is pushed toward the centreline in
- * {@link PUSH_STEP} steps down to {@link MIN_LAMP_OFFSET}; if still blocked the
- * lamp is skipped (narrow streets keep poles out of facades). Bridge-road lamps
- * closer than 10 m to an already-placed lamp are skipped.
+ * Spatial hash for global cross-way de-duplication: grid cell = the de-dup
+ * distance, so nearest-neighbour queries touch only the neighbouring cells.
+ */
+class SpatialHash {
+  private readonly cell: number;
+  private readonly grid = new Map<string, Array<[number, number]>>();
+  /** Create a hash with grid cells of `cell` m (same as the query radius). */
+  constructor(cell: number) {
+    this.cell = cell;
+  }
+  private key(x: number, z: number): string {
+    return `${Math.floor(x / this.cell)}_${Math.floor(z / this.cell)}`;
+  }
+  /** `true` when any accepted point lies within `r` m of `(x, z)`. */
+  hasNear(x: number, z: number, r: number): boolean {
+    const cx = Math.floor(x / this.cell);
+    const cz = Math.floor(z / this.cell);
+    const span = Math.ceil(r / this.cell);
+    for (let di = -span; di <= span; di++) {
+      for (let dj = -span; dj <= span; dj++) {
+        const arr = this.grid.get(`${cx + di}_${cz + dj}`);
+        if (arr) for (const [px, pz] of arr) if (Math.hypot(px - x, pz - z) < r) return true;
+      }
+    }
+    return false;
+  }
+  /** Record an accepted point. */
+  add(x: number, z: number): void {
+    const k = this.key(x, z);
+    const arr = this.grid.get(k);
+    if (arr) arr.push([x, z]);
+    else this.grid.set(k, [[x, z]]);
+  }
+}
+
+/**
+ * Place sodium lamps on lamped roads. City roads are chopped into many short
+ * OSM ways, so candidates start at `LAMP_SPACING/2` m along EACH way and repeat
+ * every `LAMP_SPACING` m; a way shorter than `LAMP_SPACING` but ≥ 8 m gets one
+ * candidate at its midpoint. Side alternates per way (even k → left, odd →
+ * right; single candidates → left). Each candidate sits `ROAD_WIDTH[cls]/2 + 0.8`
+ * m from the centreline, seated on `heightAt`. When `buildings` is given, a base
+ * inside a footprint or within {@link EDGE_MARGIN} of one is pushed toward the
+ * centreline in {@link PUSH_STEP} steps down to {@link MIN_LAMP_OFFSET}; if still
+ * blocked the lamp is skipped. Candidates are de-duplicated globally across all
+ * ways: a base within {@link LAMP_DEDUP} m of an already accepted lamp is dropped.
  */
 export function placeLamps(roads: Road[], heightAt: HeightFn, buildings?: readonly Building[]): Lamp[] {
   const lamps: Lamp[] = [];
-  const placed: { x: number; z: number }[] = [];
   const bucket = buildings && buildings.length > 0 ? makeBuildingBucket(buildings) : null;
+  const dedup = new SpatialHash(LAMP_DEDUP);
   for (const road of roads) {
     if (!LAMP_CLASSES.has(road.cls)) continue;
     const len = polylineLength(road.pts);
-    const n = Math.floor(len / LAMP_SPACING);
     const offset = ROAD_WIDTH[road.cls] / 2 + 0.8;
-    for (let i = 0; i < n; i++) {
-      const { p, dx, dz } = along(road.pts, i * LAMP_SPACING);
-      const s: Side = i % 2 === 0 ? 1 : -1; // alternating sides
+    const cands: { t: number; s: Side }[] = [];
+    if (len < LAMP_SPACING) {
+      if (len >= MIN_LAMP_WAY) cands.push({ t: len / 2, s: 1 }); // short way: one at midpoint, left
+    } else {
+      const kMax = Math.floor((len - LAMP_SPACING / 2) / LAMP_SPACING);
+      for (let k = 0; k <= kMax; k++) cands.push({ t: LAMP_SPACING / 2 + k * LAMP_SPACING, s: k % 2 === 0 ? 1 : -1 });
+    }
+    for (const { t, s } of cands) {
+      const { p, dx, dz } = along(road.pts, t);
       const nx = -dz;
       const nz = dx;
       let placedX = 0;
@@ -271,8 +319,8 @@ export function placeLamps(roads: Road[], heightAt: HeightFn, buildings?: readon
         break;
       }
       if (!accepted) continue;
-      if (road.bridge && placed.some((q) => Math.hypot(q.x - placedX, q.z - placedZ) < 10)) continue;
-      placed.push({ x: placedX, z: placedZ });
+      if (dedup.hasNear(placedX, placedZ, LAMP_DEDUP)) continue;
+      dedup.add(placedX, placedZ);
       lamps.push({
         x: placedX,
         y: heightAt(placedX, placedZ),
@@ -286,27 +334,37 @@ export function placeLamps(roads: Road[], heightAt: HeightFn, buildings?: readon
 }
 
 /**
- * Place overhead cables on cable roads: every `CABLE_SPACING` m, a catenary
- * of 8 segments spanning road width + 4 m, end height 6–9 m above `heightAt`,
- * sag 1.2 m (lowest point = end height − 1.2 m). When `buildings` is given each
- * end is clipped to the first footprint edge it crosses from the centreline
- * outward (cables end on walls, not through buildings); a cable whose clipped
- * end is still > 2 m inside a footprint is dropped.
+ * Place overhead cables on cable roads. Candidates start at `CABLE_SPACING/2` m
+ * along EACH way and repeat every `CABLE_SPACING` m; a way ≥ 10 m but shorter
+ * than `CABLE_SPACING` gets one at its midpoint. Each cable is a catenary of 8
+ * segments spanning road width + 4 m, end height 6–9 m above `heightAt`, sag
+ * 1.2 m (lowest point = end height − 1.2 m). When `buildings` is given each end
+ * is clipped to the first footprint edge it crosses from the centreline outward
+ * (cables end on walls, not through buildings); a cable whose clipped end is
+ * still > 2 m inside a footprint is dropped. Cables whose centreline base is
+ * within {@link CABLE_DEDUP} m of an accepted one are dropped.
  */
 export function placeCables(roads: Road[], heightAt: HeightFn, buildings?: readonly Building[]): Cable[] {
   const cables: Cable[] = [];
   const bucket = buildings && buildings.length > 0 ? makeBuildingBucket(buildings) : null;
+  const dedup = new SpatialHash(CABLE_DEDUP);
   for (const road of roads) {
     if (!CABLE_CLASSES.has(road.cls)) continue;
     const len = polylineLength(road.pts);
-    const n = Math.floor(len / CABLE_SPACING);
     const half = ROAD_WIDTH[road.cls] / 2 + 2;
-    for (let i = 0; i < n; i++) {
-      const { p, dx, dz } = along(road.pts, i * CABLE_SPACING);
+    const ts: number[] = [];
+    if (len < CABLE_SPACING) {
+      if (len >= MIN_CABLE_WAY) ts.push(len / 2); // short way: one at midpoint
+    } else {
+      const kMax = Math.floor((len - CABLE_SPACING / 2) / CABLE_SPACING);
+      for (let k = 0; k <= kMax; k++) ts.push(CABLE_SPACING / 2 + k * CABLE_SPACING);
+    }
+    for (const t of ts) {
+      const { p, dx, dz } = along(road.pts, t);
       const nx = -dz;
       const nz = dx;
       const baseY = heightAt(p[0], p[1]);
-      const endH = 6 + 3 * hashUnit(road.id, i);
+      const endH = 6 + 3 * hashUnit(road.id, t);
       let tMinus = half;
       let tPlus = half;
       if (bucket) {
@@ -316,6 +374,8 @@ export function placeCables(roads: Road[], heightAt: HeightFn, buildings?: reado
         tMinus = m.t;
         tPlus = pl.t;
       }
+      if (dedup.hasNear(p[0], p[1], CABLE_DEDUP)) continue;
+      dedup.add(p[0], p[1]);
       const pts: Vec3[] = [];
       for (let seg = 0; seg <= 8; seg++) {
         const u = seg / 8;
