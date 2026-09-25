@@ -102,6 +102,12 @@ itself after BigWings' "Heartfelt". None of that project's assets are used.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
 contributors, available under the Open Database License (ODbL).
 
+Tokyo building geometry (from wave 22): [Project PLATEAU](https://www.mlit.go.jp/plateau/)
+3D city models, Tokyo wards (FY2025), MLIT / Tokyo Metropolitan Government,
+used under PDL 1.0 / CC BY 4.0 — modified (converted, simplified) by
+AsciiCity. 出典：3D都市モデル（Project PLATEAU）東京都各区（2025年度）（国土交通省 / 東京都,
+https://www.mlit.go.jp/plateau/ ）を加工して作成
+
 ## License
 
 © 2026 [@ubyjvovk](https://github.com/ubyjvovk). Licensed under

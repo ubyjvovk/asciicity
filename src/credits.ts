@@ -4,6 +4,8 @@
 export const CREDITS = {
   /** Map data attribution (ODbL requires it to be visible). */
   osm: '© OpenStreetMap contributors',
+  /** Tokyo buildings (wave 22): Project PLATEAU, PDL 1.0 / CC BY 4.0, modified. */
+  plateau: 'bldg: PLATEAU (MLIT), modified',
   author: '@ubyjvovk',
   url: 'https://github.com/ubyjvovk/asciicity',
   /** Bitmap source for the matrix katakana atlas (docs/architecture.md §4.20). */

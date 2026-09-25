@@ -520,7 +520,7 @@ async function main(): Promise<void> {
   };
   persist();
 
-  mountCredits(document.body);
+  const creditsEl = mountCredits(document.body);
 
   // City picker (T-0046): with neither `?synthetic=1` nor a valid `?city=` the
   // start overlay becomes a chooser — one button per `CITIES` entry, keys
@@ -605,6 +605,9 @@ async function main(): Promise<void> {
   if (!tileIndex) {
     city = applyLandmarks(city, cityId);
   }
+  // PDL 1.0 attribution for PLATEAU building geometry (wave 22,
+  // data-format "Tokyo from PLATEAU" item 7); the full text is in README.
+  if (cityId === 'tokyo') creditsEl.textContent += ` · ${CREDITS.plateau}`;
   if (cityById(cityId)) {
     settings.city = cityId;
     persist();

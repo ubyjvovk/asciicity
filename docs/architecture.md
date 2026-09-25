@@ -155,6 +155,27 @@ OSM colours/materials reach ONLY the cyberpunk facades.
     → byte-identical geometry for untouched cities.
   - Budget: roofs add ≤ 25 % triangles on london tiles (unit-tested).
 
+**Tiers (wave 22, PLATEAU LOD2 massing, `buildings.ts`).** Data:
+data-format "Tokyo from PLATEAU" (`Building.tiers`). Every style draws them.
+  - A building with `tiers` (and no curated `shape`) draws NO envelope
+    walls/roof. Each tier: walls from the envelope's wall base
+    (`ringHeights(poly).base + minH`) up to `tierTop = ringHeights(poly).top
+    + tier.h`, and a flat cap at `tierTop` (roof group 1). Same vertex colour
+    and `extra` as the building; wall UVs as today (u = perimeter / 24 per
+    tier ring, v = (y − base) / 24).
+  - Interior walls are culled: for a tier edge, probe the point 0.3 m
+    outside its midpoint (outward normal); if that point lies inside another
+    tier T2 of the same building, emit only the part of the wall ABOVE
+    `top + T2.h` (skip it entirely if nothing remains).
+  - Export `exteriorWalls(b: Building, heightAt): WallSeg[]`
+    (`{ a: Vec2; b: Vec2; base: number; top: number; nx: number; nz: number }`,
+    exterior after culling; for a building without tiers = its envelope
+    walls, for curated shapes = the envelope). The cyberpunk detail geometry
+    (`detailmesh.ts`) and neon placement (`neonplace.ts`) MUST use it, so no
+    AC units or signs land on interior walls and upper tiers get their own.
+  - Budget: tiers add ≤ 2× the envelope triangles for the building
+    (unit-tested on the prototype's tile 0_0 tiers).
+
 ### 4.3 Palette (src/world/palette.ts)
 
 ```ts

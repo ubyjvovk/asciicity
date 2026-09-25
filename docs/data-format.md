@@ -380,6 +380,43 @@ cities that are not re-fetched stay valid and byte-identical.
 8. **Size**: expect +5–10 % tile JSON; report the before/after sizes in the
    regeneration ticket.
 
+## Tokyo from PLATEAU (wave 22)
+
+Research + measurements: `docs/plateau.md` (T-0162 spike). Tokyo's
+BUILDINGS come from Project PLATEAU (MLIT open 3D city models, FY2025,
+CityGML spec 5.0, per-ward datasets via the PLATEAU data-catalog API);
+EVERYTHING ELSE (roads, bridges, water, rivers, trees, woods, places,
+landmarks, names) stays OSM.
+
+1. **Building set** = PLATEAU buildings in the bbox (one copy per mesh,
+   `gml:id` de-duplicated). `poly` = LOD1 envelope footprint (0.1 m,
+   collinear vertices removed); `h` = `measuredHeight` (fallback: LOD1
+   top − base), clamped [3, 650] like OSM; `id` = stable numeric hash of
+   `gml:id` (no collision with OSM ids — use a range ≥ 2^40 or negative
+   below −10^6, never −1000…−999999 (curated extras)).
+2. **Roofs**: LOD2 roof surfaces that classify as gabled / hipped /
+   skillion / pyramidal → `roof` (data-format "Simple 3D Buildings");
+   stepped / complex LOD2 massing → `tiers` (schema: `Building.tiers`,
+   ≤ 64, each tier `h` ∈ [1, h], plan-disjoint, union ≈ `poly`); flat → none.
+   A building never has both `roof` and `tiers`.
+3. **Names**: OSM name of the best OSM partner at footprint IoU ≥ 0.5; else
+   the OSM named building whose footprint is ≥ 50 % covered by this one
+   (largest overlap wins); else PLATEAU `gml:name`; else none.
+4. **Kept OSM buildings**: OSM buildings covered < 20 % by PLATEAU stay
+   as they are (canopies, new builds, footbridges).
+5. **OSM `building:part`s** (Tokyo Tower, Skytree, …) are kept and
+   SUPPRESS any PLATEAU building whose footprint they overlap by ≥ 30 %
+   of the PLATEAU footprint.
+6. **Validation**: `tiers` as rule 2; `roof` + `tiers` together is an
+   error; all existing building rules apply to the envelope.
+7. **Attribution** (required by PDL 1.0 — README + the in-game credits
+   line while in Tokyo): "Building geometry: Project PLATEAU 3D city
+   models, Tokyo wards (FY2025), MLIT / Tokyo Metropolitan Government,
+   used under PDL 1.0 / CC BY 4.0 — modified (converted, simplified) by
+   AsciiCity." plus the Japanese 出典 line in `docs/plateau.md` Q2.
+8. **Size budget**: whole `public/data/tokyo/` ≤ 60 MB (spike estimate
+   35 MB envelopes, ≤ 45 MB with tiers); report per-tile max.
+
 ## The real dataset: City of London to Westminster
 
 - **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`

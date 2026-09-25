@@ -95,6 +95,14 @@ export interface Building {
   /** Normalised OSM `building:material` (wave 21), cyberpunk facades only. */
   material?: BuildingMaterial;
   /**
+   * PLATEAU LOD2 massing (wave 22, data-format "Tokyo from PLATEAU"):
+   * grounded flat-topped prisms that tier-aware renderers draw INSTEAD of
+   * the `poly` × `h` envelope. `poly` / `h` stay the LOD1 envelope, so
+   * collision, minimap, tags and palettes are unchanged. `roof` is ignored
+   * when `tiers` is present. ≤ 64 tiers; each tier `h` in [1, h].
+   */
+  tiers?: BuildingTier[];
+  /**
    * Footprint ring in local metres, >= 3 points, first point NOT repeated at
    * the end. Winding is unspecified; consumers normalise it.
    */
@@ -122,6 +130,17 @@ export interface BuildingRoof {
    * footprint edge (`roof:orientation=across` rotates it by 90°).
    */
   dir?: number;
+}
+
+/** One massing tier of a PLATEAU LOD2 building (wave 22). */
+export interface BuildingTier {
+  /** Height of this tier's flat top above the building's ground (m), in [1, Building.h]. */
+  h: number;
+  /**
+   * Plan ring, local metres, ≥ 3 points, first not repeated. Tiers of one
+   * building do not overlap in plan; their union ≈ the building's `poly`.
+   */
+  poly: Vec2[];
 }
 
 /** Normalised OSM `building:material`. */
