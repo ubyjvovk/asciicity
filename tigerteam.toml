@@ -47,7 +47,7 @@ model = "claude-opus-5-5"                 # 2026-09-25 user: must be Opus 5.5 â€
 login_auth = true
 max_complexity = 3
 ticket_timeout_s = 5400
-scale = 0                                 # paused 2026-09-16: qwen-local is the only lane; PM handles C3 itself
+scale = 4                                 # 2026-09-25 user: image rebuilt (Claude Code 2.1.282, verified claude-opus-5-5), "scale up opus" â€” prioritise Opus (quota to burn by Mon 2026-09-28)
 
 [worker.ds]
 engine = "pi"                             # DeepSeek V4 Flash via DeepInfra (pi catalog in secrets bundle)
