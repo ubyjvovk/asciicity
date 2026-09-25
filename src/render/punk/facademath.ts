@@ -31,15 +31,26 @@ export const WINDOW_PX_Y1 = 6;
 export const SHOPFRONT_HEIGHT_M = 4;
 /** Shopfront segment length (m of u). */
 export const SHOPFRONT_SEGMENT_M = 6;
-/** Roll-down shutter share of shopfront segments. */
-export const SHUTTER_SHARE = 0.55;
+/** Roll-down shutter share of shopfront segments (PM GPU review: 55 % read as a neon strip). */
+export const SHUTTER_SHARE = 0.75;
+/** Shutter albedo range: `SHUTTER_ALBEDO_MIN + SHUTTER_ALBEDO_RANGE · r` (dark metal, no emission). */
+export const SHUTTER_ALBEDO_MIN = 0.02;
+export const SHUTTER_ALBEDO_RANGE = 0.03;
 /** Shutter ridge spacing (m). */
 export const SHUTTER_RIDGE_M = 0.12;
 /** Dark mullion spacing on shop glass (m). */
 export const MULLION_M = 1.5;
-/** Shop-glass emissive range. */
-export const SHOP_EMISSIVE_MIN = 0.5;
-export const SHOP_EMISSIVE_RANGE = 0.6;
+/** Shop-glass emissive range: 0.18–0.55. */
+export const SHOP_EMISSIVE_MIN = 0.18;
+export const SHOP_EMISSIVE_RANGE = 0.37;
+/** Lit width (m) of shop glass, centred in its segment; the rest are dark piers. */
+export const SHOP_LIT_WIDTH_M = 3.6;
+/** Dark pier width (m) each side of the lit shop glass. */
+export const SHOP_PIER_M = (SHOPFRONT_SEGMENT_M - SHOP_LIT_WIDTH_M) / 2;
+
+/** Fine-detail fade distance (m): seams / mullions / blinds contrast × `1 − smoothstep(NEAR, FAR, d)`. */
+export const DETAIL_FADE_NEAR_M = 15;
+export const DETAIL_FADE_FAR_M = 60;
 
 /** Floor-band spacing (m) — every `v·8` integer line. */
 export const FLOOR_BAND_M = 3;
@@ -63,8 +74,8 @@ export const STREAK_ROUGHNESS_DROP = 0.25;
 /** Mix of vertex colour vs luma for base albedo. */
 export const ALBEDO_CHROMA = 0.25;
 /** Base albedo scale: `ALBEDO_MIN + ALBEDO_RANGE · bs`. */
-export const ALBEDO_MIN = 0.1;
-export const ALBEDO_RANGE = 0.08;
+export const ALBEDO_MIN = 0.2;
+export const ALBEDO_RANGE = 0.12;
 
 /** Unlit glass. */
 export const GLASS_ALBEDO = 0.015;
@@ -132,6 +143,7 @@ export const HASH_SALT_SHOP = 61;
 export const HASH_SALT_FLICKER = 73;
 export const HASH_SALT_SHOP_INT = 91;
 export const HASH_SALT_SHOP_TINT = 103;
+export const HASH_SALT_SHUTTER = 127;
 
 /** Building seed `bs` = h(vertexColor.rg · 97 + vertexColor.b · 13). */
 export function buildingSeed(r: number, g: number, b: number): number {
@@ -195,8 +207,32 @@ export function windowLight(cellU: number, cellV: number, seed: number): WindowL
 /** Ground-floor treatment for a 6 m u-segment. */
 export type ShopfrontKind = 'shutter' | 'shop';
 
-/** 55 % roll-down shutter, 45 % lit shop glass, per 6 m of u. */
+/** 75 % roll-down shutter, 25 % lit shop glass, per 6 m of u. */
 export function shopfrontKind(segment: number, seed: number): ShopfrontKind {
   const seg = Math.floor(segment);
   return facadeHash(seg + seed * 8, HASH_SALT_SHOP) < SHUTTER_SHARE ? 'shutter' : 'shop';
+}
+
+/** Shutter albedo 0.02–0.05 for a 6 m segment (same roll in the shader). */
+export function shutterAlbedo(segment: number, seed: number): number {
+  const seg = Math.floor(segment);
+  return SHUTTER_ALBEDO_MIN + SHUTTER_ALBEDO_RANGE * facadeHash(seg + seed * 6, HASH_SALT_SHUTTER);
+}
+
+/** Shop-glass emissive strength 0.18–0.55 for a 6 m segment. */
+export function shopEmissive(segment: number, seed: number): number {
+  const seg = Math.floor(segment);
+  return SHOP_EMISSIVE_MIN + SHOP_EMISSIVE_RANGE * facadeHash(seg + seed * 3, HASH_SALT_SHOP_INT);
+}
+
+/** True when metre `uM` along the wall falls in the lit middle 3.6 m of its shop segment. */
+export function inShopLitSpan(uM: number): boolean {
+  const x = uM - Math.floor(uM / SHOPFRONT_SEGMENT_M) * SHOPFRONT_SEGMENT_M;
+  return x >= SHOP_PIER_M && x < SHOPFRONT_SEGMENT_M - SHOP_PIER_M;
+}
+
+/** Fine-detail contrast at view distance `d` (m): 1 near, 0 beyond 60 m (smoothstep 15 → 60). */
+export function detailFade(d: number): number {
+  const t = Math.min(1, Math.max(0, (d - DETAIL_FADE_NEAR_M) / (DETAIL_FADE_FAR_M - DETAIL_FADE_NEAR_M)));
+  return 1 - t * t * (3 - 2 * t);
 }

@@ -23,11 +23,12 @@ still runs.
 
 1. **Seed** `bs = hash2(r·97 + b·13, g·97 + b·13)` (`buildingSeed`). Hash is
    only `punk/noise.ts` (`hash2` / `hash2Node`).
-2. **Base albedo** `mix(luma(vc), vc, 0.25) · (0.10 + 0.08·bs)` with Rec.709
-   luma. Dry roughness 0.62, metalness 0.18.
+2. **Base albedo** `mix(luma(vc), vc, 0.25) · (0.20 + 0.12·bs)` with Rec.709
+   luma (PM GPU review: 0.10 + 0.08·bs made the skyline vanish at `bigben`). Dry roughness 0.62, metalness 0.18.
 3. **Floor bands** every 3 m (`v·8` integer lines): a 0.22 m band 35 % darker
    with a bump ridge, centred on the line.
-4. **Panel seams** every 1.5 m (`u·16`): bump only, strength ≤ 0.35.
+4. **Panel seams** every 1.5 m (`u·16`): bump only, strength ≤ 0.35; never
+   across window glass.
 5. **Grime / rain streaks** `vnoise(u·24, v·1.5)` (~1 m across, ~16 m down).
    Darkens albedo up to 35 %, drops roughness up to 0.25, strongest just below
    each floor band (cornice runoff).
@@ -43,14 +44,24 @@ still runs.
    - 30 % of lit windows draw **3 horizontal blinds**;
    - ≤ 2 % of lit windows flicker.
    Emissive goes in `emissiveNode` (bloom MRT).
-7. **Shopfront** (0–4 m above wall base), per 6 m of u: 55 % roll-down shutter
-   (ridged dark metal, 0.12 m ridges via bump), 45 % lit shop glass (emissive
-   0.5–1.1, warm or neon, dark mullions every 1.5 m).
+7. **Shopfront** (0–4 m above wall base), per 6 m of u: 75 % roll-down shutter
+   (ridged dark metal, albedo 0.02–0.05 per segment via `shutterAlbedo`,
+   0.12 m horizontal ridges via bump, **no emission**), 25 % lit shop glass
+   (emissive 0.18–0.55 via `shopEmissive`, warm or neon, dark mullions every
+   1.5 m). Only the middle 3.6 m of a shop segment is glass (`inShopLitSpan`);
+   the 1.2 m each side is a dark wall pier, so the band is broken into
+   separate shop windows rather than one strip (PM GPU review: 45 % at
+   0.5–1.1 read as a continuous blown-out neon strip).
+8. **Distance fade** — seams, mullions, blinds and shutter ridges multiply
+   their contrast by `1 − smoothstep(15, 60, |positionView|)` (`detailFade`)
+   so they never alias into fine vertical stripes; blinds are horizontal only.
 
 Bump: view-normal perturb from the floor-band / seam / shutter-ridge height
-(`normalView + (seam·0.35, band·0.22, ridge·0.25)`), not TSL `bumpMap` — a
-screen-space bump of this graph failed to compile in time on the WebGL2
-fallback and raced the Minas Tirith ground-grid restore.
+(`normalView + (seam·0.35, band·0.2, ridge·0.25)`), not TSL `bumpMap`. Reason:
+WebGL2 compile time — the screen-space `bumpMap` of this graph (it
+re-evaluates the height graph with derivatives) blocked the WebGL2 fallback's
+first compile for ~15 s, which also exposed the (since fixed) Minas Tirith
+ground-grid restore race in `main.ts`.
 
 ## Roof
 
@@ -69,7 +80,11 @@ with `hash2Node`.
 | `buildingSeed(r, g, b)` | per-building seed |
 | `isDarkBuilding(seed)` | 25 % dark |
 | `windowLight(cellU, cellV, seed)` | `{ lit, intensity, tint: 0\|1\|2\|3, blinds }` |
-| `shopfrontKind(segment, seed)` | `'shutter' \| 'shop'` |
+| `shopfrontKind(segment, seed)` | `'shutter' \| 'shop'` (75 / 25 %) |
+| `shutterAlbedo(segment, seed)` | shutter albedo 0.02–0.05 |
+| `shopEmissive(segment, seed)` | shop-glass emissive 0.18–0.55 |
+| `inShopLitSpan(uM)` | middle 3.6 m of each 6 m segment |
+| `detailFade(d)` | `1 − smoothstep(15, 60, d)` |
 | `WINDOW_TINTS`, `TINT_SHARES` | palette and 0.60 / 0.20 / 0.12 / 0.08 |
 | `FLOOR_BAND_WIDTH_M`, `PANEL_SEAM_M`, `SEAM_BUMP`, … | band / seam / glass / roof sizes |
 

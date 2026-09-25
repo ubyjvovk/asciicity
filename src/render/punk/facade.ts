@@ -9,10 +9,12 @@ import {
   float,
   floor,
   fract,
+  length,
   mix,
   min,
   normalize,
   normalView,
+  positionView,
   positionWorld,
   select,
   smoothstep,
@@ -31,6 +33,8 @@ import {
   ATLAS_CELL_PX,
   BLINDS_SHARE,
   DARK_BUILDING_SHARE,
+  DETAIL_FADE_FAR_M,
+  DETAIL_FADE_NEAR_M,
   DARK_WINDOW_LIT_P,
   FLICKER_SHARE,
   FLOOR_BAND_DARKEN,
@@ -47,6 +51,7 @@ import {
   HASH_SALT_SHOP,
   HASH_SALT_SHOP_INT,
   HASH_SALT_SHOP_TINT,
+  HASH_SALT_SHUTTER,
   HASH_SALT_TINT,
   INTENSITY_MIN,
   INTENSITY_RANGE,
@@ -66,6 +71,9 @@ import {
   SHOP_EMISSIVE_RANGE,
   SHOPFRONT_HEIGHT_M,
   SHOPFRONT_SEGMENT_M,
+  SHOP_PIER_M,
+  SHUTTER_ALBEDO_MIN,
+  SHUTTER_ALBEDO_RANGE,
   SHUTTER_RIDGE_M,
   SHUTTER_SHARE,
   STREAK_DARKEN,
@@ -96,7 +104,7 @@ const FLUORO = vec3(WINDOW_TINTS[1][0], WINDOW_TINTS[1][1], WINDOW_TINTS[1][2]);
 const CYAN = vec3(WINDOW_TINTS[2][0], WINDOW_TINTS[2][1], WINDOW_TINTS[2][2]);
 const MAGENTA = vec3(WINDOW_TINTS[3][0], WINDOW_TINTS[3][1], WINDOW_TINTS[3][2]);
 const GLASS = vec3(GLASS_ALBEDO, GLASS_ALBEDO, GLASS_ALBEDO);
-const SHUTTER = vec3(0.04, 0.038, 0.035);
+const SHUTTER_TINT = vec3(1, 0.95, 0.88);
 const MULLION = vec3(0.012, 0.011, 0.01);
 
 /**
@@ -145,7 +153,10 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
 
   const seamT = fract(uM.div(PANEL_SEAM_M));
   const distSeam = min(seamT, seamT.oneMinus()).mul(PANEL_SEAM_M);
-  const seamH = float(1).sub(smoothstep(0, 0.04, distSeam));
+  // Fine detail (seams / mullions / blinds / ridges) fades with distance so it
+  // never aliases into sub-pixel vertical stripes (PM GPU review).
+  const fade = float(1).sub(smoothstep(DETAIL_FADE_NEAR_M, DETAIL_FADE_FAR_M, length(positionView)));
+  const seamH = float(1).sub(smoothstep(0, 0.04, distSeam)).mul(fade);
 
   const streak = vnoiseNode(vec2(uv2.x.mul(STREAK_U_SCALE), uv2.y.mul(STREAK_V_SCALE)));
   const belowCornice = float(1).sub(smoothstep(0, 0.4, floorT));
@@ -154,7 +165,7 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const wallCol = base.mul(mix(float(1), float(1 - FLOOR_BAND_DARKEN), bandH)).mul(float(1).sub(streakAmt.mul(STREAK_DARKEN)));
   const wallR = float(WALL_ROUGHNESS).sub(streakAmt.mul(STREAK_ROUGHNESS_DROP));
 
-  const ridge = abs(fract(vM.div(SHUTTER_RIDGE_M)).sub(0.5)).mul(2);
+  const ridge = abs(fract(vM.div(SHUTTER_RIDGE_M)).sub(0.5)).mul(2).mul(fade);
 
   if (!withWindows) {
     return {
@@ -196,7 +207,7 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const wy = f.y.sub(WINDOW_PX_Y0 / ATLAS_CELL_PX).div((WINDOW_PX_Y1 - WINDOW_PX_Y0) / ATLAS_CELL_PX);
   const stripe = fract(wy.mul(3));
   const inStripe = step(0.38, stripe).mul(float(1).sub(step(0.62, stripe)));
-  const blindsMask = select(hasBlinds, float(1).sub(inStripe.mul(0.88)), float(1));
+  const blindsMask = select(hasBlinds, float(1).sub(inStripe.mul(0.88).mul(fade)), float(1));
   const rFlick = hash2Node(vec2(cellU.add(seed.mul(7)), cellV.add(HASH_SALT_FLICKER)));
   const flick = select(
     rFlick.lessThan(FLICKER_SHARE),
@@ -210,24 +221,37 @@ function wallNodes(u: WetUniforms, withWindows: boolean) {
   const isShutter = hash2Node(vec2(segment.add(seed.mul(8)), HASH_SALT_SHOP)).lessThan(SHUTTER_SHARE);
   const mullionT = fract(uM.div(MULLION_M));
   const mullionDist = min(mullionT, mullionT.oneMinus()).mul(MULLION_M);
-  const inMullion = mullionDist.lessThan(0.07);
+  const mullion = select(mullionDist.lessThan(0.07), float(1), float(0)).mul(fade);
+  // Shop glass lights only the middle 3.6 m of its segment; 1.2 m dark piers each side.
+  const segX = uM.sub(segment.mul(SHOPFRONT_SEGMENT_M));
+  const inSpan = step(SHOP_PIER_M, segX).mul(float(1).sub(step(SHOPFRONT_SEGMENT_M - SHOP_PIER_M, segX)));
   const rShopI = hash2Node(vec2(segment.add(seed.mul(3)), HASH_SALT_SHOP_INT));
   const shopI = float(SHOP_EMISSIVE_MIN).add(float(SHOP_EMISSIVE_RANGE).mul(rShopI));
   const rShopT = hash2Node(vec2(segment.add(seed.mul(4)), HASH_SALT_SHOP_TINT));
   const shopTint = select(rShopT.lessThan(0.5), TUNGSTEN, select(rShopT.lessThan(0.75), CYAN, MAGENTA));
-  const shopEm = shopTint.mul(shopI).mul(select(inMullion, float(0), float(1)));
+  const shopEm = shopTint.mul(shopI).mul(mullion.oneMinus()).mul(inSpan);
+  const rShutter = hash2Node(vec2(segment.add(seed.mul(6)), HASH_SALT_SHUTTER));
+  const shutterCol = SHUTTER_TINT.mul(float(SHUTTER_ALBEDO_MIN).add(rShutter.mul(SHUTTER_ALBEDO_RANGE)));
 
   const shutterOn = select(inShop, select(isShutter, float(1), float(0)), float(0));
 
-  const shopCol = select(isShutter, SHUTTER, select(inMullion, MULLION, GLASS));
+  const glassCol = mix(mix(wallCol, GLASS, inSpan), MULLION, mullion.mul(inSpan));
+  const shopCol = select(isShutter, shutterCol, glassCol);
   const color = select(inShop, shopCol, mix(wallCol, GLASS, inWindow));
-  const roughness = select(inShop, select(isShutter, float(0.38), float(GLASS_ROUGHNESS)), mix(wallR, float(GLASS_ROUGHNESS), inWindow));
+  const roughness = select(
+    inShop,
+    select(isShutter, float(0.38), mix(wallR, float(GLASS_ROUGHNESS), inSpan)),
+    mix(wallR, float(GLASS_ROUGHNESS), inWindow),
+  );
   const metalness = select(
     inShop,
-    select(isShutter, float(0.72), float(GLASS_METALNESS)),
+    select(isShutter, float(0.72), mix(float(WALL_METALNESS), float(GLASS_METALNESS), inSpan)),
     mix(float(WALL_METALNESS), float(GLASS_METALNESS), inWindow),
   );
+  // Shutters never emit.
   const emissive = select(inShop, select(isShutter, vec3(0, 0, 0), shopEm), winEm);
 
-  return { color, roughness, metalness, emissive, seam: seamH, band: bandH, ridge: ridge.mul(shutterOn) };
+  // No panel seams across glass: they read as vertical stripes inside windows.
+  const seam = seamH.mul(inWindow.oneMinus());
+  return { color, roughness, metalness, emissive, seam, band: bandH, ridge: ridge.mul(shutterOn) };
 }

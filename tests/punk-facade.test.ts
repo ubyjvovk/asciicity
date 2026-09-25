@@ -13,8 +13,12 @@ import {
   WINDOW_CELL_M,
   WINDOW_TINTS,
   buildingSeed,
+  detailFade,
+  inShopLitSpan,
   isDarkBuilding,
+  shopEmissive,
   shopfrontKind,
+  shutterAlbedo,
   windowLight,
 } from '../src/render/punk/facademath';
 
@@ -151,7 +155,7 @@ describe('cyberpunk facades', () => {
     }
   });
 
-  it('shopfrontKind shutter share within [0.50, 0.60]', () => {
+  it('shopfrontKind shutter share within [0.70, 0.80]', () => {
     const rng = mulberry32(0x5109);
     let shutter = 0;
     const n = 10_000;
@@ -160,8 +164,41 @@ describe('cyberpunk facades', () => {
       if (shopfrontKind(i % 97, seed) === 'shutter') shutter++;
     }
     const share = shutter / n;
-    expect(share).toBeGreaterThanOrEqual(0.5);
-    expect(share).toBeLessThanOrEqual(0.6);
+    expect(share).toBeGreaterThanOrEqual(0.7);
+    expect(share).toBeLessThanOrEqual(0.8);
+  });
+
+  it('shop glass emissive in [0.18, 0.55], lit only in the middle 3.6 m; shutters 0.02–0.05', () => {
+    const rng = mulberry32(0x5e9);
+    for (let i = 0; i < 2000; i++) {
+      const seed = buildingSeed(rng(), rng(), rng());
+      const e = shopEmissive(i, seed);
+      expect(e).toBeGreaterThanOrEqual(0.18);
+      expect(e).toBeLessThanOrEqual(0.55);
+      const a = shutterAlbedo(i, seed);
+      expect(a).toBeGreaterThanOrEqual(0.02);
+      expect(a).toBeLessThanOrEqual(0.05);
+    }
+    expect(inShopLitSpan(0.5)).toBe(false);
+    expect(inShopLitSpan(1.1)).toBe(false);
+    expect(inShopLitSpan(1.2)).toBe(true);
+    expect(inShopLitSpan(3)).toBe(true);
+    expect(inShopLitSpan(4.79)).toBe(true);
+    expect(inShopLitSpan(4.8)).toBe(false);
+    expect(inShopLitSpan(6 + 3)).toBe(true);
+    expect(inShopLitSpan(-3)).toBe(true);
+    let lit = 0;
+    for (let x = 0; x < 600; x++) if (inShopLitSpan(x / 100)) lit++;
+    expect(lit / 600).toBeCloseTo(0.6, 2);
+  });
+
+  it('fine detail fades with distance: 1 at ≤ 15 m, 0 at ≥ 60 m', () => {
+    expect(detailFade(0)).toBe(1);
+    expect(detailFade(15)).toBe(1);
+    expect(detailFade(37.5)).toBeCloseTo(0.5, 6);
+    expect(detailFade(60)).toBe(0);
+    expect(detailFade(500)).toBe(0);
+    for (let d = 15; d < 60; d += 1) expect(detailFade(d + 1)).toBeLessThanOrEqual(detailFade(d));
   });
 
   it('determinism: same inputs → same outputs', () => {
@@ -172,5 +209,7 @@ describe('cyberpunk facades', () => {
     const b = windowLight(12, 5, seed);
     expect(b).toEqual(a);
     expect(shopfrontKind(3, seed)).toBe(shopfrontKind(3, seed));
+    expect(shopEmissive(3, seed)).toBe(shopEmissive(3, seed));
+    expect(shutterAlbedo(3, seed)).toBe(shutterAlbedo(3, seed));
   });
 });
