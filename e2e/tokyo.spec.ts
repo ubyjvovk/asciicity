@@ -6,7 +6,9 @@
  * and a `BEARING` HUD row, and that booting the `skytree` preset resolves to
  * the derived-from-data east-side vantage on tile 4_-3 with the spawn tile
  * loaded (mechanical, does not depend on which HUD surface carries the
- * `Skytree` string at 795 m out). Never edits smoke/tiles/loading specs.
+ * `Skytree` string at 795 m out). Wave 22 (T-0166): the PLATEAU credit and
+ * a street-walkability check of the default spawn. Never edits
+ * smoke/tiles/loading specs.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -75,6 +77,73 @@ test('tokyo: plain ?city=tokyo (no at) resolves the shibuya default spawn — WO
   const EXPECTED_Z = 2419.7;
   expect(Math.hypot(info.x - EXPECTED_X, info.z - EXPECTED_Z)).toBeLessThan(60);
   expect(info.loaded.length).toBeGreaterThan(0);
+});
+
+test('tokyo: PLATEAU buildings (wave 22) — the #credits line names PLATEAU and the shibuya boot spawn is on a walkable street', async ({
+  page,
+}) => {
+  await page.goto('/?city=tokyo&tileradius=600');
+  await waitReady(page);
+
+  // PDL 1.0 attribution: main.ts appends `CREDITS.plateau` for Tokyo only.
+  await expect(page.locator('#credits')).toContainText('PLATEAU');
+
+  // Walkable street: fetch the spawn's 3×3 tiles and check the player
+  // position is outside every building footprint (PLATEAU replaced most of
+  // them, T-0166) and within 15 m of a road polyline (the spawn.test.ts rule).
+  const street = await page.evaluate(async () => {
+    type Pt = [number, number];
+    const api = (window as unknown as {
+      __asciicity?: { state?: { x: number; z: number } };
+    }).__asciicity;
+    const p: Pt = [api?.state?.x ?? NaN, api?.state?.z ?? NaN];
+    const inside = (poly: Pt[]): boolean => {
+      let c = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, zi] = poly[i];
+        const [xj, zj] = poly[j];
+        if (zi > p[1] !== zj > p[1] && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) c = !c;
+      }
+      return c;
+    };
+    const segDist = (a: Pt, b: Pt): number => {
+      const dx = b[0] - a[0];
+      const dz = b[1] - a[1];
+      const len2 = dx * dx + dz * dz;
+      const t = len2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / len2)) : 0;
+      return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz);
+    };
+    const index = (await (await fetch('data/tokyo/index.json')).json()) as {
+      tileSize: number;
+      tiles: Record<string, unknown>;
+    };
+    const si = Math.floor(p[0] / index.tileSize);
+    const sj = Math.floor(p[1] / index.tileSize);
+    let insideBuildings = 0;
+    let buildings = 0;
+    let roadDist = Infinity;
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const key = `${si + di}_${sj + dj}`;
+        if (!(key in index.tiles)) continue;
+        const tile = (await (await fetch(`data/tokyo/tiles/${key}.json`)).json()) as {
+          buildings: { poly: Pt[] }[];
+          roads: { pts: Pt[] }[];
+        };
+        for (const b of tile.buildings) {
+          buildings++;
+          if (inside(b.poly)) insideBuildings++;
+        }
+        for (const r of tile.roads) {
+          for (let i = 0; i < r.pts.length - 1; i++) roadDist = Math.min(roadDist, segDist(r.pts[i], r.pts[i + 1]));
+        }
+      }
+    }
+    return { buildings, insideBuildings, roadDist };
+  });
+  expect(street.buildings).toBeGreaterThan(0);
+  expect(street.insideBuildings).toBe(0);
+  expect(street.roadDist).toBeLessThan(15);
 });
 
 test('tokyo: booting the skytree preset resolves to the east-side vantage on tile 4_-3 with the spawn tile loaded', async ({

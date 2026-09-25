@@ -90,7 +90,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/tokyo/index.json',
     defaultSpawn: 'shibuya',
     blurb: 'Shibuya Scramble to the Skytree · streamed',
-    sizeBytes: 2697648,
+    sizeBytes: 2768132, // wave 22 PLATEAU buildings (T-0166)
     tiled: true,
     defaultRender: 'matrix',
   },
