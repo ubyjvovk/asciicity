@@ -2156,11 +2156,11 @@ export function convertOverpass(json, opts) {
    * One building entry. Simple-3D-Buildings fields (`roof`, `osmColor`,
    * `roofColor`, `material`; data-format "Simple 3D Buildings") are emitted
    * only when their tags parse, so untagged buildings keep today's keys.
-   * `minH` is the base height the caller will emit (0 when grounded).
+   * `minH` is the base height the caller will emit (0 when grounded);
+   * `h` defaults to `heightOf(tags)`.
    */
-  const buildEntry = (id, tags, poly, minH = 0) => {
+  const buildEntry = (id, tags, poly, minH = 0, h = heightOf(tags)) => {
     const name = pickName(tags, lang);
-    const h = heightOf(tags);
     const roof = roofOf(tags, poly, h, minH);
     const bc = tags['building:colour'];
     const osmColor = parseColour(bc !== undefined && bc !== '' ? bc : tags.colour);
@@ -2178,11 +2178,16 @@ export function convertOverpass(json, opts) {
     };
   };
 
-  /** Outline entry plus `minH` when the part starts above ground. */
+  /**
+   * Outline entry plus `minH` when the part starts above ground. Thin raised
+   * parts (`h − minH < 1.2`) keep their altitude as a 1.2 m slab
+   * (data-format "Building parts" item 2, wave 21).
+   */
   const buildPartEntry = (id, tags, poly) => {
-    const raw = minHeightOf(tags);
-    const minH = raw > 0 && raw < heightOf(tags) - 1 ? raw : 0;
-    const entry = buildEntry(id, tags, poly, minH);
+    const minH = minHeightOf(tags);
+    let h = heightOf(tags);
+    if (minH > 0 && h - minH < 1.2) h = round1(minH + 1.2);
+    const entry = buildEntry(id, tags, poly, minH, h);
     if (minH > 0) entry.minH = minH;
     return entry;
   };

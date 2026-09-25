@@ -1007,10 +1007,11 @@ describe('Kyiv building presets resolve to unblocked points (T-0059)', () => {
   });
 });
 
-// T-0069: trafalgar is a building preset on the 52 m Nelson's Column extra.
-// Against the real London CollisionGrid it must resolve via landmarkSpawn
-// (not the WGS84 fallback), 100–180 m from the extra centroid (h=52 →
-// targetDist 132), with a clear T-0059 corridor, facing the extra within 10°.
+// T-0069: trafalgar is a building preset on Nelson's Column. Since the wave
+// 21 regen (T-0160) that is the named OSM shaft part (minH 14, h 46; the 52 m
+// extra is gone). Against the real London CollisionGrid it must resolve via
+// landmarkSpawn (not the WGS84 fallback), 100–180 m from the column centroid
+// (h=46 → targetDist 125), with a clear T-0059 corridor, facing it within 10°.
 describe('London trafalgar preset (T-0069)', () => {
   const LONDON: CityData = loadTiledCity('london');
   const city = applyLandmarks(LONDON, 'london');
@@ -1024,12 +1025,10 @@ describe('London trafalgar preset (T-0069)', () => {
       .map((r) => ({ pts: r.pts, halfWidth: ROAD_WIDTH[r.cls] / 2 + 1 })),
   );
 
-  it("resolveSpawn('trafalgar') against the real London data + CollisionGrid resolves via landmarkSpawn (not the fallback), 100–180 m from the extra's centroid (52 m → targetDist 132), corridor clear per the T-0059 rule, facing it within 10°", () => {
-    const extra = city.buildings.find(
-      (b) => b.name === "Nelson's Column" && b.id <= -1000,
-    );
+  it("resolveSpawn('trafalgar') against the real London data + CollisionGrid resolves via landmarkSpawn (not the fallback), 100–180 m from the column's centroid (46 m → targetDist 125), corridor clear per the T-0059 rule, facing it within 10°", () => {
+    const extra = city.buildings.find((b) => b.name === "Nelson's Column" && b.id > 0);
     expect(extra).toBeDefined();
-    expect(extra!.h).toBe(52);
+    expect(extra!.h).toBeCloseTo(46, 0);
     let cx = 0;
     let cz = 0;
     for (const [px, pz] of extra!.poly) {

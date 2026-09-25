@@ -310,6 +310,21 @@ describe('osm-convert building parts', () => {
     expect(b!.minH).toBeCloseTo(20, 5);
   });
 
+  it('thin raised building:part keeps its altitude as a 1.2 m slab', () => {
+    const city = convertElements([
+      closedRect(1, { 'building:part': 'yes', height: '44', min_height: '43' }, 0, 0, 10, 10),
+      closedRect(2, { 'building:part': 'yes', height: '13', min_height: '12' }, 20, 0, 30, 10),
+      closedRect(3, { 'building:part': 'yes', height: '12', min_height: '10' }, 40, 0, 50, 10),
+    ]);
+    const byId = (id: number) => city.buildings.find((bd) => bd.id === id)!;
+    expect(byId(1).minH).toBeCloseTo(43, 5);
+    expect(byId(1).h).toBeCloseTo(44.2, 5);
+    expect(byId(2).minH).toBeCloseTo(12, 5);
+    expect(byId(2).h).toBeCloseTo(13.2, 5);
+    expect(byId(3).minH).toBeCloseTo(10, 5);
+    expect(byId(3).h).toBeCloseTo(12, 5);
+  });
+
   it('building:part from levels uses ×3.3 (+2 for h, +0 for minH)', () => {
     const city = convertElements([
       closedRect(
@@ -1773,20 +1788,21 @@ describe('committed public/data/london', () => {
   });
 
   it('counts are within ±5 % of the Westminster dataset baseline', () => {
-    expect(city.buildings.length).toBeGreaterThanOrEqual(Math.round(9061 * 0.95));
-    expect(city.buildings.length).toBeLessThanOrEqual(Math.round(9061 * 1.05));
+    // Baselines: wave 21 regen (T-0160), building:parts now included.
+    expect(city.buildings.length).toBeGreaterThanOrEqual(Math.round(13865 * 0.95));
+    expect(city.buildings.length).toBeLessThanOrEqual(Math.round(13865 * 1.05));
     // Tiling splits non-bridge roads at 1000 m boundaries, so array length is
     // not stable — unique OSM ids still match the monolithic count.
     const uniqueRoads = new Set(
       (city.roads as Array<{ id: number }>).map((r) => r.id),
     ).size;
-    expect(uniqueRoads).toBeGreaterThanOrEqual(Math.round(7803 * 0.95));
-    expect(uniqueRoads).toBeLessThanOrEqual(Math.round(7803 * 1.05));
+    expect(uniqueRoads).toBeGreaterThanOrEqual(Math.round(8194 * 0.95));
+    expect(uniqueRoads).toBeLessThanOrEqual(Math.round(8194 * 1.05));
     expect(city.places.length).toBeGreaterThanOrEqual(Math.round(99 * 0.95));
     expect(city.places.length).toBeLessThanOrEqual(Math.round(99 * 1.05));
     const water = city.water ?? [];
-    expect(water.length).toBeGreaterThanOrEqual(Math.round(31 * 0.95));
-    expect(water.length).toBeLessThanOrEqual(Math.round(31 * 1.05));
+    expect(water.length).toBeGreaterThanOrEqual(Math.round(63 * 0.95));
+    expect(water.length).toBeLessThanOrEqual(Math.round(63 * 1.05));
   });
 
   it('has a building named Palace of Westminster', () => {

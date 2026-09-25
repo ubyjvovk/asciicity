@@ -81,8 +81,10 @@ export const LANDMARK_FIXES: Readonly<Record<string, Readonly<Record<string, Lan
   london: {
     "St Paul's Cathedral": { shape: 'dome' },
     'Elizabeth Tower': { shape: 'spire' },
-    // OSM maps the column as its 338 m² plinth at the default 14 m.
-    "Nelson's Column": { h: 6, color: 0xe8e0c8, label: 'Trafalgar Square' },
+    // Wave 21 regen (T-0160): OSM now models the column as building:parts
+    // and the name sits on the shaft part (minH 14, h 46), so only the
+    // colour and tag are fixed — no height override, no 52 m extra.
+    "Nelson's Column": { color: 0xe8e0c8, label: 'Trafalgar Square' },
   },
   sf: {
     // SF downtown is well-tagged (checked against the fetched sf.json):
@@ -170,16 +172,10 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
       shape: 'tower',
     },
   ],
-  london: [
-    {
-      name: "Nelson's Column",
-      lon: -0.12793,
-      lat: 51.50776,
-      h: 52,
-      size: 5,
-      color: 0xe8e0c8,
-    },
-  ],
+  // Wave 21 regen (T-0160): the 52 m Nelson's Column extra is gone — OSM's
+  // own column parts (shaft 14–46 m, pedestal, capital) now stand there.
+  // Keep the empty entry: an absent one would skip the London fixes.
+  london: [],
   sf: [
     {
       name: 'Ferry Building Clock Tower',
@@ -194,7 +190,7 @@ export const EXTRA_BUILDINGS: Readonly<Record<string, readonly ExtraBuilding[]>>
   // Manhattan (wave 10, architecture.md §4.13 wave-10 row 19). OSM has the
   // arch at h 20.5 but as an ordinary square; the extra restages it as an
   // 8×8 m ivory landmark with a matching floating tag alongside the OSM
-  // building, exactly the way Nelson's Column does in London.
+  // building (the pairing Nelson's Column used in London until wave 21).
   nyc: [
     {
       name: 'Washington Square Arch',
@@ -253,8 +249,8 @@ export function applyLandmarks(city: CityData, cityId: string): CityData {
   }
 
   // Apply height/shape overrides by exact OSM name. Extras keep the h/shape
-  // they were created with, even when they share an OSM name (Nelson's
-  // Column is both a 6 m plinth and a 52 m extra).
+  // they were created with, even when they share an OSM name (e.g. the
+  // Washington Square Arch is both an OSM building and an extra).
   let buildings = city.buildings.map((b) => {
     if (b.id <= -1000) return b;
     const fix = b.name !== undefined ? fixes[b.name] : undefined;

@@ -37,7 +37,7 @@ describe('LANDMARK_FIXES', () => {
     expect(LANDMARK_FIXES.kyiv['Bell tower'].shape).toBe('spire');
     expect(LANDMARK_FIXES.london["St Paul's Cathedral"].shape).toBe('dome');
     expect(LANDMARK_FIXES.london['Elizabeth Tower'].shape).toBe('spire');
-    expect(LANDMARK_FIXES.london["Nelson's Column"].h).toBe(6);
+    expect(LANDMARK_FIXES.london["Nelson's Column"].h).toBeUndefined();
     expect(LANDMARK_FIXES.london["Nelson's Column"].label).toBe('Trafalgar Square');
   });
 });
@@ -141,55 +141,33 @@ describe('applyLandmarks (London / synthetic)', () => {
     expect(names["St Paul's Cathedral"].shape).toBe('dome');
     expect(names['Elizabeth Tower'].shape).toBe('spire');
     // Shape-only fixes: St Paul's / Elizabeth Tower heights are untouched.
-    // Building count grows by the Nelson's Column extra (covered below).
+    // London has no extras since wave 21, so the building count is unchanged.
     expect(names["St Paul's Cathedral"].h).toBe(
       byName(LONDON.buildings)["St Paul's Cathedral"].h,
     );
     expect(names['Elizabeth Tower'].h).toBe(byName(LONDON.buildings)['Elizabeth Tower'].h);
-    expect(city.buildings.length).toBe(LONDON.buildings.length + 1);
+    expect(city.buildings.length).toBe(LONDON.buildings.length);
   });
 
-  it('the OSM Nelson\'s Column has h === 6', () => {
+  it('the named OSM Nelson\'s Column part exists with minH ≈ 14 and h ≈ 46 (wave 21: no h fix)', () => {
     const city = applyLandmarks(LONDON, 'london');
-    const osm = city.buildings.find((b) => b.name === "Nelson's Column" && b.id > 0);
-    expect(osm).toBeDefined();
-    expect(osm!.h).toBe(6);
+    const osm = city.buildings.filter((b) => b.name === "Nelson's Column" && b.id > 0);
+    expect(osm).toHaveLength(1);
+    expect(osm[0]!.minH).toBeCloseTo(14, 0);
+    expect(osm[0]!.h).toBeCloseTo(46, 0);
+    // The fix no longer overrides the height: applyLandmarks leaves h alone.
+    const raw = LONDON.buildings.find((b) => b.id === osm[0]!.id);
+    expect(osm[0]!.h).toBe(raw!.h);
   });
 
-  it('appends exactly one extra named Nelson\'s Column with h === 52 and a 4-point square of side 5 within 1 m of the projected point and id ≤ −1000', () => {
-    const city = applyLandmarks(LONDON, 'london');
-    const extras = city.buildings.filter(
-      (b) => b.name === "Nelson's Column" && b.id <= -1000,
-    );
-    expect(extras).toHaveLength(1);
-    const extra = extras[0]!;
-    expect(extra.h).toBe(52);
-    expect(extra.shape).toBeUndefined();
-    expect(extra.poly).toHaveLength(4);
-    const [a, b, c, d] = extra.poly;
-    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(5);
-    expect(Math.hypot(b[0] - c[0], b[1] - c[1])).toBeCloseTo(5);
-    expect(Math.hypot(c[0] - d[0], c[1] - d[1])).toBeCloseTo(5);
-    expect(Math.hypot(d[0] - a[0], d[1] - a[1])).toBeCloseTo(5);
-    const cx = (a[0] + b[0] + c[0] + d[0]) / 4;
-    const cz = (a[1] + b[1] + c[1] + d[1]) / 4;
-    const [px, pz] = project(-0.12793, 51.50776, LONDON.origin);
-    expect(Math.hypot(cx - px, cz - pz)).toBeLessThan(1);
-    expect(extra.id).toBeLessThanOrEqual(-1000);
-  });
-
-  it('is idempotent — applying twice adds no second Nelson\'s Column extra', () => {
+  it('the 52 m Nelson\'s Column extra no longer exists (no London extras at all, even when applied twice)', () => {
     const once = applyLandmarks(LONDON, 'london');
     const twice = applyLandmarks(once, 'london');
-    expect(
-      twice.buildings.filter((b) => b.name === "Nelson's Column" && b.id <= -1000),
-    ).toHaveLength(1);
-    expect(twice.buildings.filter((b) => b.name === "Nelson's Column")).toHaveLength(2);
-    expect(twice.buildings.length).toBe(LONDON.buildings.length + 1);
-    const extra = twice.buildings.find(
-      (b) => b.name === "Nelson's Column" && b.id <= -1000,
-    );
-    expect(extra!.h).toBe(52);
+    for (const city of [once, twice]) {
+      expect(city.buildings.filter((b) => b.id <= -1000)).toHaveLength(0);
+      expect(city.buildings.filter((b) => b.name === "Nelson's Column")).toHaveLength(1);
+      expect(city.buildings.length).toBe(LONDON.buildings.length);
+    }
   });
 
   it('returns an unknown/synthetic id unchanged (deep-equal)', () => {
@@ -398,7 +376,7 @@ describe('applyLandmarks (Manhattan)', () => {
   it('the OSM Washington Square Arch keeps its own h (both entries coexist, like Nelson\'s Column)', () => {
     const city = applyLandmarks(NYC, 'nyc');
     const arches = city.buildings.filter((b) => b.name === 'Washington Square Arch');
-    // OSM arch + extra (both share the name); the pair works exactly like the
+    // OSM arch + extra (both share the name); the pair works like the pre-wave-21
     // London Nelson's Column plinth-plus-extra pairing.
     expect(arches.length).toBe(2);
     const osm = arches.find((b) => b.id > 0)!;
