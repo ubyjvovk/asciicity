@@ -46,6 +46,26 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 22 COMPLETE — Tokyo from PLATEAU (2026-09-25 ~16:00)
+- T-0164 validator, T-0165 tiers rendering (+exteriorWalls, byte-identical
+  for tier-less buildings: 9 sha256 hashes), T-0163 converter (1 rework:
+  rule 3b name fallback, recovered 243/455 names incl. Shibuya), T-0166
+  regen (1 block: shinjuku preset moved 10.8 m off a new PLATEAU
+  structure; shibuya anchor bound 120 → 200 m).
+- Tokyo now: 200 424 buildings (192 644 PLATEAU + 7 341 OSM kept + 439 OSM
+  parts), 10 116 roofs, 23 540 tiered buildings / 92 900 tiers, 50.5 MB
+  (≤ 60 MB), max tile 1.35 MB. PLATEAU 8.4 GB GML cache in
+  `/home/d/asciicity/.cache/plateau` (gitignored; worker containers mount it
+  read-only — use a symlink cache dir, see docs/fetch-osm.md).
+- PM GPU review: Shinjuku skyline (TMG 243 m, Mitsui 225 m), stepped
+  towers single-coloured, cyberpunk streets with Japanese neon (ホテル), ASCII
+  fine, PLATEAU credit in the footer, 60 fps everywhere.
+- Opus lane: all 5 wave-22 tickets + 3 wave-21 tickets; report quality and
+  scope discipline excellent (flags instead of guesses every time).
+- Backlog (not boarded): PLATEAU texture mean colours (DC-only JPEG
+  decoder), footprint Douglas–Peucker, tile-level tier validation in
+  load.ts, fix tigerteam#5 upstream.
+
 ## Wave 21 COMPLETE + Wave 22 (Tokyo from PLATEAU) boarded — 2026-09-25 ~15:00
 - Wave 21 done: T-0158 converter, T-0159 roofs, T-0160 london+kyiv regen
   (+ PM decisions: baselines by worker, Nelson's Column from OSM parts, thin
