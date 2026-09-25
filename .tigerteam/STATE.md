@@ -46,6 +46,30 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 21 (2026-09-25) — OSM Simple 3D Buildings (roofs, colours, materials)
+- User chose option 1 of the geometry question (OSM S3DB tags) "since it's
+  cyberpunk"; Tokyo from PLATEAU (open LOD2 CityGML) is wave 22; the user is
+  thinking about proper geometry for the other cities.
+- PM coverage probe (Overpass, our bboxes): London roof:shape 33 % (18 %
+  non-flat), building:colour 31 %, roof:colour 37 %, material 28 %, parts
+  43 %; Kyiv 17 / 11 / 14 / 10 / 5 %, parts 15 %.
+- PM groundwork fa7f899: `Building.roof/osmColor/roofColor/material`
+  (types.ts), `MeshBuilder.setExtra` + `extra` attribute (mesh.ts),
+  data-format "Simple 3D Buildings" rules, §4.2 height-field roof builder,
+  §4.11 "Facades × OSM". OSM colours reach ONLY the cyberpunk facades;
+  roofs are geometry for every style; flat buildings byte-identical.
+- Tickets: T-0158 converter (opus), T-0159 roof builder (opus), T-0160
+  regenerate london + kyiv (grok, after T-0158), T-0161 facades × OSM
+  (opus, after T-0152 + T-0159; PM wires wet.ts on accept).
+- User 2026-09-25: grok must be the latest (pinned grok-4.7; verified the
+  image serves grok-4.7-build), and prioritise Opus (quota to burn by
+  Monday 2026-09-28) — Opus lane waits on the USER rebuilding the image
+  with Claude Code ≥ 2.1.280; then scale opus up (4) and route C2/C3 work
+  there first.
+- T-0155 (props, ds) reworked once: lamps placed at class width land inside
+  City facades (spec gap: no footprint test) — rework note asks for
+  footprint push-out + cable clipping.
+
 ## Wave 15 (2026-09-16) — lowpoly style, first tickets on the qwen lane
 - User brief: an '80s CGI renderer ("Money for Nothing" video: cartoonish,
   crude, super low-poly). PM decisions locked in architecture.md §4.11

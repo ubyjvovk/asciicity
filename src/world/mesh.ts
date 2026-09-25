@@ -21,7 +21,17 @@ export interface MeshData {
   uvs: Float32Array;
   colors: Float32Array;
   groups: MeshGroup[];
+  /**
+   * Optional per-vertex vec4 (wave 21): present only when `setExtra` was
+   * called at least once; vertices pushed before the first call get
+   * `EXTRA_NONE`. Becomes the `extra` geometry attribute. Buildings encode
+   * (osm r, g, b, material code) with −1 for "no OSM colour".
+   */
+  extra?: Float32Array;
 }
+
+/** Default `extra` value: no data. */
+export const EXTRA_NONE: readonly [number, number, number, number] = [-1, -1, -1, 0];
 
 /** Accumulates triangles; call `endGroup` to close a material group. */
 export class MeshBuilder {
@@ -31,6 +41,17 @@ export class MeshBuilder {
   private col: number[] = [];
   private groups: MeshGroup[] = [];
   private groupStart = 0;
+  private ext: number[] | null = null;
+  private curExtra: readonly [number, number, number, number] = EXTRA_NONE;
+
+  /** Set the `extra` vec4 for every vertex pushed from now on (enables the attribute). */
+  setExtra(v: readonly [number, number, number, number]): void {
+    if (this.ext === null) {
+      this.ext = [];
+      for (let i = 0; i < this.vertexCount; i++) this.ext.push(...EXTRA_NONE);
+    }
+    this.curExtra = v;
+  }
 
   /** Number of vertices pushed so far. */
   get vertexCount(): number {
@@ -43,6 +64,7 @@ export class MeshBuilder {
     this.nor.push(n[0], n[1], n[2]);
     this.uv.push(uv[0], uv[1]);
     this.col.push(color[0], color[1], color[2]);
+    if (this.ext !== null) this.ext.push(this.curExtra[0], this.curExtra[1], this.curExtra[2], this.curExtra[3]);
   }
 
   /** Triangle a→b→c sharing one normal and colour. */
@@ -68,13 +90,15 @@ export class MeshBuilder {
   /** Freeze into typed arrays. An unclosed trailing group is closed as material 0. */
   build(): MeshData {
     if (this.vertexCount > this.groupStart) this.endGroup(0);
-    return {
+    const out: MeshData = {
       positions: Float32Array.from(this.pos),
       normals: Float32Array.from(this.nor),
       uvs: Float32Array.from(this.uv),
       colors: Float32Array.from(this.col),
       groups: this.groups.slice(),
     };
+    if (this.ext !== null) out.extra = Float32Array.from(this.ext);
+    return out;
   }
 }
 
@@ -85,6 +109,7 @@ export function toGeometry(m: MeshData): THREE.BufferGeometry {
   g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
   g.setAttribute('uv', new THREE.BufferAttribute(m.uvs, 2));
   g.setAttribute('color', new THREE.BufferAttribute(m.colors, 3));
+  if (m.extra) g.setAttribute('extra', new THREE.BufferAttribute(m.extra, 4));
   for (const grp of m.groups) g.addGroup(grp.start, grp.count, grp.materialIndex);
   g.computeBoundingSphere();
   return g;

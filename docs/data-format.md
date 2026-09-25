@@ -327,6 +327,54 @@ Building is one flat 380 m slab. Rules:
    them → byte-identical behaviour). A later `fetch-data:sf` picks up SF's
    parts automatically.
 
+## Simple 3D Buildings: roofs, colours, materials (wave 21)
+
+OSM's Simple 3D Buildings tags, measured 2026-09-25 over our extents
+(share of building + part ways): London roof:shape 33 % (18 % non-flat),
+building:colour 31 %, roof:colour 37 %, building:material 28 %; Kyiv
+17 % / 11 % / 14 % / 10 % / 5 %. The converter keeps them as OPTIONAL
+fields (`Building.roof`, `osmColor`, `roofColor`, `material` in
+`src/data/types.ts`); absent tags → absent fields, so old datasets and
+cities that are not re-fetched stay valid and byte-identical.
+
+1. **roof:shape** (lower-cased, first `;` item) → `roof.shape`:
+   `gabled`, `gambrel`, `saltbox` → `gabled`; `hipped`, `half-hipped`,
+   `side_hipped`, `mansard` → `hipped`; `pyramidal`, `cone` → `pyramidal`;
+   `skillion`, `lean_to` → `skillion`; `dome` → `dome`; `onion` → `onion`;
+   `round` → `round`; `flat`, anything else, or missing → no `roof`.
+2. **roof.h**: `roof:height` (metres; `ft` honoured like `height`), else
+   `roof:levels × 3`, else the default — `gabled` / `hipped` / `skillion` /
+   `round` 3 m, `pyramidal` 4 m, `dome` 0.5 × R, `onion` 1.2 × R, where R =
+   √(area / π) of the footprint. Rounded to 0.1 m. Clamped to
+   `[0.5, h − minH − 1]`; if `h − minH − 1 < 0.5` the roof is dropped.
+   `h` stays the TOTAL height (OSM `height` includes the roof): walls stop
+   at `h − roof.h`.
+3. **roof.dir** (degrees clockwise from north, 0 ≤ dir < 360, rounded to
+   1°): `roof:direction` as a number, or a compass letter set
+   (N, NNE, NE, … NNW → 0, 22.5, 45 …). Else, if `roof:orientation=across`,
+   the bearing of the longest footprint edge + 90. Else omitted (consumers
+   use the longest edge).
+4. **Colours** → 24-bit ints: `building:colour` (fallback `colour`) →
+   `osmColor`; `roof:colour` → `roofColor`. Accepted: `#rgb`, `#rrggbb`
+   (case-insensitive, `#` optional for 6 hex digits), and the 148 CSS
+   named colours (`grey`/`gray` spellings, `_`/space/`-` ignored,
+   e.g. `light_grey`). First `;` item only. Anything else → absent.
+5. **building:material** → `material`: `brick` → brick; `stone`,
+   `sandstone`, `limestone`, `granite`, `marble` → stone; `concrete`,
+   `cement_block`, `reinforced_concrete` → concrete; `glass`,
+   `mirror` → glass; `metal`, `steel`, `aluminium`, `metal_plates` → metal;
+   `wood`, `timber_framing` → wood; `plaster`, `stucco`, `render` → plaster;
+   else absent.
+6. Parts keep their own tags; an outline replaced by parts (§Building
+   parts rule 3) transfers nothing but its name. Curated landmark `shape`
+   (`applyLandmarks`) wins over `roof` at render time.
+7. **Validation** (`src/data/validate.ts`): `roof.shape` in the enum,
+   `roof.h` finite in `[0.5, h − (minH ?? 0) − 1]`, `roof.dir` finite in
+   `[0, 360)` when present; colours integers in `[0, 0xffffff]`;
+   `material` in the enum.
+8. **Size**: expect +5–10 % tile JSON; report the before/after sizes in the
+   regeneration ticket.
+
 ## The real dataset: City of London to Westminster
 
 - **bbox** (minLon, minLat, maxLon, maxLat): `-0.130, 51.497, -0.070, 51.521`

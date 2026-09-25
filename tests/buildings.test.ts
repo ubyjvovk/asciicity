@@ -3,8 +3,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { FLAT_HEIGHT, type Building, type Vec2 } from '../src/data/types';
-import { buildBuildingsMesh, normalizeRing } from '../src/world/buildings';
+import { FLAT_HEIGHT, type Building, type BuildingRoof, type Vec2 } from '../src/data/types';
+import { buildBuildingsMesh, MATERIAL_CODE, normalizeRing } from '../src/world/buildings';
+import { type MeshData } from '../src/world/mesh';
+import { readFileSync } from 'node:fs';
 import {
   colorFor,
   LANDMARK_COLORS,
@@ -391,5 +393,325 @@ describe('LANDMARK_COLORS', () => {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(0xffffff);
     }
+  });
+});
+
+/** Vertex `i` of a mesh as [x, y, z]. */
+function vtx(m: MeshData, i: number): [number, number, number] {
+  return [m.positions[i * 3]!, m.positions[i * 3 + 1]!, m.positions[i * 3 + 2]!];
+}
+
+/** Vertex index range of material group `mat`. */
+function groupRange(m: MeshData, mat: number): [number, number] {
+  const g = m.groups.find((x) => x.materialIndex === mat);
+  return g ? [g.start, g.start + g.count] : [0, 0];
+}
+
+const key2 = (x: number, z: number): string => `${x.toFixed(3)},${z.toFixed(3)}`;
+const key3 = (p: readonly number[]): string => `${p[0]!.toFixed(3)},${p[1]!.toFixed(3)},${p[2]!.toFixed(3)}`;
+const segKey = (p: readonly number[], q: readonly number[]): string => {
+  const a = key3(p);
+  const b = key3(q);
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+};
+
+/** Wall-top segments (quad vertices 1 → 2 of every 6-vertex wall quad) of group 0. */
+function wallTopSegments(m: MeshData): Set<string> {
+  const [s, e] = groupRange(m, 0);
+  const out = new Set<string>();
+  for (let q = s; q + 5 < e; q += 6) out.add(segKey(vtx(m, q + 1), vtx(m, q + 2)));
+  return out;
+}
+
+/** Undirected roof edge → number of group-1 triangles using it. */
+function roofEdgeCounts(m: MeshData): Map<string, number> {
+  const [s, e] = groupRange(m, 1);
+  const out = new Map<string, number>();
+  for (let t = s; t < e; t += 3) {
+    const p = [vtx(m, t), vtx(m, t + 1), vtx(m, t + 2)];
+    for (let k = 0; k < 3; k++) {
+      const key = segKey(p[k]!, p[(k + 1) % 3]!);
+      out.set(key, (out.get(key) ?? 0) + 1);
+    }
+  }
+  return out;
+}
+
+const RECT_20x10: Vec2[] = [
+  [0, 0],
+  [20, 0],
+  [20, 10],
+  [0, 10],
+];
+const L_SHAPE: Vec2[] = [
+  [0, 0],
+  [30, 0],
+  [30, 10],
+  [10, 10],
+  [10, 30],
+  [0, 30],
+];
+
+/** Roofed 20×10 building (h 15) with the given roof. */
+function roofed(roof: BuildingRoof, poly: Vec2[] = RECT_20x10): Building {
+  return { id: 1, h: 15, poly, roof };
+}
+
+/** The §4.2 height-field formula, independent of the builder. */
+function fieldFormula(shape: string, s: number, t: number, L: number, W: number): number {
+  const clamp = (v: number): number => Math.min(1, Math.max(0, v));
+  if (shape === 'hipped') return clamp(Math.min(1 - Math.abs(t) / W, (L - Math.abs(s)) / W));
+  if (shape === 'pyramidal') return clamp(1 - Math.max(Math.abs(s) / L, Math.abs(t) / W));
+  if (shape === 'skillion') return (t + W) / (2 * W);
+  if (shape === 'round') return Math.sqrt(Math.max(0, 1 - (t / W) ** 2));
+  return 1 - Math.abs(t) / W;
+}
+
+// Checksum of a fixed 3-building flat fixture, recorded from main (8a517ba)
+// BEFORE the wave-21 roof builder landed: sum of each array + length.
+const FLAT_FIXTURE: Building[] = [
+  { id: 1, h: 12, poly: [[0, 0], [10, 0], [10, 10], [0, 10]] },
+  { id: 2, h: 20, minH: 4, poly: [[20, 0], [40, 0], [40, 8], [28, 8], [28, 20], [20, 20]] },
+  { id: 3, h: 7.5, poly: [[-30, -5], [-30, 15], [-10, 5]] },
+];
+const FLAT_FIXTURE_HEIGHT = (x: number, z: number): number => 0.01 * x - 0.02 * z;
+const FLAT_CHECKSUM = {
+  len: 333,
+  pos: 3178.5999960303307,
+  nor: 20.366563081741333,
+  uv: 125.83300897479057,
+  col: 104.7931089294143,
+  groups: [
+    { start: 0, count: 78, materialIndex: 0 },
+    { start: 78, count: 33, materialIndex: 1 },
+  ],
+};
+
+describe('roofs (wave 21, architecture §4.2 "Roofs + OSM facade data")', () => {
+  it('1. gabled 20×10 m, h 15, roof.h 4, dir 90: peak base+15, eaves base+11, ridge at t=0, gable ends closed', () => {
+    const base = 2;
+    const m = buildBuildingsMesh([roofed({ shape: 'gabled', h: 4, dir: 90 })], () => base);
+    let maxY = -Infinity;
+    for (let i = 0; i < m.positions.length / 3; i++) maxY = Math.max(maxY, vtx(m, i)[1]);
+    expect(maxY).toBeCloseTo(base + 15, 4);
+    // Eaves: wall-top vertices on the long walls (z = 0 / z = 10).
+    const [ws, we] = groupRange(m, 0);
+    let eaves = 0;
+    const gableTops = new Map<string, number>();
+    for (let i = ws; i < we; i++) {
+      const [x, y, z] = vtx(m, i);
+      if (y <= base + 1e-6) continue;
+      if (Math.abs(z) < 1e-6 || Math.abs(z - 10) < 1e-6) {
+        expect(y).toBeCloseTo(base + 11, 4);
+        eaves++;
+      }
+      if (Math.abs(x) < 1e-6 || Math.abs(x - 20) < 1e-6) gableTops.set(key2(x, z), y);
+    }
+    expect(eaves).toBeGreaterThan(0);
+    // Gable-end walls peak at their midpoint (z = 5, t = 0).
+    expect(gableTops.get(key2(0, 5))).toBeCloseTo(base + 15, 4);
+    expect(gableTops.get(key2(20, 5))).toBeCloseTo(base + 15, 4);
+    // Ridge: roof vertices at t = 0 (z = 5) reach base + 15.
+    const [rs, re] = groupRange(m, 1);
+    let ridge = 0;
+    for (let i = rs; i < re; i++) {
+      const [, y, z] = vtx(m, i);
+      if (Math.abs(z - 5) < 1e-6) {
+        expect(y).toBeCloseTo(base + 15, 4);
+        ridge++;
+      }
+    }
+    expect(ridge).toBeGreaterThan(0);
+    // No vertical gap: every wall-top segment is a roof boundary edge (same 3D endpoints).
+    const edges = roofEdgeCounts(m);
+    for (const seg of wallTopSegments(m)) expect(edges.get(seg)).toBe(1);
+  });
+
+  it('2. hipped / pyramidal / skillion / round: f at every roof vertex matches the §4.2 formula and 0 ≤ f ≤ 1', () => {
+    const cases: { roof: BuildingRoof; st: (x: number, z: number) => [number, number]; L: number; W: number }[] = [
+      // dir 90: a = east → s = x − 10, t = z − 5, L = 10, W = 5.
+      { roof: { shape: 'hipped', h: 4, dir: 90 }, st: (x, z) => [x - 10, z - 5], L: 10, W: 5 },
+      { roof: { shape: 'pyramidal', h: 4, dir: 90 }, st: (x, z) => [x - 10, z - 5], L: 10, W: 5 },
+      { roof: { shape: 'round', h: 4, dir: 90 }, st: (x, z) => [x - 10, z - 5], L: 10, W: 5 },
+      // dir 0: a = north (0, −1), b = east → s = 5 − z, t = x − 10, L = 5, W = 10.
+      { roof: { shape: 'skillion', h: 4, dir: 0 }, st: (x, z) => [5 - z, x - 10], L: 5, W: 10 },
+      { roof: { shape: 'skillion', h: 4, dir: 90 }, st: (x, z) => [x - 10, z - 5], L: 10, W: 5 },
+      // No dir: longest edge (0,0) → (20,0) → same frame as dir 90.
+      { roof: { shape: 'hipped', h: 4 }, st: (x, z) => [x - 10, z - 5], L: 10, W: 5 },
+    ];
+    for (const c of cases) {
+      const m = buildBuildingsMesh([roofed(c.roof)]);
+      const [rs, re] = groupRange(m, 1);
+      expect(re - rs).toBeGreaterThan(0);
+      for (let i = rs; i < re; i++) {
+        const [x, y, z] = vtx(m, i);
+        const [s, t] = c.st(x, z);
+        const f = (y - 11) / 4;
+        expect(f).toBeGreaterThanOrEqual(-1e-4);
+        expect(f).toBeLessThanOrEqual(1 + 1e-4);
+        expect(f).toBeCloseTo(fieldFormula(c.roof.shape, s, t, c.L, c.W), 4);
+      }
+      // Every roof face looks up.
+      for (let i = rs; i < re; i += 3) expect(m.normals[i * 3 + 1]!).toBeGreaterThan(0);
+    }
+  });
+
+  it('3. conformity on an L-shaped footprint: every roof edge is shared by two roof triangles or is a wall-top segment (no T-junctions, no cracks)', () => {
+    for (const shape of ['gabled', 'hipped', 'pyramidal', 'skillion', 'round'] as const) {
+      const m = buildBuildingsMesh([roofed({ shape, h: 4 }, L_SHAPE)]);
+      const edges = roofEdgeCounts(m);
+      const tops = wallTopSegments(m);
+      for (const [seg, count] of edges) {
+        if (count === 1) expect(tops.has(seg), `${shape} ${seg}`).toBe(true);
+        else expect(count, `${shape} ${seg}`).toBe(2);
+      }
+      expect(tops.size).toBeGreaterThanOrEqual(L_SHAPE.length);
+      for (const seg of tops) expect(edges.get(seg), `${shape} wall top ${seg}`).toBe(1);
+    }
+  });
+
+  it('4. dome and onion: lathe apex at base + h, onion max radius 1.25·R at 0.3·roof.h, a flat cap at wallTop', () => {
+    const base = 1;
+    // 20×20 square → R = min(L, W) = 10, centroid (10, 10); wallTop = base + 15 − 6.
+    const SQ20: Vec2[] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const wallTop = base + 9;
+    for (const shape of ['dome', 'onion'] as const) {
+      const m = buildBuildingsMesh([roofed({ shape, h: 6 }, SQ20)], () => base);
+      const [ws, we] = groupRange(m, 0);
+      for (let i = ws; i < we; i++) expect(vtx(m, i)[1]).toBeLessThanOrEqual(wallTop + 1e-4);
+      const [rs, re] = groupRange(m, 1);
+      // Flat cap: the first 2 roof triangles (square footprint), at wallTop, facing up.
+      for (let i = rs; i < rs + 6; i++) {
+        expect(vtx(m, i)[1]).toBeCloseTo(wallTop, 4);
+        expect(m.normals[i * 3 + 1]!).toBeCloseTo(1);
+      }
+      let maxY = -Infinity;
+      let maxR = 0;
+      let yAtMaxR = 0;
+      for (let i = rs + 6; i < re; i++) {
+        const [x, y, z] = vtx(m, i);
+        maxY = Math.max(maxY, y);
+        const r = Math.hypot(x - 10, z - 10);
+        if (r > maxR + 1e-9) {
+          maxR = r;
+          yAtMaxR = y;
+        }
+      }
+      expect(maxY).toBeCloseTo(base + 15, 4);
+      if (shape === 'onion') {
+        expect(Math.abs(maxR - 12.5) / 12.5).toBeLessThan(0.02);
+        expect(Math.abs(yAtMaxR - (wallTop + 0.3 * 6)) / (0.3 * 6)).toBeLessThan(0.02);
+      } else {
+        expect(maxR).toBeCloseTo(10, 4);
+      }
+      // Lathe faces point away from the axis (or up at the apex).
+      for (let t = rs + 6; t < re; t += 3) {
+        const p = [vtx(m, t), vtx(m, t + 1), vtx(m, t + 2)];
+        const mx = (p[0]![0] + p[1]![0] + p[2]![0]) / 3 - 10;
+        const mz = (p[0]![2] + p[1]![2] + p[2]![2]) / 3 - 10;
+        const n = [m.normals[t * 3]!, m.normals[t * 3 + 1]!, m.normals[t * 3 + 2]!];
+        expect(n[0]! * mx + n[2]! * mz + Math.max(0, n[1]!)).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("5. curated shape: 'dome' + roof → the landmark cap, roof ignored", () => {
+    const a = buildBuildingsMesh([squareBuilding({ shape: 'dome', h: 12 })]);
+    const b = buildBuildingsMesh([squareBuilding({ shape: 'dome', h: 12, roof: { shape: 'gabled', h: 4, dir: 90 } })]);
+    expect(Array.from(b.positions)).toEqual(Array.from(a.positions));
+    expect(Array.from(b.normals)).toEqual(Array.from(a.normals));
+    expect(b.groups).toEqual(a.groups);
+  });
+
+  it('6. extra: osmColor 0xff0000 + brick → walls (1, 0, 0, 1); roofColor only → roof colour, walls rgb −1; no OSM fields → extra undefined', () => {
+    const plain = squareBuilding({ id: 0 });
+    const brick = squareBuilding({ id: 1, osmColor: 0xff0000, material: 'brick' });
+    const roofOnly = squareBuilding({ id: 2, roofColor: 0x00ff00, roof: { shape: 'gabled', h: 2 } });
+    const m = buildBuildingsMesh([plain, brick, roofOnly]);
+    const ex = m.extra;
+    expect(ex).toBeDefined();
+    if (!ex) return;
+    const extraAt = (i: number): number[] => Array.from(ex.subarray(i * 4, i * 4 + 4));
+    // Group 0: plain walls 24, brick walls 24, roofed walls follow.
+    for (let i = 0; i < 24; i++) expect(extraAt(i)).toEqual([-1, -1, -1, 0]);
+    for (let i = 24; i < 48; i++) arraysClose(extraAt(i), [1, 0, 0, MATERIAL_CODE.brick]);
+    const [ws, we] = groupRange(m, 0);
+    for (let i = 48; i < we; i++) expect(extraAt(i)).toEqual([-1, -1, -1, 0]);
+    // Group 1: plain roof 6, brick roof 6 (rgb −1, brick), then the green roof.
+    const [rs, re] = groupRange(m, 1);
+    expect(ws).toBe(0);
+    for (let i = rs; i < rs + 6; i++) expect(extraAt(i)).toEqual([-1, -1, -1, 0]);
+    for (let i = rs + 6; i < rs + 12; i++) expect(extraAt(i)).toEqual([-1, -1, -1, 1]);
+    for (let i = rs + 12; i < re; i++) arraysClose(extraAt(i), [0, 1, 0, 0]);
+    expect(MATERIAL_CODE).toEqual({ brick: 1, stone: 2, concrete: 3, glass: 4, metal: 5, wood: 6, plaster: 7 });
+    // sRGB → linear on the colour channels.
+    const grey = buildBuildingsMesh([squareBuilding({ osmColor: 0x808080 })]).extra;
+    expect(grey?.[0]).toBeCloseTo(((128 / 255 + 0.055) / 1.055) ** 2.4, 5);
+    // A mesh without any OSM field has no extra attribute (roofed or not).
+    expect(buildBuildingsMesh([plain, squareBuilding({ id: 3, roof: { shape: 'hipped', h: 2 } })]).extra).toBeUndefined();
+  });
+
+  it('7. budget: gabled 3 m roofs on every building of london tile 0_0 stay ≤ 1.25 × flat triangles + wall overhead', () => {
+    const tile = JSON.parse(readFileSync('public/data/london/tiles/0_0.json', 'utf8')) as { buildings: Building[] };
+    const flat = buildBuildingsMesh(tile.buildings);
+    const roofedMesh = buildBuildingsMesh(tile.buildings.map((b) => ({ ...b, roof: { shape: 'gabled' as const, h: 3 } })));
+    const tris = (m: MeshData, mat: number): number => {
+      const [s, e] = groupRange(m, mat);
+      return (e - s) / 3;
+    };
+    const flatTotal = tris(flat, 0) + tris(flat, 1);
+    const roofTotal = tris(roofedMesh, 0) + tris(roofedMesh, 1);
+    const wallOverhead = tris(roofedMesh, 0) - tris(flat, 0);
+    console.log(
+      `london 0_0 buildings=${tile.buildings.length} flat tris=${flatTotal} (walls ${tris(flat, 0)}, roofs ${tris(flat, 1)}) ` +
+        `gabled tris=${roofTotal} (walls ${tris(roofedMesh, 0)}, roofs ${tris(roofedMesh, 1)}) ` +
+        `bound=${1.25 * flatTotal + wallOverhead}`,
+    );
+    expect(roofTotal).toBeLessThanOrEqual(1.25 * flatTotal + wallOverhead);
+  });
+
+  it('8. unchanged: flat buildings are not densified and match the pre-wave-21 checksum', () => {
+    const m = buildBuildingsMesh(FLAT_FIXTURE, FLAT_FIXTURE_HEIGHT);
+    const sum = (a: Float32Array): number => {
+      let t = 0;
+      for (const v of a) t += v;
+      return t;
+    };
+    expect(m.positions.length).toBe(FLAT_CHECKSUM.len);
+    expect(sum(m.positions)).toBe(FLAT_CHECKSUM.pos);
+    expect(sum(m.normals)).toBe(FLAT_CHECKSUM.nor);
+    expect(sum(m.uvs)).toBe(FLAT_CHECKSUM.uv);
+    expect(sum(m.colors)).toBe(FLAT_CHECKSUM.col);
+    expect(m.groups).toEqual(FLAT_CHECKSUM.groups);
+    expect(m.extra).toBeUndefined();
+  });
+});
+
+describe('roof runtime clamp (PM, after T-0159)', () => {
+  it('clamps roof.h to h − minH − 1 and drops the roof when that is < 0.5', async () => {
+    const { buildBuildingsMesh } = await import('../src/world/buildings');
+    const poly: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 10],
+      [0, 10],
+    ];
+    const tall = buildBuildingsMesh([{ id: 1, h: 6, poly, roof: { shape: 'gabled', h: 9 } }]);
+    let minY = Infinity;
+    for (let i = 1; i < tall.positions.length; i += 3) minY = Math.min(minY, tall.positions[i]);
+    expect(minY).toBeGreaterThanOrEqual(-1e-6); // walls never go below the base
+    let maxY = -Infinity;
+    for (let i = 1; i < tall.positions.length; i += 3) maxY = Math.max(maxY, tall.positions[i]);
+    expect(maxY).toBeCloseTo(6);
+    const flat = buildBuildingsMesh([{ id: 2, h: 6, poly }]);
+    const tiny = buildBuildingsMesh([{ id: 2, h: 1.2, minH: 0.5, poly, roof: { shape: 'hipped', h: 3 } }]);
+    const flatTiny = buildBuildingsMesh([{ id: 2, h: 1.2, minH: 0.5, poly }]);
+    expect(Array.from(tiny.positions)).toEqual(Array.from(flatTiny.positions));
+    expect(flat.positions.length).toBeGreaterThan(0);
   });
 });

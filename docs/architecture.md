@@ -111,6 +111,50 @@ single group 0. Read the file before using it.
   and `roofMat = MeshLambertMaterial({ vertexColors: true, color: 0x606060 })`.
   One draw call per material for the whole city.
 
+**Roofs + OSM facade data (wave 21, `buildings.ts`).** Data: data-format
+"Simple 3D Buildings". Applies to every style (real roofs are geometry);
+OSM colours/materials reach ONLY the cyberpunk facades.
+  - A building with `roof` and without curated `shape`: walls top out at
+    `wallTop = ringHeights.top + h − roof.h`; roof peak = `top + h`.
+  - Frame: axis `a` = unit vector of bearing `roof.dir` (x = sin, z = −cos)
+    or of the longest ring edge; `b` = a rotated +90°. Project the ring:
+    centre (ac, bc), half-extents L (along a), W (along b); local
+    s = along − ac, t = across − bc.
+  - Height field f(s, t) ∈ [0, 1], roof y = wallTop + roof.h · f:
+    gabled `1 − |t|/W`; hipped `clamp(min(1 − |t|/W, (L − |s|)/W), 0, 1)`;
+    pyramidal `clamp(1 − max(|s|/L, |t|/W), 0, 1)`; skillion `(t + W)/(2W)`;
+    round `sqrt(max(0, 1 − (t/W)²))`.
+  - Mesh for height-field shapes (as shipped by T-0159 — supersedes the
+    original densify-and-refine recipe, which blew the budget ×18 and could
+    not put a vertex exactly on a gable apex): split the ring where its
+    edges cross the shape's ACTIVE crease lines (ridge, hips, pyramid
+    diagonals, 7 facet lines for round = 8-facet barrel); triangulate with
+    `ShapeUtils` like `emitRoof`; cut triangles along the crease lines with
+    crossings cached per undirected edge (no T-junctions); boundary edges
+    are never split, so walls share every roof boundary vertex. Exact for
+    all shapes but round. Walls rise to `wallTop + roof.h · f(vertex)` at
+    each split-ring vertex. Flat buildings are untouched (byte-identical).
+  - Runtime clamp (PM, after T-0158's flag): `roof.h` is re-clamped to
+    `h − minH − 1` at build time and the roof dropped below 0.5 m, because
+    landmark fixes may lower `h` after conversion.
+  - dome / onion: walls to `wallTop`, a flat cap at `wallTop`, then a
+    12-segment lathe centred on the footprint centroid with radius
+    R = min(L, W): dome = quarter circle (8 rings) of height roof.h; onion
+    profile r/R at y/roof.h = (0, 1.0) (.15, 1.18) (.30, 1.25) (.45, 1.15)
+    (.60, 0.90) (.75, 0.55) (.88, 0.25) (1, 0).
+  - Roof triangles go in material group 1 (roof), walls in group 0; UVs on
+    walls unchanged (u = perimeter / 24 along the densified ring, v =
+    (y − base) / 24); roof UVs [0, 0] like today.
+  - `extra` attribute (MeshBuilder `setExtra`, wave 21): per building,
+    walls get (osmColor r, g, b in linear [0, 1] via sRGB→linear, material
+    code) and roof vertices get (roofColor rgb, material code); −1 rgb when
+    the colour is absent; material codes: 0 none, 1 brick, 2 stone,
+    3 concrete, 4 glass, 5 metal, 6 wood, 7 plaster. Buildings without any
+    of the three fields get `EXTRA_NONE`. A dataset with no OSM facade data
+    at all produces NO `extra` attribute (call `setExtra` only when needed)
+    → byte-identical geometry for untouched cities.
+  - Budget: roofs add ≤ 25 % triangles on london tiles (unit-tested).
+
 ### 4.3 Palette (src/world/palette.ts)
 
 ```ts
@@ -1520,7 +1564,7 @@ reworked):*
     Never invent another hash.
   - Building seed `bs` = h(vertexColor.rg · 97 + vertexColor.b · 13) (vertex
     colour is per-building). Base albedo: concrete/metal, `mix(luma(vc), vc,
-    0.25) · (0.10 + 0.08·bs)`.
+    0.25) · (0.20 + 0.12·bs)` (PM GPU review: 0.10 + 0.08·bs made the skyline vanish).
   - Floor bands: every 3 m (v · 8 integer lines) a 0.22 m band 35 % darker
     with a bump ridge; vertical panel seams every 1.5 m (u · 16), bump only.
     Use TSL `bumpMap` on a height node or perturb `normalNode`; seams
@@ -1538,15 +1582,29 @@ reworked):*
     cyan (0.1, 0.85, 1.0), 8 % magenta (1.0, 0.12, 0.62); 30 % of lit
     windows show blinds (3 horizontal dark stripes). Flicker ≤ 2 % of lit.
     No lit windows below 4 m above wall base.
-  - Shopfront band: wall height 0–4 m above wall base, per 6 m of u: 55 %
-    roll-down shutter (ridged dark metal, 0.12 m ridges via bump), 45 %
-    lit shop glass (emissive 0.5–1.1 in a warm or neon tint, dark mullions
-    every 1.5 m).
+  - Shopfront band: wall height 0–4 m above wall base, per 6 m of u: 75 %
+    roll-down shutter (ridged dark metal 0.02–0.05, 0.12 m ridges, no
+    emission), 25 % lit shop glass (emissive 0.18–0.55 in a warm or neon
+    tint, only the middle 3.6 m of the segment, dark mullions every 1.5 m).
+    Seams / mullions / blinds fade with distance: contrast ×
+    `1 − smoothstep(15, 60, |positionView|)` (PM GPU review: 45 % at
+    0.5–1.1 was a continuous blown-out strip).
   - Roof: dark bitumen 0.03–0.05, puddles as streets, ripples (`rippleNormal`).
   - Pure exports (facademath.ts): `facadeHash`, `buildingSeed(r,g,b)`,
     `windowLight(cellU, cellV, seed) → { lit, intensity, tint: 0|1|2|3, blinds }`,
     `isDarkBuilding(seed)`, `shopfrontKind(segment, seed) → 'shutter'|'shop'`,
     and the constants above.
+
+*Facades × OSM (wave 21, T-0161, extends T-0152):* read the `extra`
+attribute (`attribute('extra', 'vec4')`; absent geometry attribute ⇒ treat
+as `EXTRA_NONE`). When rgb ≥ 0 the facade base albedo becomes that colour
+darkened to night (`osm · 0.18`, keep 25 % of the procedural grime/bands on
+top); roofs likewise with `roofColor · 0.15`. Material code swaps the panel
+pattern: brick → running-bond courses 0.075 m + mortar bump; stone → 0.6 m
+ashlar blocks; glass → curtain wall (albedo 0.02, roughness 0.05, metalness
+0.9, mullions every 1.5 m, lit fraction ×1.5 for offices); metal → 0.5 m
+vertical standing seams, metalness 0.7; wood → 0.2 m vertical boards;
+plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
 
 *Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
   - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).
@@ -1578,17 +1636,20 @@ reworked):*
     full height; rooftop clutter 1–4 items inside the footprint (inset ≥ 2 m,
     point-in-polygon checked): water tank (8-gon r 1.2 h 2.5), AC box
     2 × 1.2 × 1 m, antenna mast 0.1 × 6 m.
-  - Vertex colours dark greys 0.08–0.18; one `MeshStandardNodeMaterial`
-    (vertexColors, roughness 0.55, metalness 0.4, `rippleNormal` on up faces).
+  - Vertex colour greys 0.16–0.30 (ledge / balcony top faces +0.06; PM
+    GPU review: 0.08–0.18 vanished at night); one `MeshStandardNodeMaterial`
+    (vertexColors, roughness 0.45, metalness 0.4, `rippleNormal` on up faces).
   - Layer: `CellStreamer` buildRadius 450 m, disposeRadius 600 m,
     maxBuildsPerFrame 1. Stats: `cells`, `pending`, `buildMs`, `triangles`.
   - Budgets (unit-tested on `public/data/london/tiles/0_0.json`): ≤ 60 k
-    triangles per 250 m cell average over the tile's cells, ≤ 150 k max;
+    triangles (= positions.length / 9) per 250 m cell average over the tile's cells, ≤ 150 k max;
     whole-tile build ≤ 400 ms in node.
 
 *Street props (`punk/propsmesh.ts` pure + `punk/props.ts`, T-0155):*
   - Lamps on roads of class primary / secondary / tertiary / residential /
-    pedestrian, every 32 m of polyline length, alternating sides, at
+    pedestrian: per way at arc-length 16 + 32k m (ways 8–32 m: one at the
+    midpoint; < 8 m: none), global 12 m de-dup across ways (OSM chops City
+    streets into short ways — PM review T-0155), alternating sides, at
     `ROAD_WIDTH[cls]/2 + 0.8 m` from the centreline, seated on `groundAt`;
     skip `bridge` roads' lamps closer than 10 m to a previous lamp. Pole
     0.15 × 7 m, arm 1.8 m toward the road, head 0.6 × 0.2 × 0.3 m.
