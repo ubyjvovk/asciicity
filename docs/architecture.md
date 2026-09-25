@@ -1561,7 +1561,7 @@ reworked):*
     Never invent another hash.
   - Building seed `bs` = h(vertexColor.rg · 97 + vertexColor.b · 13) (vertex
     colour is per-building). Base albedo: concrete/metal, `mix(luma(vc), vc,
-    0.25) · (0.10 + 0.08·bs)`.
+    0.25) · (0.20 + 0.12·bs)` (PM GPU review: 0.10 + 0.08·bs made the skyline vanish).
   - Floor bands: every 3 m (v · 8 integer lines) a 0.22 m band 35 % darker
     with a bump ridge; vertical panel seams every 1.5 m (u · 16), bump only.
     Use TSL `bumpMap` on a height node or perturb `normalNode`; seams
@@ -1579,10 +1579,13 @@ reworked):*
     cyan (0.1, 0.85, 1.0), 8 % magenta (1.0, 0.12, 0.62); 30 % of lit
     windows show blinds (3 horizontal dark stripes). Flicker ≤ 2 % of lit.
     No lit windows below 4 m above wall base.
-  - Shopfront band: wall height 0–4 m above wall base, per 6 m of u: 55 %
-    roll-down shutter (ridged dark metal, 0.12 m ridges via bump), 45 %
-    lit shop glass (emissive 0.5–1.1 in a warm or neon tint, dark mullions
-    every 1.5 m).
+  - Shopfront band: wall height 0–4 m above wall base, per 6 m of u: 75 %
+    roll-down shutter (ridged dark metal 0.02–0.05, 0.12 m ridges, no
+    emission), 25 % lit shop glass (emissive 0.18–0.55 in a warm or neon
+    tint, only the middle 3.6 m of the segment, dark mullions every 1.5 m).
+    Seams / mullions / blinds fade with distance: contrast ×
+    `1 − smoothstep(15, 60, |positionView|)` (PM GPU review: 45 % at
+    0.5–1.1 was a continuous blown-out strip).
   - Roof: dark bitumen 0.03–0.05, puddles as streets, ripples (`rippleNormal`).
   - Pure exports (facademath.ts): `facadeHash`, `buildingSeed(r,g,b)`,
     `windowLight(cellU, cellV, seed) → { lit, intensity, tint: 0|1|2|3, blinds }`,
