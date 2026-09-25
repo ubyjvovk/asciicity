@@ -116,7 +116,7 @@ describe('cyberpunk facades', () => {
     expect(WINDOW_TINTS[3]).toEqual([1.0, 0.12, 0.62]);
   });
 
-  it('intensity always in [0.15, 0.90], median < 0.35', () => {
+  it('intensity always in [0.05, 0.35], median < 0.12 (wave 23b dimmed)', () => {
     const rng = mulberry32(0x1a7e);
     const vals: number[] = [];
     for (let b = 0; b < 200; b++) {
@@ -124,8 +124,8 @@ describe('cyberpunk facades', () => {
       for (let i = 0; i < 400; i++) {
         const w = windowLight(b * 17 + (i % 40), 2 + Math.floor(i / 40), seed);
         if (!w.lit) continue;
-        expect(w.intensity).toBeGreaterThanOrEqual(0.15);
-        expect(w.intensity).toBeLessThanOrEqual(0.9);
+        expect(w.intensity).toBeGreaterThanOrEqual(0.05);
+        expect(w.intensity).toBeLessThanOrEqual(0.35);
         expect(w.intensity).toBeGreaterThanOrEqual(INTENSITY_MIN);
         expect(w.intensity).toBeLessThanOrEqual(INTENSITY_MIN + INTENSITY_RANGE);
         vals.push(w.intensity);
@@ -133,7 +133,7 @@ describe('cyberpunk facades', () => {
     }
     vals.sort((a, b) => a - b);
     const mid = vals[Math.floor(vals.length / 2)];
-    expect(mid).toBeLessThan(0.35);
+    expect(mid).toBeLessThan(0.12);
   });
 
   it('blinds share of lit windows within [0.25, 0.35]', () => {
@@ -183,13 +183,13 @@ describe('cyberpunk facades', () => {
     expect(share).toBeLessThanOrEqual(0.8);
   });
 
-  it('shop glass emissive in [0.18, 0.55], lit only in the middle 3.6 m; shutters 0.02–0.05', () => {
+  it('shop glass emissive in [0.12, 0.40] (wave 23b), lit only in the middle 3.6 m; shutters 0.02–0.05', () => {
     const rng = mulberry32(0x5e9);
     for (let i = 0; i < 2000; i++) {
       const seed = buildingSeed(rng(), rng(), rng());
       const e = shopEmissive(i, seed);
-      expect(e).toBeGreaterThanOrEqual(0.18);
-      expect(e).toBeLessThanOrEqual(0.55);
+      expect(e).toBeGreaterThanOrEqual(0.12);
+      expect(e).toBeLessThanOrEqual(0.4);
       const a = shutterAlbedo(i, seed);
       expect(a).toBeGreaterThanOrEqual(0.02);
       expect(a).toBeLessThanOrEqual(0.05);

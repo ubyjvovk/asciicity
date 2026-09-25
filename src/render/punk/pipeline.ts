@@ -275,7 +275,7 @@ export function createPipeline(
     // SSRNode re-reads resolutionScale every frame (setSize in updateBefore);
     // "off" keeps a tiny target and zero intensity instead of a graph rebuild.
     reflections.resolutionScale = scale > 0 ? scale : 0.05;
-    reflections.intensity.value = scale > 0 ? 0.45 : 0;
+    reflections.intensity.value = scale > 0 ? 0.3 : 0;
     reflections.quality.value = quality;
     reflections.maxDistance.value = distance;
   }

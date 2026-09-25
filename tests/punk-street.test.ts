@@ -64,16 +64,16 @@ describe('puddleAt — locked puddle mask', () => {
     }
   });
 
-  it('covers 25–35 % of road area (mean of three windows), each within 0.20–0.40', () => {
+  it('covers 12–20 % of road area (mean of three windows), each within 0.10–0.24 (wave 23b: was 30 %)', () => {
     const c0 = puddleCoverage(0, 0);
     const c1 = puddleCoverage(1000, -700);
     const c2 = puddleCoverage(-3000, 2500);
     const mean = (c0 + c1 + c2) / 3;
-    expect(mean).toBeGreaterThanOrEqual(0.25);
-    expect(mean).toBeLessThanOrEqual(0.35);
+    expect(mean).toBeGreaterThanOrEqual(0.12);
+    expect(mean).toBeLessThanOrEqual(0.2);
     for (const c of [c0, c1, c2]) {
-      expect(c).toBeGreaterThanOrEqual(0.2);
-      expect(c).toBeLessThanOrEqual(0.4);
+      expect(c).toBeGreaterThanOrEqual(0.1);
+      expect(c).toBeLessThanOrEqual(0.24);
     }
   });
 
@@ -157,6 +157,21 @@ describe('distanceRoughness — puddle/water roughness vs distance', () => {
         expect(out).toBeGreaterThanOrEqual(r - 1e-9);
         prev = out;
       }
+    }
+  });
+});
+
+import { dampAt, DAMP_E0 as DE0, PUDDLE_E0 as PE0 } from '../src/render/punk/streetmath';
+
+describe('damp halo (wave 23b)', () => {
+  it('is 0 when dry, 1 at the puddle edge, monotone in between (no dry rock next to water)', () => {
+    expect(dampAt(DE0 - 0.05)).toBe(0);
+    expect(dampAt(PE0)).toBeCloseTo(1);
+    let prev = -1;
+    for (let n = DE0; n <= PE0; n += 0.01) {
+      const v = dampAt(n);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
     }
   });
 });

@@ -54,6 +54,10 @@ import {
   PBR_ROT_SCALE,
   GROUND_BASE,
   GROUND_PUDDLE_E0,
+  DAMP_E0,
+  DAMP_ROUGHNESS,
+  DAMP_METALNESS,
+  DAMP_DARKEN,
   GROUND_PUDDLE_E1,
   GROUND_TILE,
   GROUND_TILE_SEAM,
@@ -155,7 +159,13 @@ function antiTiledSample(set: PbrSet, repeatM: number): { col: Node<'vec3'>; rou
  */
 export function makeStreetMaterials(u: WetUniforms, pbr?: PbrSets): StreetMaterials {
   // Locked puddle mask on world xz — 0 = damp asphalt, 1 = standing water.
-  const puddle = smoothstep(PUDDLE_E0, PUDDLE_E1, fbm2Node(positionWorld.xz.mul(PUDDLE_SCALE)));
+  const wetN = fbm2Node(positionWorld.xz.mul(PUDDLE_SCALE));
+  const puddle = smoothstep(PUDDLE_E0, PUDDLE_E1, wetN);
+  // Damp halo toward puddles (wave 23b): darker + slicker, below the SSR mask.
+  const damp = smoothstep(DAMP_E0, PUDDLE_E0, wetN);
+  const dampDark = mix(float(1), float(DAMP_DARKEN), damp);
+  const dryRough = mix(float(ASPHALT_DRY_ROUGHNESS), float(DAMP_ROUGHNESS), damp);
+  const dryMetal = mix(float(ASPHALT_DRY_METALNESS), float(DAMP_METALNESS), damp);
   // Specular anti-aliasing: fade normal detail with view distance + grazing
   // angle, and raise puddle/water roughness at distance (dry asphalt stays).
   const d = length(positionView);
@@ -170,18 +180,20 @@ export function makeStreetMaterials(u: WetUniforms, pbr?: PbrSets): StreetMateri
   const luma = dot(vc, vec3(0.299, 0.587, 0.114));
   const asphalt = asphaltAlbedoNode(positionWorld.xz);
   const tinted = asphalt.mul(float(1).add(luma.sub(0.5).mul(0.3)));
-  road.colorNode = mix(tinted, vec3(PUDDLE_ALBEDO), puddle);
-  road.roughnessNode = mix(float(ASPHALT_DRY_ROUGHNESS), puddleRough, puddle);
-  road.metalnessNode = mix(float(ASPHALT_DRY_METALNESS), float(PUDDLE_METALNESS), puddle);
+  road.colorNode = mix(tinted.mul(dampDark), vec3(PUDDLE_ALBEDO), puddle);
+  road.roughnessNode = mix(dryRough, puddleRough, puddle);
+  road.metalnessNode = mix(dryMetal, float(PUDDLE_METALNESS), puddle);
   const roadRipple = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(ASPHALT_DRY_RIPPLE), float(PUDDLE_RIPPLE), puddle).mul(nFade));
   road.normalNode = roadRipple;
 
   // --- Ground / terrain: concrete pavement tiles with puddles at half coverage ---
-  const gp = smoothstep(GROUND_PUDDLE_E0, GROUND_PUDDLE_E1, fbm2Node(positionWorld.xz.mul(PUDDLE_SCALE)));
+  const gp = smoothstep(GROUND_PUDDLE_E0, GROUND_PUDDLE_E1, wetN);
+  const gDamp = smoothstep(DAMP_E0 + 0.06, GROUND_PUDDLE_E0, wetN);
   const concrete = clamp(float(GROUND_BASE).add(vnoiseNode(positionWorld.xz.mul(2)).sub(0.5).mul(0.02)), float(0.05), float(0.07));
-  const pavement = mix(concrete, vec3(PUDDLE_ALBEDO), gp);
-  const pavementRough = mix(float(0.55), puddleRough, gp);
-  const pavementMetal = mix(float(0.15), float(PUDDLE_METALNESS), gp);
+  const gDark = mix(float(1), float(DAMP_DARKEN), gDamp);
+  const pavement = mix(concrete.mul(gDark), vec3(PUDDLE_ALBEDO), gp);
+  const pavementRough = mix(mix(float(0.55), float(DAMP_ROUGHNESS), gDamp), puddleRough, gp);
+  const pavementMetal = mix(mix(float(0.15), float(DAMP_METALNESS), gDamp), float(PUDDLE_METALNESS), gp);
   const ripple = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(0.1), float(0.7), gp).mul(nFade));
   // Tile seams: finite-difference the seam height and nudge the (near-up) normal's xy.
   const e = 0.15;
@@ -221,15 +233,15 @@ export function makeStreetMaterials(u: WetUniforms, pbr?: PbrSets): StreetMateri
     const as = pbr.asphalt;
     const at = antiTiledSample(as, PBR_ASPHALT_M);
     const aOn = pFade.mul(as.ready);
-    road.colorNode = mix(tinted.mul(pbrAlbedoMul(at.col, as.mean, aOn)), vec3(PUDDLE_ALBEDO), puddle);
-    road.roughnessNode = mix(mix(float(ASPHALT_DRY_ROUGHNESS), at.rough, as.ready.mul(PBR_ROUGH_MIX)), puddleRough, puddle);
+    road.colorNode = mix(tinted.mul(dampDark).mul(pbrAlbedoMul(at.col, as.mean, aOn)), vec3(PUDDLE_ALBEDO), puddle);
+    road.roughnessNode = mix(mix(dryRough, at.rough, as.ready.mul(PBR_ROUGH_MIX).mul(damp.oneMinus())), puddleRough, puddle);
     road.normalNode = horizontalPbrNormal(roadRipple, at.tn, aOn.mul(puddle.oneMinus()));
 
     const pv = pbr.paving;
     const pt = antiTiledSample(pv, PBR_PAVING_M);
     const pOn = pFade.mul(pv.ready);
-    const paved = mix(concrete.mul(pbrAlbedoMul(pt.col, pv.mean, pOn)), vec3(PUDDLE_ALBEDO), gp);
-    const pavedRough = mix(mix(float(0.55), pt.rough, pv.ready.mul(PBR_ROUGH_MIX)), puddleRough, gp);
+    const paved = mix(concrete.mul(gDark).mul(pbrAlbedoMul(pt.col, pv.mean, pOn)), vec3(PUDDLE_ALBEDO), gp);
+    const pavedRough = mix(mix(mix(float(0.55), float(DAMP_ROUGHNESS), gDamp), pt.rough, pv.ready.mul(PBR_ROUGH_MIX).mul(gDamp.oneMinus())), puddleRough, gp);
     const pavedNormal = horizontalPbrNormal(pavementNormal, pt.tn, pOn.mul(gp.oneMinus()));
     ground.colorNode = paved;
     ground.roughnessNode = pavedRough;

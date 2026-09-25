@@ -9,8 +9,8 @@
 import { fbm2, vnoise, smoothstepJs } from './noise';
 
 /** Puddle mask threshold range: `smoothstep(E0, E1, fbm2(x·SCALE, z·SCALE))`. */
-export const PUDDLE_E0 = 0.54;
-export const PUDDLE_E1 = 0.62;
+export const PUDDLE_E0 = 0.62;
+export const PUDDLE_E1 = 0.7;
 /** World-space scale applied to xz before fbm2 (metres per noise unit). */
 export const PUDDLE_SCALE = 0.07;
 
@@ -30,8 +30,8 @@ export const ASPHALT_MIN = 0.035;
 export const ASPHALT_MAX = 0.06;
 /** Dry asphalt: roughness (0.45–0.6), metalness, ripple strength. */
 /** Damp asphalt (wave 23 perf pass): metalness 0.6 keeps it inside the SSR mask (≥ 0.5) at ~26 % weight so streets stay glossy while walls / pavement are skipped. */
-export const ASPHALT_DRY_ROUGHNESS = 0.32;
-export const ASPHALT_DRY_METALNESS = 0.6;
+export const ASPHALT_DRY_ROUGHNESS = 0.5;
+export const ASPHALT_DRY_METALNESS = 0.2;
 export const ASPHALT_DRY_RIPPLE = 0.12;
 /** Ripple spatial scale shared by road / ground / terrain. */
 export const ASPHALT_RIPPLE_SCALE = 4.2;
@@ -50,8 +50,8 @@ export const GROUND_TILE = 1.5;
 /** Tile seam width (metres). */
 export const GROUND_TILE_SEAM = 0.02;
 /** Pavement puddles sit at about half the road coverage: a higher mask. */
-export const GROUND_PUDDLE_E0 = 0.6;
-export const GROUND_PUDDLE_E1 = 0.68;
+export const GROUND_PUDDLE_E0 = 0.68;
+export const GROUND_PUDDLE_E1 = 0.76;
 /** Terrain slope darkening: `1 − 0.5·(1 − normalWorld.y)`. */
 export const SLOPE_DARKEN = 0.5;
 
@@ -167,4 +167,22 @@ export function horizontalTbn(t: readonly [number, number, number], strength = 1
   const w: [number, number, number] = [nx, nz, -ny];
   const len = Math.hypot(w[0], w[1], w[2]) || 1;
   return [w[0] / len, w[1] / len, w[2] / len];
+}
+
+/**
+ * Damp halo (wave 23b, user: "one big puddle … dry rocks right next to it").
+ * Puddles now cover ≈ 16 % of the road (mask 0.62–0.70, was 30 %); between
+ * dry asphalt and a puddle the surface darkens and slicks over a wide band of
+ * the same noise (`DAMP_E0` → `PUDDLE_E0`), staying BELOW the SSR mask
+ * (metalness < 0.5 → env sheen only, no ray march) so it costs nothing.
+ */
+export const DAMP_E0 = 0.44;
+export const DAMP_ROUGHNESS = 0.2;
+export const DAMP_METALNESS = 0.42;
+export const DAMP_DARKEN = 0.72;
+
+/** Damp amount 0 (dry) … 1 (puddle edge) for a noise value `n` (mirror of the shader). */
+export function dampAt(n: number): number {
+  const t = Math.min(1, Math.max(0, (n - DAMP_E0) / (PUDDLE_E0 - DAMP_E0)));
+  return t * t * (3 - 2 * t);
 }

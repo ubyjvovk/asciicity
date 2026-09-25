@@ -42,8 +42,8 @@ export const SHUTTER_RIDGE_M = 0.12;
 /** Dark mullion spacing on shop glass (m). */
 export const MULLION_M = 1.5;
 /** Shop-glass emissive range: 0.18–0.55. */
-export const SHOP_EMISSIVE_MIN = 0.18;
-export const SHOP_EMISSIVE_RANGE = 0.37;
+export const SHOP_EMISSIVE_MIN = 0.12;
+export const SHOP_EMISSIVE_RANGE = 0.28;
 /** Lit width (m) of shop glass, centred in its segment; the rest are dark piers. */
 export const SHOP_LIT_WIDTH_M = 3.6;
 /** Dark pier width (m) each side of the lit shop glass. */
@@ -98,11 +98,11 @@ export const DARK_WINDOW_LIT_P = 0;
  * Lit probability inside a non-dark building. Overall (25 % dark at 0) is
  * `0.75 · WINDOW_LIT_P` ≈ 0.109, inside the 8–14 % band.
  */
-export const WINDOW_LIT_P = 0.145;
+export const WINDOW_LIT_P = 0.11;
 
 /** Intensity: `INTENSITY_MIN + INTENSITY_RANGE · r³`. */
-export const INTENSITY_MIN = 0.15;
-export const INTENSITY_RANGE = 0.75;
+export const INTENSITY_MIN = 0.05;
+export const INTENSITY_RANGE = 0.3;
 
 /**
  * Window tint palette (linear RGB): tungsten, fluorescent, cyan, magenta.

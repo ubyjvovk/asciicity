@@ -1659,6 +1659,14 @@ materials stay the base look; the textures add real surface detail:
     the ground ones only); the PM measures ≤ 10 % fps loss at bank with the
     `?punkq=` perf harness.
 
+*Wave 23b tune (user: "one big puddle", "windows too bright"):* puddle
+mask 0.62–0.70 (≈ 16 % of road; ground 0.68–0.76), a damp halo over
+fbm 0.44 → 0.62 (albedo ×0.72, roughness 0.2, metalness 0.42 — below the
+SSR mask, env sheen only) replaces the hard dry/wet edge; dry asphalt
+roughness 0.5 / metalness 0.2; SSR intensity 0.3. Windows: intensity
+0.05 + 0.3·r³ (was 0.15 + 0.75·r³), non-dark lit p 0.11 (≈ 8 % overall),
+shop glass 0.12–0.40. These override the numbers below where they differ.
+
 *Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
   - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).
   - Puddle mask `puddle = smoothstep(0.54, 0.62, fbm2(x·0.07, z·0.07))`:
