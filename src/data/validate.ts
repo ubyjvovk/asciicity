@@ -62,6 +62,28 @@ function validateRoof(roof: unknown, h: number, minH: number, path: string): voi
   }
 }
 
+/**
+ * Validate optional PLATEAU LOD2 `tiers` (data-format "Tokyo from PLATEAU"
+ * items 2 and 6): an array of 1–64 tiers, each with `h` finite in `[1, h]`
+ * and a `poly` under the building-footprint rules. Plan-disjointness is not
+ * checked (too expensive).
+ */
+function validateTiers(tiers: unknown, h: number, path: string): void {
+  if (!Array.isArray(tiers) || tiers.length < 1 || tiers.length > 64) {
+    throw new Error(`${path}: must be an array of 1-64 tiers`);
+  }
+  tiers.forEach((tier, k) => {
+    if (typeof tier !== 'object' || tier === null) {
+      throw new Error(`${path}[${k}]: expected an object`);
+    }
+    const t = tier as Record<string, unknown>;
+    if (!isFiniteNum(t.h) || t.h < 1 || t.h > h) {
+      throw new Error(`${path}[${k}].h: must be a finite number in [1, h]`);
+    }
+    validatePoly(t.poly, `${path}[${k}].poly`);
+  });
+}
+
 /** True when `v` is a finite number. */
 function isFiniteNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
@@ -221,7 +243,9 @@ function validateWaterLevels(levels: unknown, water: unknown, path: string): voi
  * Validate an unknown value as `CityData`, returning the same object (typed)
  * when valid and throwing otherwise. `h` is in `[3, 650]`; optional `minH`
  * is a finite number in `[0, h - 1)`; optional S3DB `roof` / `osmColor` /
- * `roofColor` / `material` follow data-format "Simple 3D Buildings" item 7.
+ * `roofColor` / `material` follow data-format "Simple 3D Buildings" item 7;
+ * optional `tiers` (never together with `roof`) follow data-format "Tokyo
+ * from PLATEAU" items 2 and 6.
  */
 export function validateCity(raw: unknown): CityData {
   if (typeof raw !== 'object' || raw === null) {
@@ -297,6 +321,12 @@ export function validateCity(raw: unknown): CityData {
         (building.minH as number | undefined) ?? 0,
         `buildings[${i}].roof`,
       );
+    }
+    if (building.tiers !== undefined) {
+      if (building.roof !== undefined) {
+        throw new Error(`buildings[${i}].tiers: a building must not have both roof and tiers`);
+      }
+      validateTiers(building.tiers, building.h as number, `buildings[${i}].tiers`);
     }
     for (const key of ['osmColor', 'roofColor'] as const) {
       if (building[key] !== undefined && !isRgb24(building[key])) {
