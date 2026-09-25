@@ -129,7 +129,9 @@ export function createPipeline(
       roughnessNode: mrTex.g,
       camera,
     });
-    reflections.resolutionScale = 0.5;
+    // Full resolution: at 0.5 the rippled puddles alias into blocky sparkle
+    // (PM GPU review, wave 20b); cost measured on the GPU host.
+    reflections.resolutionScale = 1;
     reflections.maxDistance.value = 120;
     reflections.thickness.value = 0.6;
     reflections.quality.value = 0.5;
