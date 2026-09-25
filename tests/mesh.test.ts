@@ -118,3 +118,27 @@ describe('toGeometry', () => {
     ]);
   });
 });
+
+import { MeshBuilder as MB2, EXTRA_NONE, toGeometry as toGeo2 } from '../src/world/mesh';
+
+describe('MeshBuilder extra attribute (wave 21)', () => {
+  it('is absent unless setExtra is called (existing meshes stay byte-identical)', () => {
+    const b = new MB2();
+    b.triangle([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0], [1, 0], [0, 1], [1, 1, 1]);
+    const m = b.build();
+    expect(m.extra).toBeUndefined();
+    expect(toGeo2(m).getAttribute('extra')).toBeUndefined();
+  });
+
+  it('back-fills EXTRA_NONE for earlier vertices and applies the current value after', () => {
+    const b = new MB2();
+    b.triangle([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0], [1, 0], [0, 1], [1, 1, 1]);
+    b.setExtra([0.5, 0.25, 0.125, 3]);
+    b.triangle([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0], [1, 0], [0, 1], [1, 1, 1]);
+    const m = b.build();
+    expect(m.extra).toHaveLength(6 * 4);
+    expect(Array.from(m.extra!.slice(0, 4))).toEqual([...EXTRA_NONE]);
+    expect(Array.from(m.extra!.slice(20, 24))).toEqual([0.5, 0.25, 0.125, 3]);
+    expect(toGeo2(m).getAttribute('extra').itemSize).toBe(4);
+  });
+});

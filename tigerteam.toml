@@ -36,6 +36,7 @@ secrets_dir = "/home/d/.tigerteam-secrets"
 
 [worker.grok]
 engine = "grok"
+model = "grok-4.7"                        # 2026-09-25 user: latest grok. Verified in the worker image (CLI 0.2.114 + GROK_HOME login): serves grok-4.7-build; earlier attempts ran grok-4.6-build (old server default)
 max_complexity = 3                        # earned C3 on the tigerteam board
 ticket_timeout_s = 5400
 scale = 2                                 # re-enabled 2026-09-16 (user: "a couple of groks")

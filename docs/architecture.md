@@ -111,6 +111,46 @@ single group 0. Read the file before using it.
   and `roofMat = MeshLambertMaterial({ vertexColors: true, color: 0x606060 })`.
   One draw call per material for the whole city.
 
+**Roofs + OSM facade data (wave 21, `buildings.ts`).** Data: data-format
+"Simple 3D Buildings". Applies to every style (real roofs are geometry);
+OSM colours/materials reach ONLY the cyberpunk facades.
+  - A building with `roof` and without curated `shape`: walls top out at
+    `wallTop = ringHeights.top + h − roof.h`; roof peak = `top + h`.
+  - Frame: axis `a` = unit vector of bearing `roof.dir` (x = sin, z = −cos)
+    or of the longest ring edge; `b` = a rotated +90°. Project the ring:
+    centre (ac, bc), half-extents L (along a), W (along b); local
+    s = along − ac, t = across − bc.
+  - Height field f(s, t) ∈ [0, 1], roof y = wallTop + roof.h · f:
+    gabled `1 − |t|/W`; hipped `clamp(min(1 − |t|/W, (L − |s|)/W), 0, 1)`;
+    pyramidal `clamp(1 − max(|s|/L, |t|/W), 0, 1)`; skillion `(t + W)/(2W)`;
+    round `sqrt(max(0, 1 − (t/W)²))`.
+  - Mesh for height-field shapes: densify the (normalised CCW) ring so no
+    edge exceeds 2 m; triangulate with the same triangulator `emitRoof`
+    uses; refine conformingly: split every INTERIOR edge longer than 4 m at
+    its midpoint (midpoints cached per undirected edge), re-triangulate each
+    triangle by its number of split edges (1 → 2, 2 → 3, 3 → 4 triangles),
+    up to 4 passes; boundary edges (≤ 2 m) are never split, so walls and
+    roof share every boundary vertex. Per-triangle face normals (flat
+    shading). Walls: emit per densified edge a trapezoid from wall base to
+    `wallTop + roof.h · f(vertex)` at each end — gable ends close, no cracks.
+  - dome / onion: walls to `wallTop`, a flat cap at `wallTop`, then a
+    12-segment lathe centred on the footprint centroid with radius
+    R = min(L, W): dome = quarter circle (8 rings) of height roof.h; onion
+    profile r/R at y/roof.h = (0, 1.0) (.15, 1.18) (.30, 1.25) (.45, 1.15)
+    (.60, 0.90) (.75, 0.55) (.88, 0.25) (1, 0).
+  - Roof triangles go in material group 1 (roof), walls in group 0; UVs on
+    walls unchanged (u = perimeter / 24 along the densified ring, v =
+    (y − base) / 24); roof UVs [0, 0] like today.
+  - `extra` attribute (MeshBuilder `setExtra`, wave 21): per building,
+    walls get (osmColor r, g, b in linear [0, 1] via sRGB→linear, material
+    code) and roof vertices get (roofColor rgb, material code); −1 rgb when
+    the colour is absent; material codes: 0 none, 1 brick, 2 stone,
+    3 concrete, 4 glass, 5 metal, 6 wood, 7 plaster. Buildings without any
+    of the three fields get `EXTRA_NONE`. A dataset with no OSM facade data
+    at all produces NO `extra` attribute (call `setExtra` only when needed)
+    → byte-identical geometry for untouched cities.
+  - Budget: roofs add ≤ 25 % triangles on london tiles (unit-tested).
+
 ### 4.3 Palette (src/world/palette.ts)
 
 ```ts
@@ -1547,6 +1587,17 @@ reworked):*
     `windowLight(cellU, cellV, seed) → { lit, intensity, tint: 0|1|2|3, blinds }`,
     `isDarkBuilding(seed)`, `shopfrontKind(segment, seed) → 'shutter'|'shop'`,
     and the constants above.
+
+*Facades × OSM (wave 21, T-0161, extends T-0152):* read the `extra`
+attribute (`attribute('extra', 'vec4')`; absent geometry attribute ⇒ treat
+as `EXTRA_NONE`). When rgb ≥ 0 the facade base albedo becomes that colour
+darkened to night (`osm · 0.18`, keep 25 % of the procedural grime/bands on
+top); roofs likewise with `roofColor · 0.15`. Material code swaps the panel
+pattern: brick → running-bond courses 0.075 m + mortar bump; stone → 0.6 m
+ashlar blocks; glass → curtain wall (albedo 0.02, roughness 0.05, metalness
+0.9, mullions every 1.5 m, lit fraction ×1.5 for offices); metal → 0.5 m
+vertical standing seams, metalness 0.7; wood → 0.2 m vertical boards;
+plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
 
 *Streets (`punk/street.ts` + pure `punk/streetmath.ts`, T-0153):*
   - Noise from `punk/noise.ts` only (`fbm2` / `fbm2Node`, `vnoise` / `vnoiseNode`).

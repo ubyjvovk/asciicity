@@ -78,11 +78,54 @@ export interface Building {
    */
   color?: number;
   /**
+   * OSM Simple-3D-Buildings roof (wave 21, data-format "Simple 3D
+   * Buildings"). Absent = flat roof at `h`. When present, walls stop at
+   * `h − roof.h` and the roof rises to `h`. Ignored when `shape` (curated
+   * landmark cap) is set.
+   */
+  roof?: BuildingRoof;
+  /**
+   * OSM `building:colour` (or `colour`) as a 24-bit RGB integer (wave 21).
+   * Consumed ONLY by the cyberpunk facades (vertex attribute `osmColor`); the
+   * palette styles keep `colorFor`. Distinct from producer `color`.
+   */
+  osmColor?: number;
+  /** OSM `roof:colour` as a 24-bit RGB integer (wave 21), cyberpunk only (as `osmColor`). */
+  roofColor?: number;
+  /** Normalised OSM `building:material` (wave 21), cyberpunk facades only. */
+  material?: BuildingMaterial;
+  /**
    * Footprint ring in local metres, >= 3 points, first point NOT repeated at
    * the end. Winding is unspecified; consumers normalise it.
    */
   poly: Vec2[];
 }
+
+/** Supported OSM `roof:shape` values after normalisation (data-format "Simple 3D Buildings"). */
+export type RoofShape =
+  | 'gabled'
+  | 'hipped'
+  | 'pyramidal'
+  | 'skillion'
+  | 'dome'
+  | 'onion'
+  | 'round';
+
+/** A non-flat roof: shape, height in metres (≤ h − minH − 1), optional ridge direction. */
+export interface BuildingRoof {
+  shape: RoofShape;
+  /** Roof height in metres (`roof:height`, else `roof:levels × 3`, else a per-shape default). */
+  h: number;
+  /**
+   * Ridge / slope direction in degrees clockwise from north (`roof:direction`,
+   * compass letters accepted by the converter). Absent = along the longest
+   * footprint edge (`roof:orientation=across` rotates it by 90°).
+   */
+  dir?: number;
+}
+
+/** Normalised OSM `building:material`. */
+export type BuildingMaterial = 'brick' | 'stone' | 'concrete' | 'glass' | 'metal' | 'wood' | 'plaster';
 
 export interface Road {
   id: number;
