@@ -172,6 +172,55 @@ Overpass mirrors served slightly different snapshots on back-to-back runs
 (London 8 099 vs 8 194 roads, and Nelson's Column's outline name was missing
 from one run), so check the landmark names after any refetch.
 
+## Wave 22 Tokyo from PLATEAU (T-0166)
+
+`public/data/tokyo/` was rebuilt in place on 2026-09-25 from the pure OSM
+build above with the T-0163 converter (`npm run fetch-data:tokyo-plateau`,
+data-format "Tokyo from PLATEAU"); roads, trees, woods, water, places and
+terrain are untouched, no OSM refetch was needed. Command used (the GML
+cache is shared; `--cache` must be writable because the converter writes
+`tokyo.stats.json` there, so a read-only cache needs a directory of
+symlinks to its `raw/`, `catalog/`, `out/`):
+
+```
+node scripts/plateau/tokyo.mjs --data public/data/tokyo --cache <plateau cache>
+```
+
+99 meshes (132 ward copies, 8.88 GB GML), 225 989 unique `gml:id`s,
+192 810 in the bbox; 192 644 kept (166 suppressed by OSM parts), 439 OSM
+parts + 7 341 uncovered OSM buildings kept, 162 839 OSM replaced. Names:
+IoU 13 854, cover 752, PLATEAU `gml:name` 688, fallback 3b 277 (241
+unplaced). Validation 0 errors; wall time ≈ 2 min.
+
+| | OSM (T-0102) → PLATEAU |
+|---|---|
+| total bytes (index + tiles) | 28 325 662 → 50 487 274 |
+| `index.json` (`cities.ts` `sizeBytes`) | 2 697 648 → 2 768 132 |
+| largest tile (`1_-3`) | 646 815 → 1 347 764 |
+| tiles | 129 → 129 (none created / removed) |
+| buildings | 170 619 → 200 424 |
+| `roof` | 0 → 10 116 (gabled 6 855, hipped 2 114, skillion 869, pyramidal 278) |
+| `tiers` | 0 → 23 540 buildings (92 900 tiers, max 63) |
+| landmarks | → 16 133 |
+
+Landmark heights after the merge:
+
+- Tokyo Skytree — OSM parts kept (rule 5): named outline `h 634`, plus
+  unnamed parts `minH 290 h 350` and `minH 410 h 450`.
+- Tokyo Tower — OSM parts kept (rule 5): the named `Tokyo Tower` way is the
+  21 m base; the lattice is unnamed parts up to `h 311` (301, 274, 251,
+  250) plus `Special Observatory` 246 m.
+- Tallest PLATEAU building in the bbox: Azabudai Hills Mori JP Tower
+  312.1 m (OSM had 325.2). Yaesu: Tokyo Midtown Yaesu 235.2 m, Tokiwabashi
+  Tower 208.8 m (9 tiers). Torch Tower is under construction and is not
+  in PLATEAU.
+
+Spawn fallout: the `shinjuku` preset vertex now sits inside a 6.1 m
+PLATEAU structure (18 × 6 m) on the East Exit pedestrian street, and the
+`Shibuya` landmark anchor moved 77 m north (the OSM station outline was
+replaced by PLATEAU pieces; the name landed on a 13.6 m piece), so the
+`shibuya` preset is 183.9 m from it (bound 120 m). See T-0166's questions.
+
 ## Tiling and chunked fetch (wave 11 — sector streaming)
 
 Past Manhattan-scale density a city ships **tiled**: `public/data/<city>/`

@@ -1505,7 +1505,7 @@ describe('Tokyo presets (wave 11)', () => {
     // Wave 12 (T-0103): each vertex sits in its own tile.
     // shibuya vertex (-6015.5, 2419.7) → tile -7_2.
     shibuya: [-7, 2],
-    // shinjuku vertex (-5918.8, -941.3) → tile -6_-1.
+    // shinjuku vertex (-5908.3, -943.9) → tile -6_-1 (moved in T-0166).
     shinjuku: [-6, -1],
   };
 
@@ -1686,7 +1686,10 @@ describe('Tokyo wave-12 west presets (T-0103)', () => {
       key: 'shibuya',
       anchorName: 'Shibuya',
       centre: [-7, 2] as [number, number],
-      maxAnchorDist: 120,
+      // PLATEAU splits the station; rule 3b anchors 'Shibuya' on a 13.6 m
+      // piece ~77 m north of the old OSM outline, so the Scramble vertex is
+      // now ~184 m from the anchor (was 115 m under the 120 m bound).
+      maxAnchorDist: 200,
     },
     {
       key: 'shinjuku',
@@ -1717,7 +1720,7 @@ describe('Tokyo wave-12 west presets (T-0103)', () => {
     }
   });
 
-  it("both presets fall within the ticket's distance bound of their station anchor (shibuya ≤ 120 m, shinjuku ≤ 150 m)", () => {
+  it("both presets fall within the ticket's distance bound of their station anchor (shibuya ≤ 200 m, shinjuku ≤ 150 m)", () => {
     const TOKYO = loadTiledIndex('tokyo');
     for (const { key, anchorName, maxAnchorDist } of CASES) {
       const anchor = TOKYO.landmarks.find((a) => a.name === anchorName);
