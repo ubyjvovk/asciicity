@@ -1,63 +1,38 @@
 /**
- * Browser-only glyph atlas for cyberpunk neon signs (wave 20b).
- * One 2048² canvas, at most 64 slots. Contract: docs/architecture.md §4.11
- * "Neon signs". Not imported by unit tests.
+ * Browser-only glyph atlas for cyberpunk neon signs (wave 20b, v2 wave 23b).
+ * One 2048² canvas, 128 landscape slots of 256 × 128 px (8 × 16). Contract:
+ * docs/architecture.md §4.11 "Neon signs" / "Neon v2". Slot bookkeeping is
+ * the pure {@link NeonSlotTable} in `neonplace.ts`. Not imported by unit tests.
  */
 import * as THREE from 'three/webgpu';
+import {
+  NEON_ATLAS_COLS,
+  NEON_ATLAS_SIZE,
+  NEON_SLOT_H,
+  NEON_SLOT_W,
+  NeonSlotTable,
+  neonAtlasKey,
+  neonSlotRotated,
+  neonSlotUv,
+  parseNeonAtlasKey,
+  type Sign,
+  type SignKind,
+  type SlotUv,
+} from './neonplace';
 
-const ATLAS = 2048;
-const GRID = 8;
-const SLOT = ATLAS / GRID;
-const MAX_SLOTS = GRID * GRID;
-
-/** UV rectangle of one atlas slot. `v0` is the bottom, `v1` the top (flipY upload). */
-export interface SlotUv {
-  u0: number;
-  v0: number;
-  u1: number;
-  v1: number;
-}
-
-/** Atlas key `kind|word|color`. */
-export function neonAtlasKey(kind: string, word: string, color: string): string {
-  return `${kind}|${word}|${color}`;
-}
-
-let canvas: HTMLCanvasElement | null = null;
 let ctx2d: CanvasRenderingContext2D | null = null;
 let tex: THREE.CanvasTexture | null = null;
-const keySlot = new Map<string, number>();
-let drawn = 0;
-
-function hashKey(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function uvOf(slot: number): SlotUv {
-  const col = slot % GRID;
-  const row = Math.floor(slot / GRID);
-  return {
-    u0: col / GRID,
-    u1: (col + 1) / GRID,
-    v1: 1 - row / GRID,
-    v0: 1 - (row + 1) / GRID,
-  };
-}
+const table = new NeonSlotTable();
 
 function ensure(): CanvasRenderingContext2D {
   if (ctx2d && tex) return ctx2d;
   const cnv = document.createElement('canvas');
-  cnv.width = ATLAS;
-  cnv.height = ATLAS;
+  cnv.width = NEON_ATLAS_SIZE;
+  cnv.height = NEON_ATLAS_SIZE;
   const c = cnv.getContext('2d');
   if (!c) throw new Error('2d canvas context unavailable');
   c.fillStyle = '#07060a';
-  c.fillRect(0, 0, ATLAS, ATLAS);
+  c.fillRect(0, 0, NEON_ATLAS_SIZE, NEON_ATLAS_SIZE);
   const texture = new THREE.CanvasTexture(cnv);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.magFilter = THREE.LinearFilter;
@@ -66,7 +41,6 @@ function ensure(): CanvasRenderingContext2D {
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
-  canvas = cnv;
   ctx2d = c;
   tex = texture;
   return c;
@@ -79,120 +53,159 @@ export function neonAtlasTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** Slots actually drawn (≤ 64). Overflow keys alias an existing slot and are not counted twice. */
+/** Slots actually drawn (≤ 128). Overflow keys alias an existing slot and are not counted twice. */
 export function neonAtlasSlotCount(): number {
-  return drawn;
+  return table.drawn;
 }
 
 /** Drop the canvas and the slot table (layer dispose). */
 export function disposeNeonAtlas(): void {
   tex?.dispose();
   tex = null;
-  canvas = null;
   ctx2d = null;
-  keySlot.clear();
-  drawn = 0;
+  table.clear();
 }
 
-const FONT = '"DejaVu Sans", "Noto Sans CJK JP", "Noto Sans JP", sans-serif';
+/** CJK first (generic stack, no bundled font); the last entries still render Latin/Cyrillic and tofu-free fallbacks. */
+const FONT = '"Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", "Yu Gothic", "DejaVu Sans", sans-serif';
 
-function paintText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  cx: number,
-  cy: number,
-  pixelH: number,
-  pixelW: number,
-  color: string,
-): void {
+/** Bold glyph stroke thickness as a share of the font size (CJK and Latin bold faces). */
+const STROKE = 0.13;
+/** Colour tube stroke over the white fill: covers 30 % of the glyph stroke from each side ⇒ a ≤ 40 % white core. */
+const TUBE = STROKE * 0.6;
+
+/**
+ * Tube lettering centred at the current origin (PM rework: neon, not
+ * white): a blurred full-saturation glow in the text colour, then a
+ * near-white glyph whose edges are overdrawn by a colour stroke, leaving a
+ * white core ≤ 40 % of the glyph stroke. `pixelW` is the target width.
+ */
+function paintText(ctx: CanvasRenderingContext2D, text: string, pixelH: number, pixelW: number, color: string): void {
   ctx.font = `700 ${pixelH}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const natural = Math.max(1, ctx.measureText(text).width);
-  const scaleX = pixelW / natural;
   ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(scaleX, 1);
+  ctx.scale(pixelW / natural, 1);
+  ctx.lineJoin = 'round';
   ctx.shadowColor = color;
-  ctx.shadowBlur = Math.max(8, pixelH * 0.45);
+  ctx.shadowBlur = Math.max(6, pixelH * 0.4);
   ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = pixelH * TUBE;
   ctx.fillText(text, 0, 0);
+  ctx.strokeText(text, 0, 0);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#f4f7ff';
-  ctx.font = `600 ${pixelH * 0.62}px ${FONT}`;
   ctx.fillText(text, 0, 0);
+  ctx.strokeText(text, 0, 0);
   ctx.restore();
 }
 
+/** Nominal face aspect (width / height) per kind — used to pre-squash glyphs so they read upright on the face. */
+const NOMINAL: Record<SignKind, number> = { blade: 1 / 5, panel: 3.5, stack: 1.6 / 0.9, screen: 1.5 };
+
 function drawSlot(ctx: CanvasRenderingContext2D, slot: number, key: string): void {
-  const col = slot % GRID;
-  const row = Math.floor(slot / GRID);
-  const x = col * SLOT;
-  const y = row * SLOT;
-  const parts = key.split('|');
-  const kind = parts[0] ?? 'panel';
-  const word = parts[1] ?? '';
-  const color = parts[2] ?? '#ff2a6d';
+  const x = (slot % NEON_ATLAS_COLS) * NEON_SLOT_W;
+  const y = Math.floor(slot / NEON_ATLAS_COLS) * NEON_SLOT_H;
+  const W = NEON_SLOT_W;
+  const H = NEON_SLOT_H;
+  const { kind, word, text, border } = parseNeonAtlasKey(key);
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x, y, SLOT, SLOT);
+  ctx.rect(x, y, W, H);
   ctx.clip();
   ctx.fillStyle = '#07060a';
-  ctx.fillRect(x, y, SLOT, SLOT);
+  ctx.fillRect(x, y, W, H);
 
-  const inset = 16;
+  const screen = kind === 'screen';
+  if (screen) {
+    // Static facade screen: a gradient block between the two colours, dimmed so the word reads.
+    const g = ctx.createLinearGradient(x, y, x + W, y + H);
+    g.addColorStop(0, text);
+    g.addColorStop(1, border);
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 6, y + 6, W - 12, H - 12);
+    ctx.globalAlpha = 1;
+  }
+
+  const inset = screen ? 4 : 10;
   ctx.beginPath();
-  ctx.roundRect(x + inset, y + inset, SLOT - inset * 2, SLOT - inset * 2, 26);
+  ctx.roundRect(x + inset, y + inset, W - inset * 2, H - inset * 2, screen ? 6 : 18);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 12;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 22;
+  ctx.strokeStyle = border;
+  ctx.lineWidth = screen ? 5 : 9;
+  ctx.shadowColor = border;
+  ctx.shadowBlur = 16;
   ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.strokeStyle = '#f7f8ff';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2;
   ctx.stroke();
 
   const glyphs = Array.from(word);
-  if (kind === 'blade') {
-    const n = Math.max(1, glyphs.length);
-    const rowH = SLOT / n;
+  const n = Math.max(1, glyphs.length);
+  if (neonSlotRotated(kind)) {
+    // Portrait glyph column rotated into the landscape slot: face top → slot
+    // left, face right → slot top (see `buildNeonMeshes`). Each glyph is
+    // rotated −90° so it reads upright on the face.
+    const cellA = W / n;
+    const faceScale = (W / H) * NOMINAL.blade; // on-face stretch of slot-a vs slot-b pixels
     for (let i = 0; i < glyphs.length; i++) {
-      const glyph = glyphs[i] ?? '';
-      const gh = rowH * 0.78;
-      paintText(ctx, glyph, x + SLOT / 2, y + (i + 0.5) * rowH, gh, SLOT * 0.84, color);
+      ctx.save();
+      ctx.translate(x + (i + 0.5) * cellA, y + H / 2);
+      ctx.rotate(-Math.PI / 2);
+      const gh = cellA * 0.8;
+      const gw = Math.min(H * 0.8, gh / faceScale);
+      paintText(ctx, glyphs[i] ?? '', gh, gw, text);
+      ctx.restore();
     }
   } else {
-    // Square slot is stretched onto a wide panel; draw the word tall and narrow
-    // so a nominal ~3.5:1 panel keeps letterforms readable.
-    const n = Math.max(1, glyphs.length);
-    const nominal = 3.5;
-    const pixRatio = 0.85 / nominal;
-    const gh = Math.min(SLOT * 0.72, (SLOT * 0.88) / (n * pixRatio));
-    paintText(ctx, word, x + SLOT / 2, y + SLOT / 2, gh, n * gh * pixRatio, color);
+    // A glyph g × g metres on a face of the nominal aspect spans g·W/fw by g·H/fh pixels.
+    const pixRatio = (0.85 * (W / H)) / NOMINAL[kind];
+    const gh = Math.min(H * (screen ? 0.62 : 0.66), (W * 0.84) / (n * pixRatio));
+    ctx.save();
+    ctx.translate(x + W / 2, y + H / 2);
+    paintText(ctx, word, gh, n * gh * pixRatio, text);
+    ctx.restore();
   }
   ctx.restore();
   if (tex) tex.needsUpdate = true;
 }
 
 /**
- * UV rect for `kind|word|color`. The first 64 distinct keys each get a slot;
- * later keys reuse `hash(key) % 64` and do not evict the occupant (no LRU).
+ * UV rect for one sign face. The first 128 distinct `kind|word` keys each get
+ * a slot; later keys reuse a drawn slot of the same look (see {@link NeonSlotTable}).
  */
-export function getSlotUv(key: string): SlotUv {
+export function getSlotUv(kind: SignKind, word: string): SlotUv {
   const ctx = ensure();
-  const existing = keySlot.get(key);
-  if (existing !== undefined) return uvOf(existing);
-  let slot: number;
-  if (drawn < MAX_SLOTS) {
-    slot = drawn;
-    drawn += 1;
-    keySlot.set(key, slot);
-    drawSlot(ctx, slot, key);
-  } else {
-    slot = hashKey(key) % MAX_SLOTS;
-    keySlot.set(key, slot);
+  const key = neonAtlasKey(kind, word);
+  const { slot, fresh } = table.slotFor(key);
+  if (fresh) drawSlot(ctx, slot, key);
+  return neonSlotUv(slot, neonSlotRotated(kind));
+}
+
+/** Colours actually drawn in the slot of `kind|word` (drawing the slot if it is new). */
+function drawnLook(kind: SignKind, word: string, text: string, border: string): { text: string; border: string } {
+  const ctx = ensure();
+  const key = neonAtlasKey(kind, word);
+  const { slot, fresh } = table.slotFor(key);
+  if (fresh) drawSlot(ctx, slot, key);
+  return table.lookOf(slot) ?? { text, border };
+}
+
+/**
+ * `sign` recoloured to what its atlas slot shows, so face, glow card and
+ * spill light agree. Identity except for an overflow key that had to share a
+ * slot of a different colour pair.
+ */
+export function withDrawnColours(sign: Sign): Sign {
+  if (sign.kind === 'stack' && sign.panels) {
+    const panels = sign.panels.map((p) => ({ ...p, ...drawnLook('stack', p.word, p.text, p.border) }));
+    const top = panels[0];
+    return top ? { ...sign, text: top.text, border: top.border, panels } : sign;
   }
-  return uvOf(slot);
+  const look = drawnLook(sign.kind, sign.word, sign.text, sign.border);
+  return look.text === sign.text && look.border === sign.border ? sign : { ...sign, ...look };
 }
