@@ -1,16 +1,15 @@
 /**
- * Cyberpunk layer `neon` (wave 20b): street-facing blade and panel signs,
- * glyph atlas, tube glow, flicker, coloured spill. Experimental (`N` toggles).
- * Contract: `layer.ts` and docs/architecture.md §4.11 "Neon signs".
+ * Cyberpunk layer `neon` (wave 20b; v2 dense profiles wave 23b): street-facing
+ * blade, panel, stack and screen signs, glyph atlas, tube glow, flicker, fake
+ * glow spill cards and coloured point-light spill. Experimental (`N` toggles).
+ * Contract: `layer.ts` and docs/architecture.md §4.11 "Neon signs" / "Neon v2".
  */
 import * as THREE from 'three/webgpu';
-import { attribute, float, floor, hash, select, texture, uniform, vec3 } from 'three/tsl';
+import { attribute, clamp, float, floor, hash, length, select, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
 import { CellStreamer, type CellData } from './cells';
 import type { PunkLayer, PunkLayerContext } from './layer';
-import { disposeNeonAtlas, getSlotUv, neonAtlasKey, neonAtlasSlotCount, neonAtlasTexture } from './neonatlas';
-import { placeSigns, type Sign } from './neonplace';
-
-type V3 = [number, number, number];
+import { disposeNeonAtlas, getSlotUv, neonAtlasSlotCount, neonAtlasTexture } from './neonatlas';
+import { buildNeonMeshes, placeSigns, type NeonMesh, type Sign } from './neonplace';
 
 const LIGHTS = 4;
 const LIGHT_INTENSITY = 6;
@@ -18,188 +17,18 @@ const LIGHT_DISTANCE = 14;
 const ASSIGN_EVERY = 0.25;
 const FADE_S = 0.3;
 const VISIBLE_REACH = 150;
-const FRAME_T = 0.08;
-const FRAME_D = 0.08;
 
-function add3(a: V3, b: V3): V3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-function sub3(a: V3, b: V3): V3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-function mul3(a: V3, s: number): V3 {
-  return [a[0] * s, a[1] * s, a[2] * s];
-}
-function dot3(a: V3, b: V3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-function cross3(a: V3, b: V3): V3 {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-function len3(a: V3): number {
-  return Math.hypot(a[0], a[1], a[2]);
-}
-
-/** Merged triangle soup. Winding is flipped so each quad faces `n`. */
-class Soup {
-  readonly pos: number[] = [];
-  readonly nrm: number[] = [];
-  readonly uv: number[] = [];
-  readonly flick: number[] = [];
-  readonly idx: number[] = [];
-
-  quad(c0: V3, c1: V3, c2: V3, c3: V3, u0: number, v0: number, u1: number, v1: number, n: V3, flick: number): void {
-    const b = this.pos.length / 3;
-    const corners = [c0, c1, c2, c3];
-    const uvs: [number, number][] = [
-      [u0, v0],
-      [u1, v0],
-      [u1, v1],
-      [u0, v1],
-    ];
-    for (let i = 0; i < 4; i++) {
-      const p = corners[i]!;
-      const uv = uvs[i]!;
-      this.pos.push(p[0], p[1], p[2]);
-      this.nrm.push(n[0], n[1], n[2]);
-      this.uv.push(uv[0], uv[1]);
-      this.flick.push(flick);
-    }
-    const flip = dot3(cross3(sub3(c1, c0), sub3(c3, c0)), n) < 0;
-    if (!flip) this.idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
-    else this.idx.push(b, b + 3, b + 2, b, b + 2, b + 1);
-  }
-
-  geometry(faces: boolean): THREE.BufferGeometry {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
-    if (faces) {
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-      g.setAttribute('flicker', new THREE.Float32BufferAttribute(this.flick, 1));
-    }
-    g.setIndex(this.idx);
-    return g;
-  }
-}
-
-function box(buf: Soup, center: V3, xu: V3, yu: V3, zu: V3, hx: number, hy: number, hz: number): void {
-  const ax = mul3(xu, hx);
-  const ay = mul3(yu, hy);
-  const az = mul3(zu, hz);
-  const c = (sx: number, sy: number, sz: number): V3 => add3(center, add3(mul3(ax, sx), add3(mul3(ay, sy), mul3(az, sz))));
-  const q = (a: V3, b: V3, c2: V3, d: V3, n: V3): void => buf.quad(a, b, c2, d, 0, 0, 1, 1, n, 0);
-  q(c(1, -1, -1), c(1, -1, 1), c(1, 1, 1), c(1, 1, -1), xu);
-  q(c(-1, -1, 1), c(-1, -1, -1), c(-1, 1, -1), c(-1, 1, 1), mul3(xu, -1));
-  q(c(-1, 1, -1), c(1, 1, -1), c(1, 1, 1), c(-1, 1, 1), yu);
-  q(c(-1, -1, 1), c(1, -1, 1), c(1, -1, -1), c(-1, -1, -1), mul3(yu, -1));
-  q(c(-1, -1, 1), c(-1, 1, 1), c(1, 1, 1), c(1, -1, 1), zu);
-  q(c(1, -1, -1), c(1, 1, -1), c(-1, 1, -1), c(-1, -1, -1), mul3(zu, -1));
-}
-
-function frameAround(buf: Soup, center: V3, axisW: V3, axisH: V3, axisN: V3, width: number, height: number): void {
-  const hw = width / 2;
-  const hh = height / 2;
-  const t = FRAME_T;
-  box(buf, add3(center, mul3(axisH, -(hh + t / 2))), axisW, axisH, axisN, hw + t, t / 2, FRAME_D / 2);
-  box(buf, add3(center, mul3(axisH, hh + t / 2)), axisW, axisH, axisN, hw + t, t / 2, FRAME_D / 2);
-  box(buf, add3(center, mul3(axisW, -(hw + t / 2))), axisW, axisH, axisN, t / 2, hh, FRAME_D / 2);
-  box(buf, add3(center, mul3(axisW, hw + t / 2)), axisW, axisH, axisN, t / 2, hh, FRAME_D / 2);
-}
-
-function bracket(buf: Soup, from: V3, to: V3): void {
-  const span = sub3(to, from);
-  const L = len3(span);
-  if (L < 1e-3) return;
-  const dir = mul3(span, 1 / L);
-  let side = cross3(dir, [0, 1, 0]);
-  const sl = len3(side);
-  side = sl < 1e-4 ? [1, 0, 0] : mul3(side, 1 / sl);
-  const lift = cross3(side, dir);
-  box(buf, mul3(add3(from, to), 0.5), dir, lift, side, L / 2, 0.04, 0.04);
-}
-
-/** Per-sign phase in (0, 1]; 0 means the sign stays on. */
-function flickerSeed(sign: Sign): number {
-  if (!sign.flicker) return 0;
-  let h = (sign.buildingId ^ Math.imul(Math.round(sign.x * 10), 0x45d9f3b)) >>> 0;
-  h = Math.imul(h ^ Math.round(sign.z * 10), 0x27d4eb2d) >>> 0;
-  return 0.15 + ((h >>> 0) / 4294967296) * 0.85;
-}
-
-/**
- * Face quads in world space. Blade faces lie in the normal/up plane (text
- * readable from both street directions); the back face mirrors U. Panels
- * sit on the wall plane, one face, outward.
- */
-function addFaces(buf: Soup, sign: Sign, u0: number, v0: number, u1: number, v1: number): void {
-  const flick = flickerSeed(sign);
-  const C: V3 = [sign.x, sign.y, sign.z];
-  const Y: V3 = [0, 1, 0];
-  const N: V3 = [sign.nx, 0, sign.nz];
-  const T: V3 = [-sign.nz, 0, sign.nx];
-  const hw = sign.width / 2;
-  const hh = sign.height / 2;
-  if (sign.kind === 'panel') {
-    const O = add3(C, mul3(N, 0.015));
-    buf.quad(
-      add3(O, add3(mul3(T, hw), mul3(Y, -hh))),
-      add3(O, add3(mul3(T, -hw), mul3(Y, -hh))),
-      add3(O, add3(mul3(T, -hw), mul3(Y, hh))),
-      add3(O, add3(mul3(T, hw), mul3(Y, hh))),
-      u0,
-      v0,
-      u1,
-      v1,
-      N,
-      flick,
-    );
-    return;
-  }
-  const gap = 0.05;
-  const front = add3(C, mul3(T, gap));
-  buf.quad(
-    add3(front, add3(mul3(N, -hw), mul3(Y, -hh))),
-    add3(front, add3(mul3(N, hw), mul3(Y, -hh))),
-    add3(front, add3(mul3(N, hw), mul3(Y, hh))),
-    add3(front, add3(mul3(N, -hw), mul3(Y, hh))),
-    u0,
-    v0,
-    u1,
-    v1,
-    T,
-    flick,
-  );
-  const back = add3(C, mul3(T, -gap));
-  buf.quad(
-    add3(back, add3(mul3(N, hw), mul3(Y, -hh))),
-    add3(back, add3(mul3(N, -hw), mul3(Y, -hh))),
-    add3(back, add3(mul3(N, -hw), mul3(Y, hh))),
-    add3(back, add3(mul3(N, hw), mul3(Y, hh))),
-    u0,
-    v0,
-    u1,
-    v1,
-    mul3(T, -1),
-    flick,
-  );
-}
-
-function addFrame(buf: Soup, sign: Sign): void {
-  const C: V3 = [sign.x, sign.y, sign.z];
-  const Y: V3 = [0, 1, 0];
-  const N: V3 = [sign.nx, 0, sign.nz];
-  const T: V3 = [-sign.nz, 0, sign.nx];
-  if (sign.kind === 'panel') {
-    frameAround(buf, C, T, Y, N, sign.width, sign.height);
-    return;
-  }
-  frameAround(buf, C, N, Y, T, sign.width, sign.height);
-  const along = sub3(C, mul3(N, 0.6));
-  for (const f of [-0.32, 0.32]) {
-    const y = sign.y + sign.height * f;
-    bracket(buf, [along[0], y, along[2]], [sign.x, y, sign.z]);
-  }
+/** BufferGeometry from one pure {@link NeonMesh}; empty attributes are skipped. */
+function toGeometry(m: NeonMesh): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(m.normal, 3));
+  if (m.uv.length > 0) g.setAttribute('uv', new THREE.BufferAttribute(m.uv, 2));
+  if (m.flicker.length > 0) g.setAttribute('flicker', new THREE.BufferAttribute(m.flicker, 1));
+  if (m.gain.length > 0) g.setAttribute('gain', new THREE.BufferAttribute(m.gain, 1));
+  if (m.color.length > 0) g.setAttribute('glow', new THREE.BufferAttribute(m.color, 3));
+  g.setIndex(new THREE.BufferAttribute(m.index, 1));
+  return g;
 }
 
 function signId(s: Sign | null): string {
@@ -221,10 +50,13 @@ export function createNeonLayer(): PunkLayer {
   let streamer: CellStreamer | null = null;
   let faceMat: THREE.MeshStandardNodeMaterial | null = null;
   let frameMat: THREE.MeshStandardNodeMaterial | null = null;
+  let glowMat: THREE.MeshBasicNodeMaterial | null = null;
   let uTime: { value: number } | null = null;
   const slots: Slot[] = [];
   const signsByCell = new Map<string, Sign[]>();
+  const trisByCell = new Map<string, number>();
   let signCount = 0;
+  let triCount = 0;
   let visible = 0;
   let sinceAssign = ASSIGN_EVERY;
   const frustum = new THREE.Frustum();
@@ -235,10 +67,13 @@ export function createNeonLayer(): PunkLayer {
     let n = 0;
     for (const list of signsByCell.values()) n += list.length;
     signCount = n;
+    let t = 0;
+    for (const v of trisByCell.values()) t += v;
+    triCount = t;
   };
 
   const ensureMats = (): void => {
-    if (faceMat && frameMat && uTime) return;
+    if (faceMat && frameMat && glowMat && uTime) return;
     const timeU = uniform(0);
     uTime = timeU;
     // three's `attribute()` generic infers the node type from the string arg as `string`.
@@ -251,13 +86,26 @@ export function createNeonLayer(): PunkLayer {
     face.roughnessNode = float(0.45);
     face.metalnessNode = float(0.08);
     // PM tune (wave 20b): ×7 — with the v2 dark facades the signs must be the brightest light in the street, as in the reference.
-    face.emissiveNode = texture(neonAtlasTexture()).rgb.mul(7).mul(on);
+    // v2: per-vertex gain — tube faces ×7, facade screens ×3.
+    const gain = attribute<'float'>('gain', 'float');
+    face.emissiveNode = texture(neonAtlasTexture()).rgb.mul(gain).mul(on);
     const frame = new THREE.MeshStandardNodeMaterial();
     frame.colorNode = vec3(0.012, 0.012, 0.015);
     frame.roughnessNode = float(0.55);
     frame.metalnessNode = float(0.45);
+    // Fake spill (v2): additive radial card on the wall, no lighting cost.
+    const glow = new THREE.MeshBasicNodeMaterial();
+    glow.transparent = true;
+    glow.depthWrite = false;
+    glow.blending = THREE.AdditiveBlending;
+    glow.colorNode = attribute<'vec3'>('glow', 'vec3');
+    const d = length(uv().sub(vec2(0.5, 0.5))).mul(2);
+    const fall = clamp(float(1).sub(d), 0, 1);
+    glow.opacityNode = fall.mul(fall).mul(on);
+    glow.fog = true;
     faceMat = face;
     frameMat = frame;
+    glowMat = glow;
   };
 
   const ensureLights = (parent: THREE.Group): void => {
@@ -273,30 +121,29 @@ export function createNeonLayer(): PunkLayer {
   };
 
   const buildCell = (cell: CellData): THREE.Group | null => {
-    if (!ctx || !faceMat || !frameMat) return null;
+    if (!ctx || !faceMat || !frameMat || !glowMat) return null;
     const signs = placeSigns(cell.buildings, cell.roads, ctx.groundAt, ctx.cityId);
     if (signs.length === 0) return null;
-    const faces = new Soup();
-    const frames = new Soup();
-    for (const sign of signs) {
-      const uv = getSlotUv(neonAtlasKey(sign.kind, sign.word, sign.color));
-      addFaces(faces, sign, uv.u0, uv.v0, uv.u1, uv.v1);
-      addFrame(frames, sign);
-    }
+    const meshes = buildNeonMeshes(signs, getSlotUv);
     const group = new THREE.Group();
     group.name = cell.key;
-    const faceMesh = new THREE.Mesh(faces.geometry(true), faceMat);
+    const faceMesh = new THREE.Mesh(toGeometry(meshes.faces), faceMat);
     faceMesh.name = 'neon-face';
-    const frameMesh = new THREE.Mesh(frames.geometry(false), frameMat);
+    const frameMesh = new THREE.Mesh(toGeometry(meshes.frames), frameMat);
     frameMesh.name = 'neon-frame';
-    group.add(faceMesh, frameMesh);
+    const glowMesh = new THREE.Mesh(toGeometry(meshes.glow), glowMat);
+    glowMesh.name = 'neon-glow';
+    glowMesh.renderOrder = 1;
+    group.add(faceMesh, frameMesh, glowMesh);
     signsByCell.set(cell.key, signs);
+    trisByCell.set(cell.key, (meshes.faces.index.length + meshes.frames.index.length + meshes.glow.index.length) / 3);
     recount();
     return group;
   };
 
   const disposeObj = (obj: THREE.Object3D): void => {
     signsByCell.delete(obj.name);
+    trisByCell.delete(obj.name);
     recount();
     obj.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
@@ -308,7 +155,7 @@ export function createNeonLayer(): PunkLayer {
     slot.queued = null;
     slot.fading = false;
     if (!sign) return;
-    slot.light.color.set(sign.color);
+    slot.light.color.set(sign.text);
     slot.light.position.set(sign.x, sign.y, sign.z);
   };
 
@@ -399,7 +246,9 @@ export function createNeonLayer(): PunkLayer {
     detach(): void {
       if (root && streamer) streamer.clear(root);
       signsByCell.clear();
+      trisByCell.clear();
       signCount = 0;
+      triCount = 0;
       visible = 0;
       sinceAssign = ASSIGN_EVERY;
       for (const slot of slots) {
@@ -414,14 +263,18 @@ export function createNeonLayer(): PunkLayer {
     dispose(): void {
       if (root && streamer) streamer.clear(root);
       signsByCell.clear();
+      trisByCell.clear();
       signCount = 0;
+      triCount = 0;
       visible = 0;
       for (const slot of slots) slot.light.removeFromParent();
       slots.length = 0;
       faceMat?.dispose();
       frameMat?.dispose();
+      glowMat?.dispose();
       faceMat = null;
       frameMat = null;
+      glowMat = null;
       uTime = null;
       streamer = null;
       root = null;
@@ -437,6 +290,7 @@ export function createNeonLayer(): PunkLayer {
         visible,
         lights: lit,
         slots: neonAtlasSlotCount(),
+        triangles: triCount,
         cells: s.cells,
         pending: s.pending,
         buildMs: s.buildMs,
