@@ -388,6 +388,10 @@ export class VehiclesLayer implements PunkLayer {
   private tail: THREE.InstancedMesh | null = null;
   private beam: THREE.InstancedMesh | null = null;
   private cap = 0;
+  /** Next bucket to warm (== buckets.length → the light meshes; beyond → done). */
+  private warmNext = 0;
+  /** Whether this material set has been warmed (reset on dispose). */
+  private warmed = false;
   private counts = new Int32Array(0);
   private pick = new Int16Array(0);
   private pickFor: THREE.InstancedMesh | null = null;
@@ -466,11 +470,19 @@ export class VehiclesLayer implements PunkLayer {
       this.hideAll();
       return;
     }
+    if (fleet.count > this.cap) this.build(fleet.count, root);
+    // Shader warm-up (wave 24 stutter fix): the first draw of each model part
+    // compiles its node material mid-frame (100–300 ms hitches as new models
+    // come into view). Draw one zero-size instance of one bucket per frame
+    // through the real pipeline first; the fleet boxes stay up meanwhile.
+    if (this.warmNext <= this.buckets.length) {
+      this.warmStep();
+      return;
+    }
     if (this.hidden?.mesh !== fleet) {
       this.restoreFleet();
       this.hideFleet(fleet);
     }
-    if (fleet.count > this.cap) this.build(fleet.count, root);
     if (this.pickFor !== fleet) {
       const weights = this.assets.map((a) => (a ? a.entry.weight : 0));
       for (let i = 0; i < fleet.count; i++) this.pick[i] = pickModel(i, weights);
@@ -592,6 +604,7 @@ export class VehiclesLayer implements PunkLayer {
     }
     this.assets = [];
     this.ready = false;
+    this.warmed = false;
     this.glassMat.dispose();
     this.restMat.dispose();
     this.headMat?.dispose();
@@ -662,8 +675,23 @@ export class VehiclesLayer implements PunkLayer {
     }
   }
 
+  /** One warm-up step: show bucket `warmNext` (or, last, the light meshes) as a single degenerate instance. */
+  private warmStep(): void {
+    this.hideAll();
+    const i = this.warmNext++;
+    const meshes: THREE.InstancedMesh[] =
+      i < this.buckets.length ? (this.buckets[i]?.meshes ?? []) : [this.head, this.tail, this.beam].filter((m): m is THREE.InstancedMesh => m !== null);
+    for (const m of meshes) {
+      (m.instanceMatrix.array as Float32Array).fill(0, 0, 16); // zero matrix: rasterises nothing
+      markUpdated(m.instanceMatrix, 16);
+      m.count = 1;
+      m.visible = true;
+    }
+  }
+
   /** (Re)create the instanced meshes for a fleet of `cap` cars under `root`. */
   private build(cap: number, root: THREE.Group): void {
+    const firstBuild = this.buckets.length === 0 && !this.warmed;
     this.freeInstancing();
     this.cap = cap;
     this.counts = new Int32Array(this.assets.length * 2);
@@ -696,6 +724,9 @@ export class VehiclesLayer implements PunkLayer {
     this.head = lightMesh(this.headGeo, this.headMat as THREE.Material, cap * 2, 'head', root);
     this.tail = lightMesh(this.tailGeo, this.tailMat as THREE.Material, cap * 2, 'tail', root);
     this.beam = lightMesh(this.beamGeo, this.beamMat as THREE.Material, cap, 'beam', root);
+    // Warm only once per material set: a bigger fleet reuses compiled pipelines.
+    this.warmNext = firstBuild ? 0 : this.buckets.length + 1;
+    this.warmed = true;
   }
 
   private freeInstancing(): void {

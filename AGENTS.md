@@ -118,6 +118,10 @@ in your report instead of guessing.
   Format: data-format.md "Tiled datasets"; runtime (`TileManager`, radii,
   collision sources, HUD/bus rebuilds): architecture.md §4.19. Bridge
   roads are GLOBAL (`index.bridgeRoads`) — never split or tile them.
+- Cyberpunk stutter rules (architecture.md §4.11 "Stutter rules"): never
+  toggle a light's `visible` or add/remove lights at runtime (recompiles
+  every lit material); warm new materials with a zero-matrix draw before
+  first use.
 - Cyberpunk debug surface (no images needed): `window.__asciicity.punk`
   → `status`, `backend`, `stats()` (`<layer>.<key>` numbers),
   `census()`, `probe(x, z)`. `e2e/cyberpunk.spec.ts` must stay green:

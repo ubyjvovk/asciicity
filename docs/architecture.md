@@ -1788,6 +1788,25 @@ signs — a bunch of cyberpunk-style signs, start with Tokyo"):*
     125–250): 100–600 signs; any cell ≤ 800 signs and
     ≤ 60 k triangles; placement of a whole Tokyo tile ≤ 250 ms in node.
 
+*Stutter rules (wave 24, PM perf pass — measured, not optional):*
+  - **Never toggle a light's `visible`, and never add/remove lights while
+    the style runs.** WebGPURenderer keys every lit material's node program
+    on the scene's active light set; one toggle recompiles every lit
+    material in the scene (profiled: 7.5 s of shader builds in a 15 s
+    sprint, 400–700 ms freezes). Create a fixed pool at attach, keep it
+    visible, park unused lights at `intensity = 0` (neon slots, props lamps).
+  - **Warm new materials before they first appear.** The first draw of a
+    new material/geometry layout compiles mid-frame (100–300 ms). Draw it
+    once as a single zero-matrix instance through the real pipeline before
+    revealing it (vehicles: one bucket per frame while the fleet boxes stay
+    up). `renderer.compileAsync` is not a substitute: it compiles outside
+    the MRT scene pass, so the keys do not match.
+  - `CellStreamer` rebuilds only cells whose `cellSignature` changed when
+    tiles stream, and bucketing is shared across layers.
+  - Harness: frame-time p99/max + long tasks while sprinting
+    (`KeyW`+Shift, alternating turns, 20 s). Bar: 0 frames > 100 ms,
+    long tasks ≤ 250 ms total per 20 s at bank, kabukicho and maidan.
+
 *Vehicles — real car models in cyberpunk (wave 23c, T-0170):*
   - Assets (PM-curated): `public/models/cars/<id>.lod0.glb` (≤ 20 k
     triangles, textures ≤ 1024²) and `<id>.lod1.glb` (≈ 2.5 k; Town Car / Century / Countach ≈ 7–8 k where sloppy simplification tore panels apart; textures ≤ 256²),

@@ -68,6 +68,30 @@ export function bucketSources(sources: ReadonlyMap<string, PunkSource>, size = C
   return cells;
 }
 
+/**
+ * Content signature of one cell: counts plus an id checksum. A tile arriving
+ * or leaving changes only the cells it overlaps, so only those rebuild.
+ */
+export function cellSignature(c: CellData): string {
+  let ids = 0;
+  for (const b of c.buildings) ids = (ids * 31 + b.id) % 2147483647;
+  let pts = 0;
+  for (const r of c.roads) pts += r.pts.length;
+  return `${c.buildings.length}:${c.roads.length}:${pts}:${ids}`;
+}
+
+// One bucketing per source-map change, shared by every layer's streamer (all
+// layers read the same `ctx.sources` instance with the same cell size).
+let bucketCache: { sources: ReadonlyMap<string, PunkSource>; sig: string; size: number; cells: Map<string, CellData> } | null = null;
+
+function bucketShared(sources: ReadonlyMap<string, PunkSource>, sig: string, size: number): Map<string, CellData> {
+  const c = bucketCache;
+  if (c && c.sources === sources && c.sig === sig && c.size === size) return c.cells;
+  const cells = bucketSources(sources, size);
+  bucketCache = { sources, sig, size, cells };
+  return cells;
+}
+
 /** A cheap signature of the source map: changes whenever a chunk is added/removed. */
 export function sourcesSignature(sources: ReadonlyMap<string, PunkSource>): string {
   const parts: string[] = [];
@@ -98,6 +122,8 @@ export class CellStreamer {
   private cells = new Map<string, CellData>();
   private signature = '';
   private readonly built = new Map<string, Object3D | null>();
+  /** `cellSignature` of each built cell at build time. */
+  private readonly builtSig = new Map<string, string>();
   private lastBuildMs = 0;
   private pendingCount = 0;
 
@@ -110,9 +136,14 @@ export class CellStreamer {
     const sig = sourcesSignature(sources);
     if (sig !== this.signature) {
       this.signature = sig;
-      this.cells = bucketSources(sources, this.opts.cellSize);
-      // Rebuild every built cell whose content may have changed.
-      for (const key of [...this.built.keys()]) this.drop(key, root);
+      this.cells = bucketShared(sources, sig, this.opts.cellSize);
+      // Rebuild only the built cells whose content changed (a streamed tile
+      // touches a few cells; dropping them all made every layer rebuild its
+      // whole neighbourhood on each tile event — wave 24 stutter fix).
+      for (const key of [...this.built.keys()]) {
+        const c = this.cells.get(key);
+        if (!c || cellSignature(c) !== this.builtSig.get(key)) this.drop(key, root);
+      }
     }
     const d2 = (c: CellData): number => (c.cx - camX) ** 2 + (c.cz - camZ) ** 2;
     for (const key of [...this.built.keys()]) {
@@ -131,6 +162,7 @@ export class CellStreamer {
       this.lastBuildMs = performance.now() - t0;
       if (obj) root.add(obj);
       this.built.set(c.key, obj);
+      this.builtSig.set(c.key, cellSignature(c));
     }
   }
 
@@ -157,5 +189,6 @@ export class CellStreamer {
       this.opts.dispose(obj);
     }
     this.built.delete(key);
+    this.builtSig.delete(key);
   }
 }

@@ -186,7 +186,6 @@ export function createNeonLayer(): PunkLayer {
       } else {
         slot.light.intensity = 0;
       }
-      slot.light.visible = slot.light.intensity > 0.01;
     }
   };
 
@@ -253,7 +252,6 @@ export function createNeonLayer(): PunkLayer {
       sinceAssign = ASSIGN_EVERY;
       for (const slot of slots) {
         slot.light.intensity = 0;
-        slot.light.visible = false;
         slot.sign = null;
         slot.queued = null;
         slot.fading = false;

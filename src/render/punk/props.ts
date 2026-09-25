@@ -46,8 +46,10 @@ export class PropsLayer implements PunkLayer {
   /** Create the `props` layer. */
   constructor() {
     for (let i = 0; i < LIGHT_COUNT; i++) {
-      const l = new THREE.PointLight(0xffb24d, 30, 18, 2);
-      l.visible = false;
+      // Always visible: toggling a light's visibility changes the scene's
+      // lights node and recompiles every lit material (wave 24 stutter fix).
+      // An unused light parks at intensity 0 instead.
+      const l = new THREE.PointLight(0xffb24d, 0, 18, 2);
       this.lights.push(l);
     }
   }
@@ -145,7 +147,7 @@ export class PropsLayer implements PunkLayer {
   stats(): Record<string, number> {
     const s = this.streamer?.stats() ?? { cells: 0, pending: 0, buildMs: 0 };
     let active = 0;
-    for (const l of this.lights) if (l.visible) active++;
+    for (const l of this.lights) if (l.intensity > 0) active++;
     return {
       lamps: this.lampCount,
       cables: this.cableCount,
@@ -220,9 +222,9 @@ export class PropsLayer implements PunkLayer {
       if (i < cand.length) {
         const lamp = cand[i].lamp;
         l.position.set(lamp.x + lamp.dirX * 1.8, lamp.y + 7, lamp.z + lamp.dirZ * 1.8);
-        l.visible = true;
+        l.intensity = 30;
       } else {
-        l.visible = false;
+        l.intensity = 0;
       }
     }
   }

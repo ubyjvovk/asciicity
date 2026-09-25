@@ -76,27 +76,38 @@ describe('CellStreamer', () => {
     expect(root.children.every((o) => Number(o.name.split('_')[0]) >= 4)).toBe(true);
   });
 
-  it('rebuilds everything when the sources change, and clear() empties the root', () => {
+  it('rebuilds only the cells whose content changed when the sources change, and clear() empties the root', () => {
     let builds = 0;
+    const rebuilt: string[] = [];
     const s = new CellStreamer({
       buildRadius: 200,
       disposeRadius: 400,
       maxBuildsPerFrame: 10,
-      build: () => {
+      build: (c) => {
         builds++;
+        rebuilt.push(c.key);
         return new THREE.Object3D();
       },
       dispose: () => {},
     });
     const root = new THREE.Object3D();
     const src = grid();
-    s.update(src, 125, 125, root);
+    s.update(src, 250, 250, root);
     const first = builds;
-    s.update(src, 125, 125, root);
+    s.update(src, 250, 250, root);
     expect(builds).toBe(first);
-    src.set('0_0', { buildings: [b(999, 30, 30)], roads: [] });
-    s.update(src, 125, 125, root);
-    expect(builds).toBe(first * 2);
+    expect(first).toBeGreaterThan(1);
+    rebuilt.length = 0;
+    // A new chunk touching only cell 0_0: only that cell rebuilds.
+    src.set('extra', { buildings: [b(999, 30, 30)], roads: [] });
+    s.update(src, 250, 250, root);
+    expect(rebuilt).toEqual(['0_0']);
+    expect(builds).toBe(first + 1);
+    // Removing it restores the old content: 0_0 rebuilds again, nothing else.
+    rebuilt.length = 0;
+    src.delete('extra');
+    s.update(src, 250, 250, root);
+    expect(rebuilt).toEqual(['0_0']);
     s.clear(root);
     expect(root.children).toHaveLength(0);
   });
