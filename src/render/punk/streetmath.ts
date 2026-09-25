@@ -29,8 +29,9 @@ export const ASPHALT_PATCH_AMP = 0.012;
 export const ASPHALT_MIN = 0.035;
 export const ASPHALT_MAX = 0.06;
 /** Dry asphalt: roughness (0.45–0.6), metalness, ripple strength. */
-export const ASPHALT_DRY_ROUGHNESS = 0.52;
-export const ASPHALT_DRY_METALNESS = 0.12;
+/** Damp asphalt (wave 23 perf pass): metalness 0.6 keeps it inside the SSR mask (≥ 0.5) at ~26 % weight so streets stay glossy while walls / pavement are skipped. */
+export const ASPHALT_DRY_ROUGHNESS = 0.32;
+export const ASPHALT_DRY_METALNESS = 0.6;
 export const ASPHALT_DRY_RIPPLE = 0.12;
 /** Ripple spatial scale shared by road / ground / terrain. */
 export const ASPHALT_RIPPLE_SCALE = 4.2;

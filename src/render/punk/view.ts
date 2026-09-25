@@ -18,6 +18,7 @@ import { WetDressing } from './wet';
 import { LOOK_PRESETS, lookPreset, nextLookPreset, type LookPreset } from './look';
 import type { PunkLayer, PunkLayerContext, PunkSource } from './layer';
 import { EXPERIMENTAL, LAYER_FACTORIES } from './layers';
+import { QualityController } from './quality';
 import type { HeightFn } from '../../data/types';
 
 /** Construction inputs from main.ts. */
@@ -105,6 +106,16 @@ function patchIdentitySwizzle(): void {
   (proto as { __punkSwizzle?: boolean }).__punkSwizzle = true;
 }
 
+/**
+ * Debug/perf switches from `?punkq=a,b,c` (wave 23 perf pass): `nossr`,
+ * `ssrhalf`, `nobloom`, `noflare`, `nosmaa`, `noglass`, `nolights`,
+ * `norain`, `nodetail`, `noprops`, `noneon`, `dpr1`, `dpr2`.
+ */
+export function punkFlags(search: string = typeof location === 'undefined' ? '' : location.search): Set<string> {
+  const raw = new URLSearchParams(search).get('punkq') ?? '';
+  return new Set(raw.split(',').map((x) => x.trim()).filter(Boolean));
+}
+
 /** The running WebGPU view. */
 export class PunkView {
   readonly canvas: HTMLCanvasElement;
@@ -123,6 +134,9 @@ export class PunkView {
   private readonly layers: { layer: PunkLayer; root: THREE.Group; on: boolean }[] = [];
   private readonly ctx: PunkLayerContext;
   private lastT = 0;
+  private readonly flags: Set<string>;
+  private readonly quality: QualityController;
+  private lastRaw = performance.now();
 
   private constructor(opts: PunkViewOptions, canvas: HTMLCanvasElement, renderer: THREE.WebGPURenderer) {
     this.canvas = canvas;
@@ -130,8 +144,20 @@ export class PunkView {
     this.scene = opts.scene;
     this.sky = opts.sky;
     this.env = makeNightEnv();
+    const q = punkFlags();
+    this.flags = q;
+    // Adaptive quality (wave 23): `?punkq=tierN` pins a tier, `noadapt` pins 0.
+    const pinned = [...q].find((f) => /^tier\d$/.test(f));
+    this.quality = new QualityController(0, pinned ? Number(pinned.slice(4)) : q.has('noadapt') ? 0 : undefined);
     this.pipeline = createPipeline(renderer, opts.scene, opts.camera, {
-      reflections: this.backend === 'WebGPU',
+      // Build the SSR graph (WebGPU only); the adaptive tier sets its live
+      // resolution / quality right after construction (`applyQuality`).
+      ssrScale: this.backend !== 'WebGPU' || q.has('nossr') ? 0 : 0.5,
+      ssrQuality: 0.5,
+      ssrDistance: 120,
+      bloom: !q.has('nobloom'),
+      flare: !q.has('noflare'),
+      smaa: !q.has('nosmaa'),
     });
     this.rain = createRain();
     this.wet = new WetDressing(opts.windowTex);
@@ -139,6 +165,7 @@ export class PunkView {
     this.pipeline.applyLook(this._look);
     this._glass = opts.glass ?? true;
     this.pipeline.setGlass(this._glass);
+    this.applyQuality();
     this.ctx = {
       scene: opts.scene,
       camera: opts.camera,
@@ -152,7 +179,8 @@ export class PunkView {
       const layer = make();
       const root = new THREE.Group();
       root.name = `punk:${layer.id}`;
-      this.layers.push({ layer, root, on: !EXPERIMENTAL.has(layer.id) || expOn.has(layer.id) });
+      const off = q.has(`no${layer.id}`);
+      this.layers.push({ layer, root, on: !off && (!EXPERIMENTAL.has(layer.id) || expOn.has(layer.id)) });
     }
     if (new URLSearchParams(location.search).get('punkdebug') === 'height') {
       this.pipeline.showHeightMap(this.rain.heightTexture);
@@ -180,7 +208,9 @@ export class PunkView {
       antialias: false,
       powerPreference: 'high-performance',
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+    const pf = punkFlags();
+    const dprCap = pf.has('dpr1') ? 1 : pf.has('dpr2') ? 2 : 1.25;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     await renderer.init();
@@ -245,7 +275,7 @@ export class PunkView {
           light.intensity = 0.55;
         }
       }
-      scene.add(this.rain.group);
+      if (!this.flags.has('norain')) scene.add(this.rain.group);
       this.wet.apply(scene);
       for (const l of this.layers) if (l.on) this.attachLayer(l);
       this.canvas.style.display = 'block';
@@ -316,8 +346,25 @@ export class PunkView {
     this.lastT = t;
     for (const l of this.layers) if (l.on) l.layer.update(this.ctx, t, dt);
     const hide = this.layers.filter((l) => l.on && l.layer.rainPassThrough).map((l) => l.root);
-    this.rain.update(this.renderer, scene, camera, t, hide);
+    const now = performance.now();
+    const raw = (now - this.lastRaw) / 1000;
+    this.lastRaw = now;
+    if (this.quality.frame(raw)) this.applyQuality();
+    if (!this.flags.has('norain')) this.rain.update(this.renderer, scene, camera, t, hide);
+    if (this.flags.has('nolights') && this.frame % 30 === 1) {
+      scene.traverse((o) => {
+        if (o instanceof THREE.PointLight) o.visible = false;
+      });
+    }
     this.pipeline.render(t);
+  }
+
+  /** Push the controller's tier into the renderer (pixel ratio) and the SSR pass. */
+  private applyQuality(): void {
+    const tier = this.quality.settings;
+    const cap = this.flags.has('dpr1') ? 1 : this.flags.has('dpr2') ? 2 : tier.dpr;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+    this.pipeline.setReflections(tier.ssrScale, tier.ssrQuality, tier.ssrDistance);
   }
 
   private attachLayer(l: { layer: PunkLayer; root: THREE.Group }): void {
@@ -368,6 +415,9 @@ export class PunkView {
       for (const [k, v] of Object.entries(l.layer.stats())) out[`${l.layer.id}.${k}`] = v;
     }
     for (const [k, v] of Object.entries(this.pipeline.stats())) out[`atmosphere.${k}`] = v;
+    out['quality.tier'] = this.quality.tier;
+    out['quality.fps'] = Math.round(this.quality.lastFps);
+    out['quality.dpr'] = this.renderer.getPixelRatio();
     const info = this.renderer.info.render as { calls?: number; triangles?: number };
     out['renderer.calls'] = info.calls ?? 0;
     out['renderer.triangles'] = info.triangles ?? 0;

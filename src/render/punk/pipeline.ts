@@ -78,10 +78,26 @@ export interface PunkPipeline {
   stats(): Record<string, number>;
   applyLook(p: LookPreset): void;
   setGlass(on: boolean): void;
+  /** Runtime reflection tier (adaptive quality); scale 0 = off. No-op without SSR. */
+  setReflections(scale: number, quality: number, distance: number): void;
   /** Debug: draw the rain height map (north up, 0–40 m ramp) in the top-left corner. */
   showHeightMap(tex: THREE.Texture): void;
   glass: GlassUniforms;
   dispose(): void;
+}
+
+/**
+ * Cost knobs (wave 23 perf pass). `ssrScale` 0 = no reflections; bloom /
+ * flare / smaa can be dropped on weak GPUs. Fixed at construction.
+ */
+export interface PipelineQuality {
+  ssrScale: number;
+  /** SSR march quality 0–1 and max distance (m). */
+  ssrQuality: number;
+  ssrDistance: number;
+  bloom: boolean;
+  flare: boolean;
+  smaa: boolean;
 }
 
 /** Build the node graph for `scene` seen from `camera`. */
@@ -89,7 +105,7 @@ export function createPipeline(
   renderer: THREE.WebGPURenderer,
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
-  opts: { reflections: boolean },
+  opts: PipelineQuality,
 ): PunkPipeline {
   const post = new THREE.RenderPipeline(renderer);
 
@@ -123,24 +139,29 @@ export function createPipeline(
   // WebGPU-only; the fallback keeps the wet sheen from the env map.
   let reflections: ReturnType<typeof ssr> | null = null;
   let beauty: Node<'vec4'> = color;
-  if (opts.reflections) {
+  if (opts.ssrScale > 0) {
     reflections = ssr(color, depthTex, sceneNormal, {
-      metalnessNode: mrTex.r,
+      // Only march rays where it matters (perf pass, wave 23): SSRNode skips
+      // pixels whose metalness is exactly 0, and dry asphalt / pavement /
+      // facades (≈ 0.1) were being marched for a barely visible sheen. Below
+      // 0.5 we report 0 — puddles (0.9), water (0.95) and glass (0.6–0.9) keep SSR;
+      // the rest keeps its env-map sheen.
+      metalnessNode: mrTex.r.mul(step(float(0.5), mrTex.r)),
       roughnessNode: mrTex.g,
       camera,
     });
     // Full resolution: at 0.5 the rippled puddles alias into blocky sparkle
     // (PM GPU review, wave 20b); cost measured on the GPU host.
-    reflections.resolutionScale = 1;
-    reflections.maxDistance.value = 120;
+    reflections.resolutionScale = opts.ssrScale;
+    reflections.maxDistance.value = opts.ssrDistance;
     reflections.thickness.value = 0.6;
-    reflections.quality.value = 0.5;
+    reflections.quality.value = opts.ssrQuality;
     reflections.intensity.value = 0.45;
     const ssrTex = reflections.getTextureNode();
     // Puddles (metalness 0.9) and water (0.95) mirror fully; damp asphalt /
     // pavement (≈ 0.12) keeps 30 % — full SSR on every dry surface turned
     // open squares into a field of sky-sheen glitter (PM GPU review, T-0153).
-    const wet = smoothstep(0.3, 0.8, mrTex.r).mul(0.7).add(0.3);
+    const wet = smoothstep(0.5, 0.8, mrTex.r);
     beauty = vec4(color.rgb.add(ssrTex.rgb.mul(ssrTex.a).mul(wet)), color.a);
   }
 
@@ -160,7 +181,11 @@ export function createPipeline(
     4,
     { resolutionScale: 0.5 },
   );
-  const bloomAll = bloomPass.add(flare.mul(flareStrength));
+  const bloomAll: Node<'vec4'> = !opts.bloom
+    ? vec4(0, 0, 0, 0)
+    : opts.flare
+      ? bloomPass.add(flare.mul(flareStrength))
+      : vec4(bloomPass.rgb, 1);
 
   const u = {
     fogEnabled: uniform(0.35),
@@ -210,7 +235,7 @@ export function createPipeline(
   );
   const preAA = vec4(withChroma.rgb.mul(vig), float(1));
   // FilmNode is typed as a bare TempNode; it outputs vec4.
-  const steady = film(smaa(preAA), u.grainIntensity) as unknown as Node<'vec4'>;
+  const steady = film(opts.smaa ? smaa(preAA) : preAA, u.grainIntensity) as unknown as Node<'vec4'>;
 
   const glass = createGlassUniforms();
   const withGlass = applyRainGlass(steady, glass);
@@ -245,6 +270,16 @@ export function createPipeline(
     flareGhostAtt.value = p.lensflare.ghostAttenuation;
   }
 
+  function setReflections(scale: number, quality: number, distance: number): void {
+    if (!reflections) return;
+    // SSRNode re-reads resolutionScale every frame (setSize in updateBefore);
+    // "off" keeps a tiny target and zero intensity instead of a graph rebuild.
+    reflections.resolutionScale = scale > 0 ? scale : 0.05;
+    reflections.intensity.value = scale > 0 ? 0.45 : 0;
+    reflections.quality.value = quality;
+    reflections.maxDistance.value = distance;
+  }
+
   function setGlass(on: boolean): void {
     if (on === glassOn) return;
     glassOn = on;
@@ -265,6 +300,7 @@ export function createPipeline(
   }
 
   return {
+    setReflections,
     render: (timeS: number) => {
       camera.updateMatrixWorld();
       cameraWorld.value.copy(camera.matrixWorld);
