@@ -1683,7 +1683,7 @@ plaster → smooth, low-contrast stains; concrete/none → the T-0152 panels.
   - Atlas: one 2048² canvas, ≤ 64 slots (word × colour × kind), each slot
     = dark backing, a rounded tube border, text stroked twice (wide glow via
     `shadowBlur`, thin near-white core). Face material
-    `MeshStandardNodeMaterial` colour 0.02, emissive = atlas × 4 × flicker
+    `MeshStandardNodeMaterial` colour 0.02, emissive = atlas × 7 (PM tune; contract had 4) × flicker
     (8 % of signs flicker: off 5 % of the time, hash-timed). Blade = two
     faces mirrored so text reads from both sides + a dark frame + 2 brackets.
   - Spill: ≤ 4 `PointLight`s (sign colour, intensity 6, distance 14),

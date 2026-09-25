@@ -250,7 +250,8 @@ export function createNeonLayer(): PunkLayer {
     face.colorNode = vec3(0.02, 0.02, 0.02);
     face.roughnessNode = float(0.45);
     face.metalnessNode = float(0.08);
-    face.emissiveNode = texture(neonAtlasTexture()).rgb.mul(4).mul(on);
+    // PM tune (wave 20b): ×7 — with the v2 dark facades the signs must be the brightest light in the street, as in the reference.
+    face.emissiveNode = texture(neonAtlasTexture()).rgb.mul(7).mul(on);
     const frame = new THREE.MeshStandardNodeMaterial();
     frame.colorNode = vec3(0.012, 0.012, 0.015);
     frame.roughnessNode = float(0.55);

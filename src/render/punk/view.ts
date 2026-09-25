@@ -68,9 +68,12 @@ function makeNightEnv(): THREE.DataTexture {
       const a = (x / w) * Math.PI * 2;
       const mag = 0.5 + 0.5 * Math.sin(a * 2.0);
       const i = (y * w + x) * 4;
-      data[i] = Math.min(255, 10 + horizon * (60 + 120 * mag));
-      data[i + 1] = Math.min(255, 8 + horizon * (30 + 40 * (1 - mag)));
-      data[i + 2] = Math.min(255, 22 + horizon * (110 + 60 * (1 - mag)));
+      // PM tune (wave 20b review): a dim blue-grey horizon with a faint
+      // magenta/teal hint — the saturated magenta band made every puddle and
+      // damp pavement glow purple.
+      data[i] = Math.min(255, 8 + horizon * (34 + 26 * mag));
+      data[i + 1] = Math.min(255, 8 + horizon * (30 + 10 * (1 - mag)));
+      data[i + 2] = Math.min(255, 14 + horizon * (46 + 20 * (1 - mag)));
       data[i + 3] = 255;
     }
   }
@@ -226,7 +229,7 @@ export class PunkView {
       };
       scene.background = NIGHT_BG;
       scene.environment = this.env;
-      scene.environmentIntensity = 0.9;
+      scene.environmentIntensity = 0.45;
       scene.fog = new THREE.FogExp2(NIGHT_FOG, 0.0045);
       this.sky.visible = false;
       for (const { light } of lights) {
