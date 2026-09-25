@@ -22,6 +22,7 @@ export default defineConfig({
       'three/addons/tsl/display/SMAANode.js',
       'three/addons/tsl/display/FilmNode.js',
       'three/addons/tsl/display/SSRNode.js',
+      'three/addons/loaders/GLTFLoader.js',
     ],
   },
 });

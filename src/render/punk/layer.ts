@@ -38,8 +38,9 @@ export interface PunkLayerContext {
    * (one instance per car, matrices updated every frame by main.ts; its
    * position y = ground + CAR_HALF_HEIGHT, rotation.y = −heading), or null
    * when the city has no cars or the CARS setting is off. A getter because
-   * tiled cities rebuild the fleet. Read-only: layers may toggle its
-   * `visible` only while active and must restore it on detach.
+   * tiled cities rebuild the fleet. Read-only: to hide the boxes a layer
+   * toggles its MATERIAL's `visible` (not the mesh's — main.ts only advances
+   * the fleet while `object.visible`), only while active, restored on detach.
    */
   traffic(): THREE.InstancedMesh | null;
 }

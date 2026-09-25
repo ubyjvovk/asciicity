@@ -166,6 +166,8 @@ declare global {
          * many carry a node material (must be 0 whenever cyberpunk is not active).
          */
         census(): { meshes: number; nodeMaterials: number };
+        /** PM review hook: the `n` passenger cars nearest (x, z) — instance index, position, heading (rad, 0 = north), distance. */
+        carsNear(x: number, z: number, n: number): { i: number; x: number; z: number; heading: number; d: number }[];
       };
     };
   }
@@ -641,6 +643,25 @@ async function main(): Promise<void> {
         if (mats.some((m) => (m as { isNodeMaterial?: boolean }).isNodeMaterial === true)) nodeMaterials++;
       });
       return { meshes, nodeMaterials };
+    },
+    carsNear: (x: number, z: number, n: number) => {
+      const fleet = cars?.object;
+      if (!(fleet instanceof THREE.InstancedMesh)) return [];
+      const m = new THREE.Matrix4();
+      const e = new THREE.Euler(0, 0, 0, 'YXZ');
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      const sc = new THREE.Vector3();
+      const all: { i: number; x: number; z: number; heading: number; d: number }[] = [];
+      for (let i = 0; i < fleet.count; i++) {
+        fleet.getMatrixAt(i, m);
+        m.decompose(p, q, sc);
+        e.setFromQuaternion(q);
+        const px = m.elements[12];
+        const pz = m.elements[14];
+        all.push({ i, x: px, z: pz, heading: -e.y, d: Math.hypot(px - x, pz - z) });
+      }
+      return all.sort((p, q) => p.d - q.d).slice(0, n);
     },
   };
   const camera = makeCamera(

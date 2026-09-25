@@ -1789,8 +1789,8 @@ signs — a bunch of cyberpunk-style signs, start with Tokyo"):*
     ≤ 60 k triangles; placement of a whole Tokyo tile ≤ 250 ms in node.
 
 *Vehicles — real car models in cyberpunk (wave 23c, T-0170):*
-  - Assets (PM-curated): `public/models/cars/<id>/lod0.glb` (≤ 20 k
-    triangles, textures ≤ 1024²) and `lod1.glb` (≈ 2.5 k; Town Car / Century / Countach ≈ 7–8 k where sloppy simplification tore panels apart; textures ≤ 256²),
+  - Assets (PM-curated): `public/models/cars/<id>.lod0.glb` (≤ 20 k
+    triangles, textures ≤ 1024²) and `<id>.lod1.glb` (≈ 2.5 k; Town Car / Century / Countach ≈ 7–8 k where sloppy simplification tore panels apart; textures ≤ 256²),
     produced offline with `@gltf-transform/cli` (simplify via meshoptimizer,
     resize, dedup/weld) from the Sketchfab originals; `manifest.json` lists
     per model: `id`, `label` (the real car name), `weight` (share of the
