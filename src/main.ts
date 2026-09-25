@@ -76,6 +76,8 @@ import {
 } from './settings';
 import { Tags, landmarkAnchors, pickTags } from './hud/tags';
 import { Noseview, type NoseviewValues } from './hud/noseview';
+import { BusyView } from './hud/busyview';
+import { POLL_MS, busyInputsFromStats, type BusyInputs } from './hud/busy';
 
 declare global {
   interface Window {
@@ -523,6 +525,9 @@ async function main(): Promise<void> {
   persist();
 
   const creditsEl = mountCredits(document.body);
+  // Background-loading line at the left end of the credits bar (T-0171).
+  const busyView = new BusyView(document.body);
+  let busyPolledAt = -Infinity;
 
   // City picker (T-0046): with neither `?synthetic=1` nor a valid `?city=` the
   // start overlay becomes a chooser — one button per `CITIES` entry, keys
@@ -1881,6 +1886,17 @@ async function main(): Promise<void> {
     if (tags && frameCount % HUD_INTERVAL === 0) {
       tags.update(pickTags(anchors, state.x, state.z), camera, viewW, viewH);
     }
+
+    // Background-loading indicator (T-0171, docs/hud-busy.md): read the
+    // sources at most every POLL_MS; cyberpunk stats only while it renders.
+    let busyIn: BusyInputs | null = null;
+    if (nowTs - busyPolledAt >= POLL_MS) {
+      busyPolledAt = nowTs;
+      const punkStats = punk?.active ? punkDebug.stats() : {};
+      busyIn = busyInputsFromStats(tileMgr?.pending() ?? 0, punkDebug.status, punkStats);
+    }
+    const busyNeon = post.style.id === 'cyberpunk';
+    busyView.update(busyIn, nowTs, busyNeon, settings.hud && loading.phase === 'ready');
 
     if (!api.ready) api.ready = true;
   }
