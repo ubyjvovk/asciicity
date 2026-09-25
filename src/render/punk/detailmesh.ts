@@ -9,8 +9,10 @@ import { MeshBuilder, type MeshData, type UV, type Vec3 } from '../../world/mesh
 import { normalizeRing, ringHeights } from '../../world/buildings';
 
 const UV0: UV = [0, 0];
-const GREY_LO = 0.08;
-const GREY_HI = 0.18;
+/** Body greys. Ledge and balcony top faces add `TOP_LIFT` (PM rework: night visibility). */
+const GREY_LO = 0.16;
+const GREY_HI = 0.3;
+const TOP_LIFT = 0.06;
 const MIN_H = 6;
 const MIN_EDGE = 4;
 const LEDGE_MIN_H = 15;
@@ -18,8 +20,8 @@ const LEDGE_STEP = 12;
 const LEDGE_THICK = 0.25;
 const LEDGE_OUT = 0.35;
 const WIN = 3;
-/** Spec is ~1 / 45 m²; 45 blew the 150 k max (192 k). 90 m² sits at ~148 k. */
-const AC_AREA = 90;
+/** ~1 AC unit per 45 m² of wall (3 m window cell; probability = 9/45). */
+const AC_AREA = 45;
 const AC_PROB = (WIN * WIN) / AC_AREA;
 const AC_W = 0.9;
 const AC_H = 0.6;
@@ -61,6 +63,12 @@ function grey(rng: () => number): Vec3 {
   return [g, g, g];
 }
 
+/** Same grey lifted so a horizontal lip reads against the dark facade. */
+function liftGrey(color: Vec3): Vec3 {
+  const g = color[0] + TOP_LIFT;
+  return [g, g, g];
+}
+
 /**
  * Oriented box: `along` / `up` / `out` are unit axes, `sx/sy/sz` full size,
  * centre at `(cx,cy,cz)`. Six quads, outward normals.
@@ -83,6 +91,7 @@ function emitBox(
   sy: number,
   sz: number,
   color: Vec3,
+  topColor: Vec3 = color,
 ): void {
   const hx = sx * 0.5;
   const hy = sy * 0.5;
@@ -97,7 +106,7 @@ function emitBox(
   mesh.quad(p(1, -1, -1), p(-1, -1, -1), p(-1, 1, -1), p(1, 1, -1), [-ox, -oy, -oz], UV0, UV0, UV0, UV0, color);
   mesh.quad(p(1, -1, 1), p(1, -1, -1), p(1, 1, -1), p(1, 1, 1), [ax, ay, az], UV0, UV0, UV0, UV0, color);
   mesh.quad(p(-1, -1, -1), p(-1, -1, 1), p(-1, 1, 1), p(-1, 1, -1), [-ax, -ay, -az], UV0, UV0, UV0, UV0, color);
-  mesh.quad(p(-1, 1, 1), p(1, 1, 1), p(1, 1, -1), p(-1, 1, -1), [ux, uy, uz], UV0, UV0, UV0, UV0, color);
+  mesh.quad(p(-1, 1, 1), p(1, 1, 1), p(1, 1, -1), p(-1, 1, -1), [ux, uy, uz], UV0, UV0, UV0, UV0, topColor);
   mesh.quad(p(-1, -1, -1), p(1, -1, -1), p(1, -1, 1), p(-1, -1, 1), [-ux, -uy, -uz], UV0, UV0, UV0, UV0, color);
 }
 
@@ -245,6 +254,7 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
       for (let ly = LEDGE_STEP; ly < wallH; ly += LEDGE_STEP) {
         const cx = (a[0] + b[0]) * 0.5 + nx * (LEDGE_OUT * 0.5);
         const cz = (a[1] + b[1]) * 0.5 + nz * (LEDGE_OUT * 0.5);
+        const color = grey(rng);
         emitBox(
           mesh,
           cx,
@@ -262,7 +272,8 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
           len,
           LEDGE_THICK,
           LEDGE_OUT,
-          grey(rng),
+          color,
+          liftGrey(color),
         );
       }
     }
@@ -306,6 +317,7 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
         for (let fy = BALC_STEP; fy < Math.min(wallH, BALC_MAX); fy += BALC_STEP) {
           const cx = a[0] + ax * s + nx * (BALC_D * 0.5);
           const cz = a[1] + az * s + nz * (BALC_D * 0.5);
+          const slab = grey(rng);
           emitBox(
             mesh,
             cx,
@@ -323,10 +335,12 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
             BALC_W,
             BALC_THICK,
             BALC_D,
-            grey(rng),
+            slab,
+            liftGrey(slab),
           );
           const rx = a[0] + ax * s + nx * (BALC_D - RAIL_S * 0.5);
           const rz = a[1] + az * s + nz * (BALC_D - RAIL_S * 0.5);
+          const rail = grey(rng);
           emitBox(
             mesh,
             rx,
@@ -344,7 +358,8 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
             BALC_W,
             RAIL_S,
             RAIL_S,
-            grey(rng),
+            rail,
+            liftGrey(rail),
           );
         }
       }

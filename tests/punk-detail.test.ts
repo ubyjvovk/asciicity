@@ -49,12 +49,13 @@ describe('buildDetailMesh', () => {
     const counts: number[] = [];
     for (const cell of cells.values()) {
       const mesh = buildDetailMesh(cell.buildings, FLAT_HEIGHT);
-      counts.push(mesh.positions.length / 3);
+      // Real triangles: non-indexed soup is 9 floats per triangle.
+      counts.push(mesh.positions.length / 9);
     }
     const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
     const max = Math.max(...counts);
-    // Printed for the worker report.
-    console.log(`T-0154 budget: cells=${counts.length} mean=${mean.toFixed(1)} max=${max}`);
+    // Printed for the worker report (mean and max, real triangles).
+    console.log(`T-0154 budget: cells=${counts.length} mean=${mean.toFixed(1)} max=${max.toFixed(1)}`);
     expect(mean).toBeLessThanOrEqual(60_000);
     expect(max).toBeLessThanOrEqual(150_000);
   });
@@ -63,7 +64,7 @@ describe('buildDetailMesh', () => {
     const t0 = performance.now();
     const mesh = buildDetailMesh(TILE.buildings, FLAT_HEIGHT);
     const ms = performance.now() - t0;
-    console.log(`T-0154 build: ${ms.toFixed(1)} ms, triangles=${mesh.positions.length / 3}`);
+    console.log(`T-0154 build: ${ms.toFixed(1)} ms, triangles=${mesh.positions.length / 9}`);
     expect(ms).toBeLessThanOrEqual(400);
   });
 

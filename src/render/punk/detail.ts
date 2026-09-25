@@ -16,7 +16,7 @@ export function createDetailLayer(): PunkLayer {
   const uRain = uniform(1);
   const material = new THREE.MeshStandardNodeMaterial();
   material.vertexColors = true;
-  material.roughness = 0.55;
+  material.roughness = 0.45;
   material.metalness = 0.4;
   material.normalNode = rippleNormal({ uTime, uRain }, 4.8, float(0.6));
 
@@ -31,7 +31,8 @@ export function createDetailLayer(): PunkLayer {
       maxBuildsPerFrame: 1,
       build: (cell) => {
         const data = buildDetailMesh(cell.buildings, ctx.groundAt);
-        const tris = data.positions.length / 3;
+        // Non-indexed soup: 3 vertices × 3 floats per triangle.
+        const tris = data.positions.length / 9;
         if (tris === 0) return null;
         const geom = toGeometry(data);
         const mesh = new THREE.Mesh(geom, material);
