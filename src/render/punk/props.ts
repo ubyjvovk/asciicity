@@ -6,7 +6,7 @@
  * Contract: `layer.ts` and docs/architecture.md §4.11 "cyberpunk v2".
  */
 import * as THREE from 'three/webgpu';
-import { float, uv, vec3, vertexColor } from 'three/tsl';
+import { abs, dot, float, normalView, normalize, positionView, pow, uv, vec3, vertexColor } from 'three/tsl';
 import type { PunkLayer, PunkLayerContext } from './layer';
 import { CellStreamer, type CellData } from './cells';
 import { buildPropsMesh, placeCables, placeLamps, type Cable, type Lamp } from './propsmesh';
@@ -76,7 +76,12 @@ export class PropsLayer implements PunkLayer {
     coneMat.transparent = true;
     coneMat.depthWrite = false;
     coneMat.blending = THREE.AdditiveBlending;
-    coneMat.opacityNode = float(0.06).mul(float(1).sub(uv().y));
+    // PM tune (GPU review): sodium, not white; softer vertical falloff and a
+    // silhouette fade so the cone reads as glowing air, not a grey tent.
+    coneMat.colorNode = SODIUM;
+    coneMat.side = THREE.DoubleSide;
+    const facing = abs(dot(normalize(normalView), normalize(positionView).negate()));
+    coneMat.opacityNode = float(0.11).mul(pow(float(1).sub(uv().y), float(1.3))).mul(facing);
     coneMat.fog = true;
     this.coneMat = coneMat;
 
@@ -84,6 +89,7 @@ export class PropsLayer implements PunkLayer {
     poolMat.transparent = true;
     poolMat.depthWrite = false;
     poolMat.blending = THREE.AdditiveBlending;
+    poolMat.colorNode = SODIUM;
     poolMat.opacityNode = float(0.22).mul(float(1).sub(uv().x));
     poolMat.fog = true;
     this.poolMat = poolMat;
