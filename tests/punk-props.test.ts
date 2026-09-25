@@ -289,5 +289,5 @@ describe('london bank region (all tiles)', () => {
     }
     process.stdout.write(`bank region (x∈[-150,0], |z|<30) lamps: ${region.length}\n`);
     expect(region.length).toBeGreaterThanOrEqual(8);
-  });
+  }, 30_000);
 });

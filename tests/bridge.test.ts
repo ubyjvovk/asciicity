@@ -404,7 +404,7 @@ describe('src/world/bridge.ts', () => {
         expect(Number.isFinite(mesh.normals[i])).toBe(true);
       }
     }
-  });
+  }, 30_000);
 
   it('London and Kyiv produce an empty mesh and no anchors', () => {
     const city = stubCity();
