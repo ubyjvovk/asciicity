@@ -59,11 +59,28 @@ export const WATER_ALBEDO = 0.006;
 export const WATER_ROUGHNESS = 0.02;
 export const WATER_METALNESS = 0.95;
 export const WATER_RIPPLE_SCALE = 2.2;
-export const WATER_RIPPLE_STRENGTH = 1.4;
+export const WATER_RIPPLE_STRENGTH = 0.7;
 /** Slow water-wave period (metres). */
 export const WATER_WAVE_PERIOD = 8;
 /** Slow water-wave drift speed (m/s). */
 export const WATER_WAVE_SPEED = 0.2;
+
+// Specular anti-aliasing (rework 1): normal detail and puddle/water
+// roughness fade with view distance so wet surfaces stop aliasing into
+// blocky glitter under the half-resolution SSR beyond ~25 m.
+/** View distance (m) at which normal detail starts fading out. */
+export const RIPPLE_FADE_NEAR = 12;
+/** View distance (m) at which normal detail is fully faded. */
+export const RIPPLE_FADE_FAR = 45;
+/** View distance (m) at which puddle/water roughness starts rising. */
+export const ROUGH_FADE_NEAR = 20;
+/** View distance (m) at which puddle/water roughness hits its floor. */
+export const ROUGH_FADE_FAR = 80;
+/** Roughness floor puddles/water are raised toward at distance. */
+export const ROUGH_FLOOR = 0.35;
+/** Grazing-angle guard band on `abs(dot(normalView, viewDir))`. */
+export const GRAZE_LO = 0.05;
+export const GRAZE_HI = 0.25;
 
 /**
  * Puddle mask in [0, 1] at world (x, z): 0 = damp asphalt, 1 = standing
@@ -82,4 +99,21 @@ export function asphaltAlbedo(x: number, z: number): number {
   const patch = (vnoise(x * ASPHALT_PATCH_SCALE, z * ASPHALT_PATCH_SCALE) - 0.5) * 2 * ASPHALT_PATCH_AMP;
   const v = ASPHALT_BASE + grain + patch;
   return Math.min(ASPHALT_MAX, Math.max(ASPHALT_MIN, v));
+}
+
+/**
+ * Normal-detail fade with view distance: 1 at d ≤ RIPPLE_FADE_NEAR, 0 at
+ * d ≥ RIPPLE_FADE_FAR, monotone in between. `1 − smoothstep(NEAR, FAR, d)`.
+ */
+export function rippleFade(d: number): number {
+  return 1 - smoothstepJs(RIPPLE_FADE_NEAR, RIPPLE_FADE_FAR, d);
+}
+
+/**
+ * Distance roughness for mirror surfaces: `r` unchanged at d ≤ 20, raised
+ * toward ROUGH_FLOOR by d ≥ 80 (for r < 0.35 reaches exactly ROUGH_FLOOR),
+ * and never lower than `r`. Dry asphalt / pavement are unaffected.
+ */
+export function distanceRoughness(r: number, d: number): number {
+  return r + (Math.max(r, ROUGH_FLOOR) - r) * smoothstepJs(ROUGH_FADE_NEAR, ROUGH_FADE_FAR, d);
 }

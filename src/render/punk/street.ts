@@ -9,14 +9,19 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn,
+  abs,
   clamp,
   dot,
   float,
   fract,
+  length,
+  max,
   min,
   mix,
   normalize,
+  normalView,
   normalWorld,
+  positionView,
   positionWorld,
   smoothstep,
   vec2,
@@ -38,6 +43,8 @@ import {
   ASPHALT_PATCH_AMP,
   ASPHALT_PATCH_SCALE,
   ASPHALT_RIPPLE_SCALE,
+  GRAZE_HI,
+  GRAZE_LO,
   GROUND_BASE,
   GROUND_PUDDLE_E0,
   GROUND_PUDDLE_E1,
@@ -50,6 +57,11 @@ import {
   PUDDLE_RIPPLE,
   PUDDLE_ROUGHNESS,
   PUDDLE_SCALE,
+  RIPPLE_FADE_FAR,
+  RIPPLE_FADE_NEAR,
+  ROUGH_FADE_FAR,
+  ROUGH_FADE_NEAR,
+  ROUGH_FLOOR,
   SLOPE_DARKEN,
   WATER_ALBEDO,
   WATER_METALNESS,
@@ -98,10 +110,26 @@ const waterWaveSlope = Fn(([p, t]: [Node<'vec2'>, Node<'float'>]) => {
   return vec3(hx.sub(h).div(e).mul(0.35), hz.sub(h).div(e).mul(0.35), 0);
 });
 
+/**
+ * Specular anti-aliasing fade for wet normal detail (ripples, water waves,
+ * tile seams): distance fade × grazing-angle guard, both in [0, 1].
+ */
+function detailFade(d: Node<'float'>): Node<'float'> {
+  const distanceFade = float(1).sub(smoothstep(RIPPLE_FADE_NEAR, RIPPLE_FADE_FAR, d));
+  const graze = smoothstep(GRAZE_LO, GRAZE_HI, abs(dot(normalView, normalize(positionView))));
+  return distanceFade.mul(graze);
+}
+
 /** Build the street materials. Metalness drives the SSR reflection strength (pipeline.ts). */
 export function makeStreetMaterials(u: WetUniforms): StreetMaterials {
   // Locked puddle mask on world xz — 0 = damp asphalt, 1 = standing water.
   const puddle = smoothstep(PUDDLE_E0, PUDDLE_E1, fbm2Node(positionWorld.xz.mul(PUDDLE_SCALE)));
+  // Specular anti-aliasing: fade normal detail with view distance + grazing
+  // angle, and raise puddle/water roughness at distance (dry asphalt stays).
+  const d = length(positionView);
+  const nFade = detailFade(d);
+  const roughFade = smoothstep(ROUGH_FADE_NEAR, ROUGH_FADE_FAR, d);
+  const puddleRough = mix(float(PUDDLE_ROUGHNESS), max(float(PUDDLE_ROUGHNESS), float(ROUGH_FLOOR)), roughFade);
 
   // --- Road: dark grainy asphalt with distinct mirror puddles ---
   const road = new THREE.MeshStandardNodeMaterial();
@@ -111,23 +139,23 @@ export function makeStreetMaterials(u: WetUniforms): StreetMaterials {
   const asphalt = asphaltAlbedoNode(positionWorld.xz);
   const tinted = asphalt.mul(float(1).add(luma.sub(0.5).mul(0.3)));
   road.colorNode = mix(tinted, vec3(PUDDLE_ALBEDO), puddle);
-  road.roughnessNode = mix(float(ASPHALT_DRY_ROUGHNESS), float(PUDDLE_ROUGHNESS), puddle);
+  road.roughnessNode = mix(float(ASPHALT_DRY_ROUGHNESS), puddleRough, puddle);
   road.metalnessNode = mix(float(ASPHALT_DRY_METALNESS), float(PUDDLE_METALNESS), puddle);
-  road.normalNode = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(ASPHALT_DRY_RIPPLE), float(PUDDLE_RIPPLE), puddle));
+  road.normalNode = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(ASPHALT_DRY_RIPPLE), float(PUDDLE_RIPPLE), puddle).mul(nFade));
 
   // --- Ground / terrain: concrete pavement tiles with puddles at half coverage ---
   const gp = smoothstep(GROUND_PUDDLE_E0, GROUND_PUDDLE_E1, fbm2Node(positionWorld.xz.mul(PUDDLE_SCALE)));
   const concrete = clamp(float(GROUND_BASE).add(vnoiseNode(positionWorld.xz.mul(2)).sub(0.5).mul(0.02)), float(0.05), float(0.07));
   const pavement = mix(concrete, vec3(PUDDLE_ALBEDO), gp);
-  const pavementRough = mix(float(0.55), float(PUDDLE_ROUGHNESS), gp);
+  const pavementRough = mix(float(0.55), puddleRough, gp);
   const pavementMetal = mix(float(0.15), float(PUDDLE_METALNESS), gp);
-  const ripple = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(0.1), float(0.7), gp));
+  const ripple = rippleNormal(u, ASPHALT_RIPPLE_SCALE, mix(float(0.1), float(0.7), gp).mul(nFade));
   // Tile seams: finite-difference the seam height and nudge the (near-up) normal's xy.
   const e = 0.15;
   const h0 = tileHeight(positionWorld.x, positionWorld.z);
   const hpx = tileHeight(positionWorld.x.add(e), positionWorld.z);
   const hpz = tileHeight(positionWorld.x, positionWorld.z.add(e));
-  const tileBump = vec2(hpx.sub(h0).div(e).mul(0.06), hpz.sub(h0).div(e).mul(0.06));
+  const tileBump = vec2(hpx.sub(h0).div(e).mul(0.06), hpz.sub(h0).div(e).mul(0.06)).mul(nFade);
   const pavementNormal = normalize(vec3(ripple.x.add(tileBump.x), ripple.y.add(tileBump.y), ripple.z));
 
   const ground = new THREE.MeshStandardNodeMaterial();
@@ -147,10 +175,10 @@ export function makeStreetMaterials(u: WetUniforms): StreetMaterials {
   // --- Water: near-black mirror with ripples plus a slow 2-octave wave ---
   const water = new THREE.MeshStandardNodeMaterial();
   water.colorNode = vec3(WATER_ALBEDO);
-  water.roughnessNode = float(WATER_ROUGHNESS);
+  water.roughnessNode = mix(float(WATER_ROUGHNESS), max(float(WATER_ROUGHNESS), float(ROUGH_FLOOR)), roughFade);
   water.metalnessNode = float(WATER_METALNESS);
-  const wr = rippleNormal(u, WATER_RIPPLE_SCALE, float(WATER_RIPPLE_STRENGTH));
-  const wsl = waterWaveSlope(positionWorld.xz, u.uTime);
+  const wr = rippleNormal(u, WATER_RIPPLE_SCALE, float(WATER_RIPPLE_STRENGTH).mul(nFade));
+  const wsl = waterWaveSlope(positionWorld.xz, u.uTime).mul(nFade);
   water.normalNode = normalize(vec3(wr.x.add(wsl.x), wr.y.add(wsl.y), wr.z));
 
   return { road, ground, terrain, water };

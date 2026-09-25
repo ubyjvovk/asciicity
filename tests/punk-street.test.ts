@@ -4,7 +4,19 @@
  * Pure node tests against the JS noise mirrors — no WebGPU.
  */
 import { describe, it, expect } from 'vitest';
-import { puddleAt, asphaltAlbedo, ASPHALT_MIN, ASPHALT_MAX } from '../src/render/punk/streetmath';
+import {
+  puddleAt,
+  asphaltAlbedo,
+  rippleFade,
+  distanceRoughness,
+  RIPPLE_FADE_NEAR,
+  RIPPLE_FADE_FAR,
+  ROUGH_FADE_NEAR,
+  ROUGH_FADE_FAR,
+  ROUGH_FLOOR,
+  ASPHALT_MIN,
+  ASPHALT_MAX,
+} from '../src/render/punk/streetmath';
 
 /** Fraction of a 0.5 m-step grid at `ox,oz` where `puddleAt > 0.5`. */
 function puddleCoverage(ox: number, oz: number, size = 200): number {
@@ -93,5 +105,58 @@ describe('asphaltAlbedo — dry asphalt band', () => {
     const vals = new Set<number>();
     for (let i = 0; i < 500; i++) vals.add(asphaltAlbedo(i * 0.5, i * 0.5));
     expect(vals.size).toBeGreaterThan(50);
+  });
+});
+
+describe('rippleFade — specular anti-aliasing distance fade', () => {
+  it('is 1 at d ≤ 12 and 0 at d ≥ 45', () => {
+    expect(rippleFade(0)).toBe(1);
+    expect(rippleFade(RIPPLE_FADE_NEAR)).toBe(1);
+    expect(rippleFade(12)).toBe(1);
+    expect(rippleFade(RIPPLE_FADE_FAR)).toBe(0);
+    expect(rippleFade(45)).toBe(0);
+    expect(rippleFade(200)).toBe(0);
+  });
+
+  it('is monotone non-increasing and stays in [0, 1]', () => {
+    let prev = rippleFade(0);
+    for (let d = 0; d <= 60; d += 0.5) {
+      const f = rippleFade(d);
+      expect(f).toBeGreaterThanOrEqual(0);
+      expect(f).toBeLessThanOrEqual(1);
+      expect(f).toBeLessThanOrEqual(prev + 1e-9);
+      prev = f;
+    }
+  });
+});
+
+describe('distanceRoughness — puddle/water roughness vs distance', () => {
+  it('leaves roughness unchanged at d ≤ 20', () => {
+    for (const r of [0.03, 0.1, 0.35, 0.6]) {
+      expect(distanceRoughness(r, 0)).toBeCloseTo(r);
+      expect(distanceRoughness(r, ROUGH_FADE_NEAR)).toBeCloseTo(r);
+    }
+  });
+
+  it('reaches ≥ ROUGH_FLOOR by d ≥ 80 for mirror-smooth surfaces (r < 0.35)', () => {
+    for (const r of [0.0, 0.03, 0.1, 0.2, 0.34]) {
+      const out = distanceRoughness(r, ROUGH_FADE_FAR);
+      expect(out).toBeGreaterThanOrEqual(ROUGH_FLOOR);
+      expect(out).toBeGreaterThanOrEqual(0.35);
+      // For r < 0.35 the far-end value is exactly ROUGH_FLOOR.
+      expect(out).toBeCloseTo(ROUGH_FLOOR);
+    }
+  });
+
+  it('never lowers roughness and converges monotonically', () => {
+    for (const r of [0.03, 0.2, 0.4, 0.7]) {
+      let prev = distanceRoughness(r, 0);
+      for (let d = 0; d <= 120; d += 2) {
+        const out = distanceRoughness(r, d);
+        expect(out).toBeGreaterThanOrEqual(prev - 1e-9);
+        expect(out).toBeGreaterThanOrEqual(r - 1e-9);
+        prev = out;
+      }
+    }
   });
 });

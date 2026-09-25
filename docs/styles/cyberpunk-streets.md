@@ -45,15 +45,42 @@ length along x ≥ 6 samples).
 - **Terrain** — the pavement look multiplied by slope darkening
   `1 − 0.5·(1 − normalWorld.y)`.
 - **Water** — albedo 0.006, roughness 0.02, metalness 0.95; ripple scale 2.2
-  strength 1.4 plus a slow 2-octave wave normal (period 8 m, drifting 0.2 m/s).
+  strength 0.7 (halved in rework 1) plus a slow 2-octave wave normal (period
+  8 m, drifting 0.2 m/s).
 
 Metalness is the SSR switch (`pipeline.ts`, PM-owned): puddles/water mirror
 the neon, dry asphalt (0.12) does not.
+
+## Specular anti-aliasing (rework 1)
+
+Full-strength ripple / wave / tile-seam normals alias into blocky
+white/magenta sparkle under the half-resolution SSR beyond ~25 m. `street.ts`
+fades that detail and hides the residual roughness with distance, using the
+pure helpers `rippleFade(d)` and `distanceRoughness(r, d)` from
+`streetmath.ts` (unit-tested):
+
+1. `d = length(positionView)` (TSL). Normal detail — ripples, water waves,
+   tile seams — is multiplied by
+   `fade = 1 − smoothstep(RIPPLE_FADE_NEAR = 12, RIPPLE_FADE_FAR = 45, d)`.
+2. Roughness is raised with distance to hide the residual:
+   `rough = mix(rough, max(rough, ROUGH_FLOOR = 0.35), smoothstep(20, 80, d))`
+   for puddles and water; dry asphalt / pavement are unchanged.
+3. Grazing-angle guard: normal detail is additionally scaled by
+   `smoothstep(0.05, 0.25, abs(dot(normalView, normalize(positionView))))`.
+4. Water ripple strength is halved (1.4 → 0.7) and its waves are faded by
+the same distance fade.
+
+`rippleFade(d)` is 1 at d ≤ 12, 0 at d ≥ 45, monotone; `distanceRoughness(r, d)`
+is unchanged at d ≤ 20, reaches `ROUGH_FLOOR` by d ≥ 80 for r < 0.35, and never
+lowers roughness. The SSR half-resolution blockiness itself lives in
+`pipeline.ts` (PM-owned).
 
 ## Testing
 
 `tests/punk-street.test.ts` runs the pure `streetmath.ts` in plain node:
 puddle coverage bounds per window and mean, blob run length, the asphalt
-albedo band, and `puddleAt` range + determinism. `street.ts` itself is
+albedo band, `puddleAt` range + determinism, and the specular anti-aliasing
+helpers (`rippleFade` endpoints + monotonicity, `distanceRoughness`
+unchanged-at-20 / floor-by-80 / never-lowers). `street.ts` itself is
 browser-only and covered by `e2e/cyberpunk.spec.ts` (zero console errors on
 the WebGL2 fallback → a TSL graph that fails to compile shows up there).
