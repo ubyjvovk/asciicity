@@ -12,6 +12,7 @@ import * as THREE from 'three/webgpu';
 import { uniform } from 'three/tsl';
 import { makeFacadeMaterials } from './facade';
 import { makeStreetMaterials } from './street';
+import type { PbrSets } from './pbr';
 
 type Surface = 'buildings' | 'road' | 'water' | 'ground' | 'terrain';
 
@@ -29,10 +30,10 @@ export class WetDressing {
   /** Master switch for ripple strength (0 when the rain is off). */
   readonly uRain = uniform(1);
 
-  constructor(windowTex: THREE.Texture | null) {
+  constructor(windowTex: THREE.Texture | null, pbr?: PbrSets) {
     const u = { uTime: this.uTime, uRain: this.uRain };
-    const f = makeFacadeMaterials(windowTex, u);
-    const st = makeStreetMaterials(u);
+    const f = makeFacadeMaterials(windowTex, u, pbr);
+    const st = makeStreetMaterials(u, pbr);
     this.mats = { buildings: f.walls, roof: f.roof, road: st.road, water: st.water, ground: st.ground, terrain: st.terrain };
     this.osmWalls = f.wallsOsm;
     this.osmRoof = f.roofOsm;

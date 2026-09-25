@@ -334,15 +334,15 @@ export type PbrSetName = 'asphalt' | 'concrete' | 'brick' | 'metal' | 'paving' |
 export const PBR_SET_NAMES: readonly PbrSetName[] = ['asphalt', 'concrete', 'brick', 'metal', 'paving', 'plaster'];
 
 /** Albedo modulation `tex / mean` is clamped to this band. */
-export const PBR_ALBEDO_MIN = 0.45;
-export const PBR_ALBEDO_MAX = 1.8;
+export const PBR_ALBEDO_MIN = 0.25;
+export const PBR_ALBEDO_MAX = 2.6;
 /** Roughness = mix(procedural, tex.r, PBR_ROUGH_MIX). */
 export const PBR_ROUGH_MIX = 0.6;
 /** Tangent-space normal-map strength. */
-export const PBR_NORMAL_STRENGTH = 0.8;
+export const PBR_NORMAL_STRENGTH = 1.6;
 /** Distance fade (m): texture pattern → its mean, normal → flat over 15 → 60 m. */
-export const PBR_FADE_NEAR_M = DETAIL_FADE_NEAR_M;
-export const PBR_FADE_FAR_M = DETAIL_FADE_FAR_M;
+export const PBR_FADE_NEAR_M = 25;
+export const PBR_FADE_FAR_M = 90;
 /** Facades: wall uv × 6 = one repeat per 4 m. */
 export const PBR_WALL_UV_SCALE = UV_TILE_M / 4;
 /** Roofs: one repeat per 6 m of world xz. */

@@ -19,6 +19,7 @@ import { LOOK_PRESETS, lookPreset, nextLookPreset, type LookPreset } from './loo
 import type { PunkLayer, PunkLayerContext, PunkSource } from './layer';
 import { EXPERIMENTAL, LAYER_FACTORIES } from './layers';
 import { QualityController } from './quality';
+import { disposePbrSets, loadPbrSets, type PbrSets } from './pbr';
 import type { HeightFn } from '../../data/types';
 
 /** Construction inputs from main.ts. */
@@ -136,6 +137,7 @@ export class PunkView {
   private lastT = 0;
   private readonly flags: Set<string>;
   private readonly quality: QualityController;
+  private readonly pbr: PbrSets | null;
   private lastRaw = performance.now();
 
   private constructor(opts: PunkViewOptions, canvas: HTMLCanvasElement, renderer: THREE.WebGPURenderer) {
@@ -160,7 +162,9 @@ export class PunkView {
       smaa: !q.has('nosmaa'),
     });
     this.rain = createRain();
-    this.wet = new WetDressing(opts.windowTex);
+    // CC0 PBR detail maps (wave 23, T-0167); `?punkq=notex` keeps the procedural look.
+    this.pbr = punkFlags().has('notex') ? null : loadPbrSets(renderer);
+    this.wet = new WetDressing(opts.windowTex, this.pbr ?? undefined);
     this._look = lookPreset(opts.look);
     this.pipeline.applyLook(this._look);
     this._glass = opts.glass ?? true;
@@ -265,14 +269,14 @@ export class PunkView {
       for (const { light } of lights) {
         if (light instanceof THREE.AmbientLight) {
           light.color.set(0x5a5f9a);
-          light.intensity = 0.35;
+          light.intensity = 0.8;
         } else if (light instanceof THREE.HemisphereLight) {
           light.color.set(0x6a4aa0);
           light.groundColor.set(0x0a0610);
-          light.intensity = 0.8;
+          light.intensity = 1.6;
         } else if (light instanceof THREE.DirectionalLight) {
           light.color.set(0x9fb4ff);
-          light.intensity = 0.55;
+          light.intensity = 1.4;
         }
       }
       if (!this.flags.has('norain')) scene.add(this.rain.group);
@@ -436,6 +440,7 @@ export class PunkView {
     this.pipeline.dispose();
     this.rain.dispose();
     this.wet.dispose();
+    if (this.pbr) disposePbrSets(this.pbr);
     this.env.dispose();
     this.renderer.dispose();
     this.canvas.remove();

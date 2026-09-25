@@ -1637,21 +1637,24 @@ materials stay the base look; the textures add real surface detail:
     maps `SRGBColorSpace`, normal/rough `NoColorSpace`; URLs from
     `import.meta.env.BASE_URL`; disposed with the view.
   - Albedo = procedural albedo × (tex.rgb / TEX_MEAN) clamped to
-    [0.45, 1.8] — the night darkness and tints stay, the pattern appears.
+    [0.25, 2.6] (PM tune; contract had 0.45–1.8) — the night darkness and tints stay, the pattern appears.
     Roughness = mix(procedural, tex.r, 0.6). Normal = tangent-space map at
-    strength 0.8 (walls via the wall UVs; horizontal surfaces via an explicit
+    strength 1.6 (PM tune; was 0.8) (walls via the wall UVs; horizontal surfaces via an explicit
     TBN: T = +x, B = −z, N = +y).
   - Scale: facades 4 m per repeat (wall uv × 6), roofs 6 m, asphalt 3 m,
     paving 2 m (world xz). Anti-tiling: per-building 0/90° swap + offset from
     the building seed (walls); ground/road = two samples (xz and a 37°-rotated
     ×0.43 copy) blended by `vnoiseNode` at 0.05 m⁻¹.
   - Distance fade: normal detail → flat and albedo pattern → its mean over
-    15 → 60 m (aliasing; mipmaps do the rest).
+    25 → 90 m (PM tune; was 15 → 60) (aliasing; mipmaps do the rest).
   - Mapping: facades concrete by default; OSM brick → brick, metal → metal,
     plaster → plaster, stone → concrete ×(0.9, 0.87, 0.8) tint, glass /
     wood → none (procedural). Shutters use metal. Roofs concrete. Roads
     asphalt (texture fades under puddles: puddles stay mirror-smooth), ground
     and terrain paving, water none.
+  - Night lighting raised with it (PM tune, view.ts): ambient 0.8, hemisphere
+    1.6, moonlight 1.4 — at the old 0.35 / 0.8 / 0.55 no surface detail could
+    read; the reference's facades are dim grey, not black.
   - Cost: ≤ 3 texture maps sampled per material path (anti-tiling doubles
     the ground ones only); the PM measures ≤ 10 % fps loss at bank with the
     `?punkq=` perf harness.
