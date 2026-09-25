@@ -102,6 +102,10 @@ itself after BigWings' "Heartfelt". None of that project's assets are used.
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
 contributors, available under the Open Database License (ODbL).
 
+Cyberpunk car models: eleven Sketchfab models under their authors' CC licences
+(BY / BY-NC / BY-NC-SA), simplified — full list with authors and links in
+[`public/models/cars/CREDITS.md`](public/models/cars/CREDITS.md).
+
 Tokyo building geometry (from wave 22): [Project PLATEAU](https://www.mlit.go.jp/plateau/)
 3D city models, Tokyo wards (FY2025), MLIT / Tokyo Metropolitan Government,
 used under PDL 1.0 / CC BY 4.0 — modified (converted, simplified) by

@@ -1,0 +1,171 @@
+{
+ "v": 1,
+ "note": "yaw: rotate the model by this (radians, about +y) so its length runs along z; forward direction is verified in-game (PM). length: real bumper-to-bumper metres.",
+ "models": [
+  {
+   "id": "corvette_c6",
+   "label": "Chevrolet Corvette C6 (2005)",
+   "weight": 1.0,
+   "yaw": 0,
+   "length": 4.43,
+   "lod0": "corvette_c6.lod0.glb",
+   "lod1": "corvette_c6.lod1.glb",
+   "credit": {
+    "title": "2005 Chevrolet Corvette C6",
+    "author": "ddiaz-design",
+    "url": "https://sketchfab.com/3d-models/7ff74ce1324c4dbb9f3d830b71525096",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "porsche_930",
+   "label": "Porsche 911 (930) Turbo (1975)",
+   "weight": 1.0,
+   "yaw": 0,
+   "length": 4.29,
+   "lod0": "porsche_930.lod0.glb",
+   "lod1": "porsche_930.lod1.glb",
+   "credit": {
+    "title": "Porsche 911 (930) Turbo 1975",
+    "author": "Lexyc16",
+    "url": "https://sketchfab.com/3d-models/de1ffd344c41481892511f7fd332c136",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "landcruiser_fj40",
+   "label": "Toyota Land Cruiser FJ40 (1976)",
+   "weight": 0.8,
+   "yaw": 0,
+   "length": 3.84,
+   "lod0": "landcruiser_fj40.lod0.glb",
+   "lod1": "landcruiser_fj40.lod1.glb",
+   "credit": {
+    "title": "1976 Toyota Land Cruiser FJ40",
+    "author": "tonielpro520",
+    "url": "https://sketchfab.com/3d-models/a4e58b09ce48444ca6164834c310880d",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "skyline_r32",
+   "label": "Nissan Skyline GT-R (R32)",
+   "weight": 1.2,
+   "yaw": 0,
+   "length": 4.55,
+   "lod0": "skyline_r32.lod0.glb",
+   "lod1": "skyline_r32.lod1.glb",
+   "credit": {
+    "title": "Nissan Skyline (R32) GT-R",
+    "author": "Lexyc16",
+    "url": "https://sketchfab.com/3d-models/8810e677eca543a6b840cf67dd064aa4",
+    "licence": "CC BY-NC 4.0"
+   }
+  },
+  {
+   "id": "crownvic_taxi",
+   "label": "Ford Crown Victoria taxi (2001)",
+   "weight": 1.2,
+   "yaw": 0,
+   "length": 5.39,
+   "lod0": "crownvic_taxi.lod0.glb",
+   "lod1": "crownvic_taxi.lod1.glb",
+   "credit": {
+    "title": "2001 Crown Victoria Taxi Game Prop",
+    "author": "haoliu95",
+    "url": "https://sketchfab.com/3d-models/2429a825ff1646568e8e6e1453f9c501",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "crownvic_police",
+   "label": "Ford Crown Victoria Police Interceptor (2001)",
+   "weight": 0.6,
+   "yaw": 0,
+   "length": 5.39,
+   "lod0": "crownvic_police.lod0.glb",
+   "lod1": "crownvic_police.lod1.glb",
+   "credit": {
+    "title": "2001 Crown Victoria Police Interceptor Game ",
+    "author": "haoliu95",
+    "url": "https://sketchfab.com/3d-models/9f30d360cee343efb5a441978ddb57bd",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "towncar_2003",
+   "label": "Lincoln Town Car (2003)",
+   "weight": 0.9,
+   "yaw": 1.570796,
+   "length": 5.47,
+   "lod0": "towncar_2003.lod0.glb",
+   "lod1": "towncar_2003.lod1.glb",
+   "credit": {
+    "title": "2003 Lincoln Town Car",
+    "author": "David_Holiday",
+    "url": "https://sketchfab.com/3d-models/29e962affe704611ae0ae614fd5a1794",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "century_1997",
+   "label": "Toyota Century (1997)",
+   "weight": 0.9,
+   "yaw": 0,
+   "length": 5.12,
+   "lod0": "century_1997.lod0.glb",
+   "lod1": "century_1997.lod1.glb",
+   "credit": {
+    "title": "1997 Toyota Century",
+    "author": "throwbackthursdaymodels",
+    "url": "https://sketchfab.com/3d-models/39c2d9dcf4af48eb81c47e2ba3fb8520",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "delorean",
+   "label": "DMC DeLorean (1981)",
+   "weight": 0.5,
+   "yaw": 0,
+   "length": 4.27,
+   "lod0": "delorean.lod0.glb",
+   "lod1": "delorean.lod1.glb",
+   "credit": {
+    "title": "1981 DMC DeLorean",
+    "author": "ddiaz-design",
+    "url": "https://sketchfab.com/3d-models/e5fdfab39dd648d78a9f5614d6833a4f",
+    "licence": "CC BY-NC-SA 4.0"
+   }
+  },
+  {
+   "id": "countach",
+   "label": "Lamborghini Countach 25th Anniversary (1989)",
+   "weight": 0.4,
+   "yaw": 0,
+   "length": 4.14,
+   "lod0": "countach.lod0.glb",
+   "lod1": "countach.lod1.glb",
+   "credit": {
+    "title": "1989 Lamborghini Countach 25th Anniversary",
+    "author": "ddiaz-design",
+    "url": "https://sketchfab.com/3d-models/75acd9a580574e128c0886d2bc5a2b21",
+    "licence": "CC BY 4.0"
+   }
+  },
+  {
+   "id": "z32_300zx",
+   "label": "Nissan Fairlady 300ZX Z32 (1989)",
+   "weight": 0.9,
+   "yaw": 0,
+   "length": 4.3,
+   "lod0": "z32_300zx.lod0.glb",
+   "lod1": "z32_300zx.lod1.glb",
+   "credit": {
+    "title": "Nissan Fairlady 300ZX (Z32) 1989",
+    "author": "Lexyc16",
+    "url": "https://sketchfab.com/3d-models/8c04336a4ed84f6f836760db8256f9f0",
+    "licence": "CC BY-NC 4.0"
+   }
+  }
+ ]
+}
