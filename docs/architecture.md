@@ -1752,6 +1752,41 @@ shop glass 0.12–0.40. These override the numbers below where they differ.
   - `rainPassThrough: true`. CellStreamer 400 / 550 m. Stats: `signs`,
     `visible` (in frustum within 150 m), `lights`, `slots`.
 
+*Neon v2 — dense city profiles (wave 23b, T-0168; user: "not enough neon
+signs — a bunch of cyberpunk-style signs, start with Tokyo"):*
+  - `NEON_PROFILE[cityId]` (pure, `neonplace.ts`) replaces the single
+    p 0.12 / max 1–2 rule. **tokyo**: p 0.7 per qualifying street-facing
+    exterior wall segment (still within 12 m of a road, segment ≥ 4 m,
+    building h ≥ 8); per-building cap `min(8, 2 + floor(h / 15))`; signs are
+    distributed UP the facade in 3.5 m storey slots from 3.5 m to
+    `min(h − 2, 30 m)` so one wall carries several (the Shinjuku stack), no
+    two signs within 1.2 m of each other on the same wall. **default**
+    (every other city): p 0.24, cap 2 (twice today). **minas-tirith**: 0.
+  - Kinds (tokyo shares; default keeps blade 60 / panel 40): `blade` 45 %
+    (vertical, 0.8–1.2 × 3–7 m, 0.6 m off the wall, perpendicular),
+    `stack` 25 % (a vertical column of 2–4 small 1.6 × 0.9 m panels, each its
+    own word/colour, flat on the wall), `panel` 22 % (flat, 3–7 × 1–1.6 m),
+    `screen` 8 % (flat facade screen 6–12 × 4–8 m, only h ≥ 30 m, bottom
+    ≥ 10 m; atlas slot = a big word + a coloured gradient block).
+  - Words: tokyo ≥ 40 generic, no brands (ラーメン, カラオケ, 居酒屋, 焼肉,
+    寿司, 薬, ホテル, バー, 喫茶, パチンコ, ゲーム, 酒, 麻雀, 占い, 質屋, 中華,
+    定食, 牛丼, 本, 電気, カメラ, スナック, 24時間, 営業中, 歯科, 美容室,
+    クラブ, 餃子, 天ぷら, そば, うどん, 酒場, 漫画, カフェ, 古着, 整体,
+    マッサージ, 両替, 立ち飲み, 焼き鳥, 占星術, …); other lists unchanged.
+  - Colours: the six neon colours + warm white #fff1c1 + sodium #ffcc33;
+    each sign gets a text colour and a (different) tube-border colour.
+  - Atlas: 2048² with **128** slots (256 × 128 cells; blades/stacks rotate
+    their glyph column into a 128 × 256 portrait slot); key
+    `kind|word|text|border`; overflow reuses `hash % 128`.
+  - Fake spill (no lighting cost): every sign gets an additive "glow card"
+    quad 0.05 m in front of the wall, 2.2 × the sign's size, radial falloff,
+    sign colour × 0.35, fog on, depthWrite off. The ≤ 4 point lights stay.
+  - Per cell: exactly three merged meshes (faces, frames+brackets, glow
+    cards) → 3 draw calls per cell regardless of sign count.
+  - Budgets (unit-tested on the Tokyo tiles now in `public/data/tokyo/`):
+    Shinjuku cell of tile −6_−1: 150–600 signs; any cell ≤ 800 signs and
+    ≤ 60 k triangles; placement of a whole Tokyo tile ≤ 250 ms in node.
+
 *Atmosphere (`punk/atmosphere.ts` + pure `punk/fogmath.ts`, T-0157):*
   - Height fog: density ρ(y) = ρ0 · exp(−(y − y0)/H), H = 18 m, y0 = camera
     ground height (camera y − 1.7 when walking; uniform from the pipeline),
