@@ -46,6 +46,24 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 23b/23c (2026-09-25 night) — wetness/window tune, neon v2/v3, cars
+- User: still stutters where reflections are dense; London "one big
+  puddle", dry rocks next to puddles; windows too bright; more neon (Tokyo
+  first). PM tune (streetmath/facademath): puddles ~16 % (0.62–0.70), a
+  damp halo (DAMP_* in streetmath) bridges puddle→dry, window intensity
+  0.05+0.3, lit p 0.11. T-0168 neon v2 + T-0169 neon v3 (opus): dense
+  Tokyo blade stacks, height-scaled signs, 20 m reach, kabukicho /
+  centergai spawn presets. Face emissive ×7 (PM). Possible later: blade
+  faces bloom near-white at close range.
+- Cars (user list + PM lore picks): 11 Sketchfab CC models (labels are
+  authoritative — memory), simplified with gltf-transform + meshoptimizer
+  (weld/join/simplify ladder + sloppy) to lod0 ≈ 20 k / lod1 2.5–8 k,
+  WebP textures, 22 MB, public/models/cars/{manifest.json,CREDITS.md}
+  (e7b50d1). Contract: §4.11 "Vehicles"; ctx.traffic() getter (aa2cd2e).
+  T-0170 vehicles layer boarded to opus. PM review: nose-first direction
+  per model (flip manifest yaw by π), Century is untextured (paint rule),
+  fps, fleet boxes restored on detach.
+
 ## Wave 23 (2026-09-25 evening) — perf pass + PBR textures (user: <20 fps on MacBook, "smooth tiles")
 - PM profiled with `?punkq=` switches + an uncapped harness (RTX 5080,
   1920×2160 = half a 4K screen): SSR was ~75 % of the frame (it marched
