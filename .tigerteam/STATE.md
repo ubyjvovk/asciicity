@@ -46,6 +46,21 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 20b COMPLETE (2026-09-25 ~14:30)
+- All six accepted: T-0152 facades (grok→opus), T-0153 streets, T-0154
+  detail, T-0155 props, T-0156 neon (EXPERIMENTAL, on by default, `N`),
+  T-0157 atmosphere. Merged-main host gate green (check-20260925-131059).
+- PM tuning on main: SSR full-res + weighted by wetness; lamp cones sodium
+  (were additive white); night env map dim blue-grey @0.45 (puddles glowed
+  purple); neon emissive ×7. Quality bar: 7/7 — bank frame reads like the
+  reference (dark weathered facades, sparse windows, shopfronts, CINEMA /
+  24H tube signs, sodium lamps, rippled reflections); 60 fps (vsync cap) at
+  bank / maidan / aerial with every layer + lens rain on (RTX host WebGPU).
+- Supervisor bug filed upstream: ubyjvovk/tigerteam#5 (busy instances count
+  against the eligible-ticket quota → scale>1 lanes under-start). Workaround:
+  `tigerteam worker run opus --once` (backgrounded) to force-start a claim;
+  used for T-0161.
+
 ## Session log 2026-09-25 (afternoon) — reviews, Opus lane, wave 22 spike
 - Opus lane live: user rebuilt the image (Claude Code 2.1.282, verified
   claude-opus-5-5). First launches fast-failed ("Input must be provided
