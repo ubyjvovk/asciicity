@@ -70,6 +70,10 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   1920×2160 uncapped). PM follow-up fd17e4c: `punk.carsNear(x,z,n)` debug hook,
   GLTFLoader pre-bundled, traffic() JSDoc says hide via material.visible.
   Review harness: scratchpad carshot.mjs / carshot2.mjs (chase a model).
+- T-0171 ACCEPTED (opus-1): background-loading line `#busy` at the left end
+  of the credits bar — braille spinner + ping-pong bar + SECTORS/NEON
+  GRID/CELLS/CARS; neon colours in cyberpunk; hidden with ?hud=0. PM
+  checked the cyberpunk look on the GPU (busyshot.mjs).
 
 ## Wave 23 (2026-09-25 evening) — perf pass + PBR textures (user: <20 fps on MacBook, "smooth tiles")
 - PM profiled with `?punkq=` switches + an uncapped harness (RTX 5080,
