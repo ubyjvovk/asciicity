@@ -1,4 +1,4 @@
-# cyberpunk facades (wave 20b)
+# cyberpunk facades (wave 20b, OSM wave 21)
 
 Dark weathered building walls and bitumen roofs for the `cyberpunk` style.
 Contract: `docs/architecture.md` §4.11 "`cyberpunk` v2 (wave 20b)" → "Facades".
@@ -69,6 +69,48 @@ Dark bitumen 0.03–0.05 (`vnoise` variation). Puddles as streets:
 `smoothstep(0.54, 0.62, fbm2(xz·0.07))`, albedo 0.02, roughness 0.03,
 metalness 0.9. Ripples `rippleNormal(u, 4.8, mix(0.12, 1.2, puddle))`.
 
+## Facades × OSM (wave 21, T-0161)
+
+Contract: architecture.md §4.11 "Facades × OSM". Buildings with OSM facade
+data carry an `extra` vec4 (T-0159): linear rgb of `building:colour` on walls
+/ `roof:colour` on roofs (−1 when absent) and the `building:material` code in
+w (0 none, 1 brick, 2 stone, 3 concrete, 4 glass, 5 metal, 6 wood, 7 plaster).
+
+A material that reads a missing attribute must never go on a mesh without it,
+so `makeFacadeMaterials` returns **two variants**: `walls` / `roof` (T-0152,
+attribute-free, graph unchanged) and `wallsOsm` / `roofOsm` (read
+`attribute('extra', 'vec4')`). `wet.ts` picks per mesh:
+`geometry.hasAttribute('extra') ? [wallsOsm, roofOsm] : [walls, roof]`.
+Inside the OSM variant every rgb < 0 vertex falls back to the procedural look.
+
+- **Colour** — rgb ≥ 0: base albedo `osm · 0.18` (`nightAlbedo`), with 25 %
+  of the procedural floor-band / streak darkening (and the bands' bump and the
+  streaks' roughness drop) kept on top. Roofs: `roofColor · 0.15`
+  (`nightRoofAlbedo`) instead of the bitumen; puddles / ripples unchanged.
+- **Pattern** by material code (`FACADE_PATTERNS`, one entry per code):
+
+  | code | pattern | size | look |
+  |---|---|---|---|
+  | 0 none, 3 concrete | `panels` | 1.5 m seams | T-0152 panels |
+  | 1 brick | `brick` | 0.075 m courses, 0.225 m bricks | running bond (half-brick offset every other course), recessed 12 mm mortar (−35 % albedo + bump), ±15 % per-brick tone |
+  | 2 stone | `ashlar` | 0.6 m courses, 1.2 m blocks | offset ashlar, 20 mm joints, ±12 % per-block tone |
+  | 4 glass | `curtain` | 1.5 m mullions + 3 m transoms | albedo 0.02, roughness 0.05, metalness 0.9; every pane between mullions is window glass; lit fraction ×1.5 capped at 0.3 (`windowLitP`) → ~16 % overall |
+  | 5 metal | `seams` | 0.5 m standing seams | raised seams (+25 % albedo, bump), roughness 0.4, metalness 0.7 |
+  | 6 wood | `boards` | 0.2 m vertical boards | ±20 % per-board tone, dark 12 mm gaps |
+  | 7 plaster | `smooth` | — | no joints; broad low-contrast stains `vnoise(u_m·0.35, v_m·0.2)` −12 % |
+
+  Masks are float `isMat(code, k)` weights summed per property, so the graph
+  has no branches. Brick joints (sub-pixel past ~20 m) fade over 6 → 25 m
+  (`BRICK_FADE_*`); the other joints and per-unit tone use the T-0152 15 → 60 m
+  fade. Bump goes through the same view-normal perturb as T-0152 (vertical
+  joints into x, horizontal joints + bands into y). Windows (outside glass) and
+  the shopfront band are unchanged over every material.
+
+Compile check: with a throwaway `wet.ts` edit that forces `[wallsOsm, roofOsm]`
+on every building mesh (synthesising an `extra` over all codes / with and
+without colour), `e2e/cyberpunk.spec.ts` passes on the WebGL2 fallback (zero
+console errors, exact restore). The edit was not committed.
+
 ## Pure exports (`facademath.ts`)
 
 Unit-tested in `tests/punk-facade.test.ts`. The shader hashes the same inputs
@@ -79,12 +121,16 @@ with `hash2Node`.
 | `facadeHash(x, y)` | `hash2` alias |
 | `buildingSeed(r, g, b)` | per-building seed |
 | `isDarkBuilding(seed)` | 25 % dark |
-| `windowLight(cellU, cellV, seed)` | `{ lit, intensity, tint: 0\|1\|2\|3, blinds }` |
+| `windowLight(cellU, cellV, seed, code?)` | `{ lit, intensity, tint: 0\|1\|2\|3, blinds }`; glass code lights ×1.5 |
 | `shopfrontKind(segment, seed)` | `'shutter' \| 'shop'` (75 / 25 %) |
 | `shutterAlbedo(segment, seed)` | shutter albedo 0.02–0.05 |
 | `shopEmissive(segment, seed)` | shop-glass emissive 0.18–0.55 |
 | `inShopLitSpan(uM)` | middle 3.6 m of each 6 m segment |
 | `detailFade(d)` | `1 − smoothstep(15, 60, d)` |
+| `nightAlbedo(rgb)` / `nightRoofAlbedo(rgb)` | OSM rgb · 0.18 / · 0.15, `null` when rgb < 0 |
+| `FACADE_PATTERNS`, `facadePattern(code)` | per-material pattern table (codes 0–7) |
+| `windowLitP(seed, code?)` | lit probability; glass ×1.5 capped 0.3 |
+| `MAT_*`, `OSM_*`, `GLASS_LIT_*`, `BRICK_FADE_*` | material codes and OSM constants |
 | `WINDOW_TINTS`, `TINT_SHARES` | palette and 0.60 / 0.20 / 0.12 / 0.08 |
 | `FLOOR_BAND_WIDTH_M`, `PANEL_SEAM_M`, `SEAM_BUMP`, … | band / seam / glass / roof sizes |
 

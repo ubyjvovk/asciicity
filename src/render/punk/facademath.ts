@@ -2,7 +2,8 @@
  * Pure facade decisions and constants (wave 20b). No three/webgpu — the
  * TSL graph in `facade.ts` imports these numbers and hashes the same inputs
  * with `hash2Node` so unit tests and the shader cannot drift.
- * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Facades".
+ * Contract: docs/architecture.md §4.11 "cyberpunk v2" → "Facades" and
+ * "Facades × OSM (wave 21)".
  */
 import { hash2 } from './noise';
 
@@ -182,15 +183,15 @@ export function windowTintIndex(r: number): WindowTint {
 }
 
 /**
- * Lit / intensity / tint / blinds for window cell `(cellU, cellV)`.
+ * Lit / intensity / tint / blinds for window cell `(cellU, cellV)`; `code` is
+ * the OSM material (glass lights ×1.5, see {@link windowLitP}).
  * No lights when the cell bottom is below {@link SHOPFRONT_HEIGHT_M}.
  */
-export function windowLight(cellU: number, cellV: number, seed: number): WindowLight {
+export function windowLight(cellU: number, cellV: number, seed: number, code = 0): WindowLight {
   const cu = Math.floor(cellU);
   const cv = Math.floor(cellV);
   if (cv * WINDOW_CELL_M < SHOPFRONT_HEIGHT_M) return UNLIT;
-  const dark = isDarkBuilding(seed);
-  const pLit = dark ? DARK_WINDOW_LIT_P : WINDOW_LIT_P;
+  const pLit = windowLitP(seed, code);
   const hLit = facadeHash(cu + seed * 17, cv + seed * 9 + HASH_SALT_LIT);
   if (hLit >= pLit) return UNLIT;
   const rInt = facadeHash(cu + seed * 5, cv + HASH_SALT_INT);
@@ -235,4 +236,89 @@ export function inShopLitSpan(uM: number): boolean {
 export function detailFade(d: number): number {
   const t = Math.min(1, Math.max(0, (d - DETAIL_FADE_NEAR_M) / (DETAIL_FADE_FAR_M - DETAIL_FADE_NEAR_M)));
   return 1 - t * t * (3 - 2 * t);
+}
+
+// ---------------------------------------------------------------------------
+// Facades × OSM (wave 21, T-0161): the `extra` vec4 = (osm rgb linear | −1, material code).
+// ---------------------------------------------------------------------------
+
+/** OSM facade colour → night albedo scale (`osm · 0.18`). */
+export const OSM_WALL_NIGHT = 0.18;
+/** OSM roof colour → night albedo scale (`roofColor · 0.15`). */
+export const OSM_ROOF_NIGHT = 0.15;
+/** Share of the procedural grime / floor bands kept on top of an OSM colour. */
+export const OSM_GRIME_KEEP = 0.25;
+
+/** `extra.w` material codes (mirror of `MATERIAL_CODE` in `world/buildings.ts`; 0 = none). */
+export const MAT_NONE = 0;
+export const MAT_BRICK = 1;
+export const MAT_STONE = 2;
+export const MAT_CONCRETE = 3;
+export const MAT_GLASS = 4;
+export const MAT_METAL = 5;
+export const MAT_WOOD = 6;
+export const MAT_PLASTER = 7;
+
+/** Glass curtain wall: lit-probability multiplier ("offices ×1.5") and its cap. */
+export const GLASS_LIT_MULT = 1.5;
+export const GLASS_LIT_MAX = 0.3;
+
+/** Brick joints need a nearer fade than the 15 → 60 m detail fade (0.075 m courses alias sooner). */
+export const BRICK_FADE_NEAR_M = 6;
+export const BRICK_FADE_FAR_M = 25;
+
+/** Surface pattern family of a material code. */
+export type FacadePatternKind = 'panels' | 'brick' | 'ashlar' | 'curtain' | 'seams' | 'boards' | 'smooth';
+
+/** Per-material facade pattern parameters (architecture.md §4.11 "Facades × OSM"). */
+export interface FacadePattern {
+  kind: FacadePatternKind;
+  /** Course / block height (brick, ashlar) or joint spacing along u (panels, curtain, seams, boards), m; 0 = none. */
+  size: number;
+  /** Unit length along u for bonded patterns (brick 0.225 m, ashlar 1.2 m); 0 when not bonded. */
+  unitLength: number;
+  /** Joint / mortar / mullion width (m). */
+  joint: number;
+  /** Albedo override (glass curtain wall) or −1 to keep the base albedo. */
+  albedo: number;
+  roughness: number;
+  metalness: number;
+  /** ± per-unit albedo variation (bricks, blocks, boards) or stain contrast (plaster). */
+  variation: number;
+}
+
+/** Pattern table indexed by material code 0–7; concrete / none keep the T-0152 panels. */
+export const FACADE_PATTERNS: readonly FacadePattern[] = [
+  { kind: 'panels', size: PANEL_SEAM_M, unitLength: 0, joint: 0.04, albedo: -1, roughness: WALL_ROUGHNESS, metalness: WALL_METALNESS, variation: 0 },
+  { kind: 'brick', size: 0.075, unitLength: 0.225, joint: 0.012, albedo: -1, roughness: 0.82, metalness: 0.04, variation: 0.15 },
+  { kind: 'ashlar', size: 0.6, unitLength: 1.2, joint: 0.02, albedo: -1, roughness: 0.72, metalness: 0.05, variation: 0.12 },
+  { kind: 'panels', size: PANEL_SEAM_M, unitLength: 0, joint: 0.04, albedo: -1, roughness: WALL_ROUGHNESS, metalness: WALL_METALNESS, variation: 0 },
+  { kind: 'curtain', size: 1.5, unitLength: 0, joint: 0.06, albedo: 0.02, roughness: 0.05, metalness: 0.9, variation: 0 },
+  { kind: 'seams', size: 0.5, unitLength: 0, joint: 0.03, albedo: -1, roughness: 0.4, metalness: 0.7, variation: 0 },
+  { kind: 'boards', size: 0.2, unitLength: 0, joint: 0.012, albedo: -1, roughness: 0.78, metalness: 0.02, variation: 0.2 },
+  { kind: 'smooth', size: 0, unitLength: 0, joint: 0, albedo: -1, roughness: 0.85, metalness: 0.02, variation: 0.12 },
+];
+
+/** Pattern for an `extra.w` code; unknown codes fall back to the T-0152 panels. */
+export function facadePattern(code: number): FacadePattern {
+  const k = Math.round(code);
+  return FACADE_PATTERNS[k] ?? FACADE_PATTERNS[MAT_NONE];
+}
+
+/** OSM facade rgb (linear) → night albedo `rgb · 0.18`; null (use procedural) when rgb < 0. */
+export function nightAlbedo(rgb: readonly [number, number, number]): [number, number, number] | null {
+  if (rgb[0] < 0) return null;
+  return [rgb[0] * OSM_WALL_NIGHT, rgb[1] * OSM_WALL_NIGHT, rgb[2] * OSM_WALL_NIGHT];
+}
+
+/** OSM roof rgb (linear) → night albedo `rgb · 0.15`; null (keep bitumen) when rgb < 0. */
+export function nightRoofAlbedo(rgb: readonly [number, number, number]): [number, number, number] | null {
+  if (rgb[0] < 0) return null;
+  return [rgb[0] * OSM_ROOF_NIGHT, rgb[1] * OSM_ROOF_NIGHT, rgb[2] * OSM_ROOF_NIGHT];
+}
+
+/** Per-window lit probability: dark / normal building, ×1.5 capped at 0.3 for glass (offices). */
+export function windowLitP(seed: number, code = MAT_NONE): number {
+  const p = isDarkBuilding(seed) ? DARK_WINDOW_LIT_P : WINDOW_LIT_P;
+  return Math.round(code) === MAT_GLASS ? Math.min(GLASS_LIT_MAX, p * GLASS_LIT_MULT) : p;
 }
