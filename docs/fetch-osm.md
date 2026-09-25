@@ -150,7 +150,7 @@ so the tiles now carry the Simple-3D-Buildings keys (`roof`, `osmColor`,
 | tile bytes (index + tiles) | 3 434 093 → 4 426 114 | 3 604 059 → 3 862 872 |
 | largest tile | 322 774 → 421 815 | 201 204 → 248 743 |
 | buildings | 9 061 → 13 865 | 8 183 → 9 129 |
-| with `minH` (parts) | 0 → 1 653+ | 0 → 315 |
+| with `minH` (parts) | 0 → 1 653 | 0 → 315 |
 | `roof` (all non-flat) | — → 14.1 % | — → 10.5 % |
 | `osmColor` | — → 28.3 % | — → 11.0 % |
 | `roofColor` | — → 36.1 % | — → 8.1 % |
