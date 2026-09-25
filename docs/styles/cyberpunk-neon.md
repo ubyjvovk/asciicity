@@ -28,6 +28,15 @@ PRNG copied from `src/world/textures.ts`). The ring is `normalizeRing`'d; the
 outward normal of a CCW edge a→b is `(dz, −dx)/len`. The wall base is
 `ringHeights(...).base + minH`, same as the wall meshes.
 
+Wave 22 (T-0165): the candidate edges are the segments of
+`exteriorWalls(b, heightAt)` (architecture §4.2 "Tiers") — for a tiered
+building the culled tier walls, so no sign lands on an interior wall and
+upper tiers get their own. The bottom offset is measured from the
+segment's `base`; on tiered buildings a sign that would poke above the
+segment's `top` is dropped (after its RNG draws). Without tiers the
+segments are the envelope edges and the output is byte-identical
+(sha256-tested on london `0_0`).
+
 | | blade (60 %) | panel (40 %) |
 |---|---|---|
 | face | 0.9 m × 3–6 m | 3–7 m × 1–1.6 m |

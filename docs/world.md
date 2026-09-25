@@ -156,6 +156,35 @@ Colours are 24-bit sRGB converted to linear per channel with
 After that, buildings without it get `EXTRA_NONE`. A dataset with no OSM
 facade data therefore produces no `extra` attribute at all.
 
+## Tiers (`Building.tiers`, wave 22, T-0165)
+
+Contract: architecture §4.2 "Tiers"; data: data-format "Tokyo from PLATEAU".
+A building with a non-empty `tiers` and **no** curated `shape` draws its
+tiers instead of the envelope (`roof` is ignored); every style shows them.
+`poly` / `h` stay the LOD1 envelope for collision and the minimap.
+
+- Seating: `ringHeights(envelope)` gives `base` / `top`; every tier wall
+  starts at `base + minH`, tier `k` tops out at `top + tiers[k].h`.
+- Each tier ring is `normalizeRing`'d (tiers with < 3 points or area < 1 m²
+  are dropped). Per edge, the point 0.3 m outside its midpoint is tested
+  against every other tier; if it is inside tier T2 the wall keeps only the
+  part above `top + T2.h` and is dropped when nothing remains (a podium's
+  wall against its tower, a tower's wall against a taller penthouse).
+- Walls go in group 0 (same colour, same wall `extra` as the building);
+  `u` = perimeter / 24 along the tier ring (culled edges still advance it),
+  `v = (y − wallBase) / 24`, so a wall that starts at a podium top keeps the
+  window rows aligned with the rest of the building.
+- One flat cap per tier at its top (group 1, roof `extra`); the envelope
+  bottom cap still appears when `minH > 0`.
+- `exteriorWalls(b, heightAt)` returns the same culled segments
+  (`{ a, b, base, top, nx, nz }`); without tiers (or with `shape`) it is the
+  envelope edges from `base + minH` to `top + h` (zero-length edges
+  skipped). The cyberpunk detail and neon placement consume it.
+- Buildings without tiers take the old path (byte-identical, sha256-tested
+  on london tile `0_0`). Budget: london `0_0` envelopes cut into three
+  synthetic x-slab tiers draw 47 846 triangles vs 35 088 for the envelopes
+  (×1.36, limit ×2).
+
 ## Palette (`src/world/palette.ts`)
 
 ```

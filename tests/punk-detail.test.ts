@@ -9,7 +9,8 @@ import { bucketSources } from '../src/render/punk/cells';
 import type { PunkSource } from '../src/render/punk/layer';
 import { buildDetailMesh } from '../src/render/punk/detailmesh';
 import { pointInPolygon } from '../src/world/collision';
-import { normalizeRing, ringHeights } from '../src/world/buildings';
+import { exteriorWalls, normalizeRing, ringHeights } from '../src/world/buildings';
+import { createHash } from 'node:crypto';
 import type { MeshData } from '../src/world/mesh';
 
 const TILE = JSON.parse(
@@ -197,5 +198,101 @@ describe('buildDetailMesh', () => {
     const a = buildDetailMesh([b], FLAT_HEIGHT);
     const c = buildDetailMesh([b], FLAT_HEIGHT);
     expect(a.positions).toEqual(c.positions);
+  });
+});
+
+/** Hand-made 3-tier building (T-0165): podium 20 m (west), C-shaped tower 60 m, penthouse 66 m in the notch. */
+function tieredBuilding(id: number): Building {
+  return {
+    id,
+    h: 66,
+    poly: [
+      [0, 0],
+      [40, 0],
+      [40, 30],
+      [0, 30],
+    ],
+    tiers: [
+      { h: 20, poly: [[0, 0], [20, 0], [20, 30], [0, 30]] },
+      { h: 60, poly: [[20, 0], [40, 0], [40, 10], [30, 10], [30, 20], [40, 20], [40, 30], [20, 30]] },
+      { h: 66, poly: [[30, 10], [40, 10], [40, 20], [30, 20]] },
+    ],
+  };
+}
+
+/** Axis-aligned bounds of each 36-vertex box chunk until the first vertex above `stopY` (rooftop items follow the walls). */
+function wallBoxes(m: MeshData, stopY: number): { c: [number, number, number]; size: [number, number, number] }[] {
+  const out: { c: [number, number, number]; size: [number, number, number] }[] = [];
+  const p = m.positions;
+  for (let v = 0; v + 36 <= p.length / 3; v += 36) {
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (let k = 0; k < 36; k++) {
+      for (let d = 0; d < 3; d++) {
+        const x = p[(v + k) * 3 + d]!;
+        lo[d] = Math.min(lo[d]!, x);
+        hi[d] = Math.max(hi[d]!, x);
+      }
+    }
+    if (hi[1]! > stopY + 1e-6) break;
+    out.push({
+      c: [(lo[0]! + hi[0]!) / 2, (lo[1]! + hi[1]!) / 2, (lo[2]! + hi[2]!) / 2],
+      size: [hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!],
+    });
+  }
+  return out;
+}
+
+describe('tiers (wave 22, architecture §4.2 "Tiers")', () => {
+  it('4. detail: no AC unit / balcony centre lies inside another tier\'s plan below that tier\'s top; rooftop clutter only on the top tier', () => {
+    let acs = 0;
+    let balconies = 0;
+    let upper = 0;
+    let roofItems = 0;
+    for (let id = 1; id <= 40; id++) {
+      const b = tieredBuilding(id);
+      const plans = b.tiers!.map((t) => ({ ring: normalizeRing(t.poly), top: t.h }));
+      const m = buildDetailMesh([b], FLAT_HEIGHT);
+      const boxes = wallBoxes(m, 66);
+      for (const { c, size } of boxes) {
+        const horiz = [size[0], size[2]].sort((x, y) => x - y);
+        const isAc = Math.abs(size[1] - 0.6) < 1e-3 && Math.abs(horiz[0]! - 0.5) < 1e-3 && Math.abs(horiz[1]! - 0.9) < 1e-3;
+        const isBalc = Math.abs(size[1] - 0.15) < 1e-3 && Math.abs(horiz[0]! - 1.1) < 1e-3 && Math.abs(horiz[1]! - 2.4) < 1e-3;
+        if (isAc) acs++;
+        if (isBalc) balconies++;
+        if ((isAc || isBalc) && c[1] > 20) upper++;
+        // Every wall-attached item (AC, balcony, ledge, pipe) stays out of the taller tiers.
+        for (const t of plans) {
+          if (pointInPolygon([c[0], c[2]], t.ring)) expect(c[1]).toBeGreaterThanOrEqual(t.top - 1e-6);
+        }
+      }
+      // Rooftop clutter: every vertex above the penthouse top lies over the penthouse plan.
+      const pent = plans[2]!.ring;
+      eachVert(m, (x, y, z) => {
+        if (y > 66 + 1e-6) {
+          roofItems++;
+          expect(pointInPolygon([x, z], pent)).toBe(true);
+        }
+        // Nothing sits on the podium or tower roofs (interiors shrunk 1.5 m past the attached wall items).
+        if (x > 1.5 && x < 18.5 && z > 1.5 && z < 28.5) expect(y).toBeLessThanOrEqual(20 + 1e-6);
+        if (x > 21.5 && x < 28.5 && z > 1.5 && z < 28.5) expect(y).toBeLessThanOrEqual(60 + 1e-6);
+      });
+    }
+    expect(acs).toBeGreaterThan(0);
+    expect(balconies).toBeGreaterThan(0);
+    expect(upper).toBeGreaterThan(0);
+    expect(roofItems).toBeGreaterThan(0);
+    // The walls used are exactly the exterior tier walls.
+    expect(exteriorWalls(tieredBuilding(1), FLAT_HEIGHT)).toHaveLength(12);
+  });
+
+  it('6. byte-identical output for buildings without tiers (pre-wave-22 sha256, london tile 0_0 on a slope)', () => {
+    const m = buildDetailMesh(TILE.buildings, (x, z) => 0.01 * x + 0.02 * z);
+    const h = createHash('sha256');
+    for (const a of [m.positions, m.normals, m.uvs, m.colors, m.extra ?? new Float32Array()]) {
+      h.update(Buffer.from(a.buffer, a.byteOffset, a.byteLength));
+    }
+    h.update(JSON.stringify(m.groups));
+    expect(h.digest('hex')).toBe('87f32e390a32389ab17c3f245283a8332aea20296612e40832555d758e2c0c34');
   });
 });

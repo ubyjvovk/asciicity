@@ -3,8 +3,8 @@
  * No `three/webgpu`, no DOM. Contract: docs/architecture.md §4.11
  * "`cyberpunk` v2" → "Neon signs".
  */
-import type { Building, HeightFn, Road, Vec2 } from '../../data/types';
-import { normalizeRing, ringHeights } from '../../world/buildings';
+import type { Building, HeightFn, Road } from '../../data/types';
+import { exteriorWalls, type WallSeg } from '../../world/buildings';
 
 /** Tube colours (§4.11). Signs never use anything else. */
 export const NEON_COLORS: readonly string[] = ['#ff2a6d', '#05d9e8', '#b967ff', '#ffb000', '#39ff14', '#ff073a'];
@@ -177,15 +177,15 @@ interface Edge {
   nz: number;
   midX: number;
   midZ: number;
+  /** The exterior wall's y span (§4.2 "Tiers"). */
+  base: number;
+  top: number;
 }
 
-function qualifyingEdges(ring: Vec2[], index: Map<string, Seg[]>): Edge[] {
+/** Street-facing exterior wall segments (tier walls after culling, else the envelope edges). */
+function qualifyingEdges(walls: readonly WallSeg[], index: Map<string, Seg[]>): Edge[] {
   const out: Edge[] = [];
-  const n = ring.length;
-  for (let i = 0; i < n; i++) {
-    const a = ring[i];
-    const b = ring[(i + 1) % n];
-    if (!a || !b) continue;
+  for (const { a, b, base, top } of walls) {
     const dx = b[0] - a[0];
     const dz = b[1] - a[1];
     const len = Math.hypot(dx, dz);
@@ -203,6 +203,8 @@ function qualifyingEdges(ring: Vec2[], index: Map<string, Seg[]>): Edge[] {
       nz: -dx / len,
       midX,
       midZ,
+      base,
+      top,
     });
   }
   return out;
@@ -224,12 +226,11 @@ export function placeSigns(
   const signs: Sign[] = [];
   for (const building of buildings) {
     if (building.h < MIN_H || building.poly.length < 3) continue;
-    const ring = normalizeRing(building.poly);
-    const edges = qualifyingEdges(ring, index);
+    const edges = qualifyingEdges(exteriorWalls(building, heightAt), index);
     if (edges.length === 0) continue;
-    const { base } = ringHeights(ring, heightAt);
-    if (!Number.isFinite(base)) continue;
-    const wallBase = base + (building.minH ?? 0);
+    if (!edges.every((e) => Number.isFinite(e.base))) continue;
+    // Tier walls must hold the whole sign; envelope walls keep the pre-wave-22 placement.
+    const tiered = building.tiers !== undefined && building.tiers.length > 0 && building.shape === undefined;
     const cap = building.h >= TALL_H ? 2 : 1;
     const rng = mulberry32(building.id ^ 0x9e3779b9);
     let placed = 0;
@@ -244,6 +245,7 @@ export function placeSigns(
       const bottom = blade ? 3.5 + rng() * 1.5 : 4 + rng() * 4;
       const along = blade ? 0.25 + rng() * 0.5 : 0.5;
       const off = blade ? BLADE_OFF : PANEL_OFF;
+      if (tiered && edge.base + bottom + height > edge.top) continue;
       const px = edge.ax + (edge.bx - edge.ax) * along;
       const pz = edge.az + (edge.bz - edge.az) * along;
       const x = px + edge.nx * off;
@@ -253,7 +255,7 @@ export function placeSigns(
         word,
         color,
         x,
-        y: wallBase + bottom + height / 2,
+        y: edge.base + bottom + height / 2,
         z: pz + edge.nz * off,
         nx: edge.nx,
         nz: edge.nz,

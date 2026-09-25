@@ -19,6 +19,19 @@ Per-building RNG is `mulberry32(id)` (copy of the PRNG in `textures.ts`).
 A building is skipped (zero triangles) unless `h ≥ 6` **and** some edge is
 `≥ 4 m`.
 
+### Tiers (wave 22, T-0165)
+
+Wall items are laid out per segment of `exteriorWalls(b, heightAt)`
+(`world/buildings.ts`, architecture §4.2 "Tiers"), not per envelope edge.
+Heights stay measured from the building's wall base, but an item is only
+emitted inside its segment's `[base, top]` span (ledges/balconies strictly
+above `base`, AC units with their bottom ≥ `base`; pipes span the segment),
+and an item whose centre lies in another tier's plan below that tier's top
+is skipped (guards edges only partly shared with a neighbour tier).
+Rooftop clutter goes on the highest tier only (its ring and top). Without
+tiers the segments are the envelope edges from wall base to roof, so the
+RNG stream and output are byte-identical to pre-wave-22 (sha256-tested).
+
 ## Geometry
 
 | piece | rule |

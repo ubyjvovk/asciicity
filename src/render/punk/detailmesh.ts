@@ -6,7 +6,7 @@
 import { FLAT_HEIGHT, type Building, type HeightFn, type Vec2 } from '../../data/types';
 import { pointInPolygon } from '../../world/collision';
 import { MeshBuilder, type MeshData, type UV, type Vec3 } from '../../world/mesh';
-import { normalizeRing, ringHeights } from '../../world/buildings';
+import { exteriorWalls, normalizeRing, ringHeights } from '../../world/buildings';
 
 const UV0: UV = [0, 0];
 /** Body greys. Ledge and balcony top faces add `TOP_LIFT` (PM rework: night visibility). */
@@ -214,6 +214,35 @@ function octagonInside(ring: Vec2[], cx: number, cz: number, r: number): boolean
   return true;
 }
 
+/** A tier plan (normalised ring) and the y of its flat top. */
+interface TierPlan {
+  ring: Vec2[];
+  top: number;
+}
+
+/** Tier plans of a tier-drawn building (§4.2 "Tiers"), `[]` otherwise or for curated shapes. */
+function tierPlans(building: Building, envelopeTop: number): TierPlan[] {
+  if (building.tiers === undefined || building.shape !== undefined) return [];
+  const out: TierPlan[] = [];
+  for (const t of building.tiers) {
+    if (t.poly.length >= 3) out.push({ ring: normalizeRing(t.poly), top: envelopeTop + t.h });
+  }
+  return out;
+}
+
+/** The highest tier (first on ties), or `null` without tiers. */
+function topTier(tiers: readonly TierPlan[]): TierPlan | null {
+  let best: TierPlan | null = null;
+  for (const t of tiers) if (best === null || t.top > best.top) best = t;
+  return best;
+}
+
+/** True when `(x, z)` lies in a tier plan whose top is above `y` (the item would sit inside that tier). */
+function insideTaller(tiers: readonly TierPlan[], x: number, z: number, y: number): boolean {
+  for (const t of tiers) if (t.top > y && pointInPolygon([x, z], t.ring)) return true;
+  return false;
+}
+
 function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn): void {
   if (building.h < MIN_H || building.poly.length < 3) return;
   const ring = normalizeRing(building.poly);
@@ -235,11 +264,17 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
 
   const rng = mulberry32(building.id);
   const hasBalconies = rng() < BALC_P;
-  const bbox = ringBBox(ring);
+  const tiers = tierPlans(building, top);
+  // Rooftop clutter sits on the top tier only (§4.2 "Tiers"); else on the envelope roof.
+  const roof = topTier(tiers) ?? { ring, top: roofY };
+  const bbox = ringBBox(roof.ring);
+  const hidden = (x: number, z: number, y: number): boolean => insideTaller(tiers, x, z, y);
 
-  for (let i = 0; i < n; i++) {
-    const a = ring[i]!;
-    const b = ring[(i + 1) % n]!;
+  // Exterior walls only: for tier-less buildings these are the envelope edges
+  // (base = wallBase, top = roofY), so every draw below matches pre-wave-22.
+  for (const seg of exteriorWalls(building, heightAt)) {
+    const a = seg.a;
+    const b = seg.b;
     const dx = b[0] - a[0];
     const dz = b[1] - a[1];
     const len = Math.hypot(dx, dz);
@@ -249,11 +284,17 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
     const az = dz * inv;
     const nx = dz * inv;
     const nz = -dx * inv;
+    // Segment span relative to the building wall base (envelope: 0 … wallH).
+    const segLo = seg.base - wallBase;
+    const segHi = seg.top - wallBase;
+    const segH = seg.top - seg.base;
 
     if (building.h >= LEDGE_MIN_H) {
-      for (let ly = LEDGE_STEP; ly < wallH; ly += LEDGE_STEP) {
+      for (let ly = LEDGE_STEP; ly < segHi; ly += LEDGE_STEP) {
+        if (ly <= segLo) continue;
         const cx = (a[0] + b[0]) * 0.5 + nx * (LEDGE_OUT * 0.5);
         const cz = (a[1] + b[1]) * 0.5 + nz * (LEDGE_OUT * 0.5);
+        if (hidden(cx, cz, wallBase + ly)) continue;
         const color = grey(rng);
         emitBox(
           mesh,
@@ -279,19 +320,20 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
     }
 
     const acHalf = AC_W * 0.5;
-    const acTop = Math.min(wallH, AC_MAX_Y);
+    const acTop = Math.min(segHi, AC_MAX_Y);
     for (let s = WIN * 0.5; s <= len - acHalf; s += WIN) {
       for (let f = 0; ; f++) {
         const floorY = f * WIN;
         const centerY = floorY + AC_FLOOR_OFF;
         const topY = centerY + AC_H * 0.5;
         const botY = centerY - AC_H * 0.5;
-        if (topY > acTop || topY > wallH) break;
-        if (botY < 0) continue;
-        if (rng() >= AC_PROB) continue;
+        if (topY > acTop || topY > segHi) break;
+        if (botY < segLo) continue;
         const cx = a[0] + ax * s + nx * (AC_D * 0.5);
         const cy = wallBase + centerY;
         const cz = a[1] + az * s + nz * (AC_D * 0.5);
+        if (hidden(cx, cz, cy)) continue;
+        if (rng() >= AC_PROB) continue;
         emitBox(mesh, cx, cy, cz, ax, 0, az, 0, 1, 0, nx, 0, nz, AC_W, AC_H, AC_D, grey(rng));
       }
     }
@@ -303,8 +345,9 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
         const s = t * len;
         const cx = a[0] + ax * s + nx * (PIPE_S * 0.5);
         const cz = a[1] + az * s + nz * (PIPE_S * 0.5);
-        const cy = wallBase + wallH * 0.5;
-        emitBox(mesh, cx, cy, cz, ax, 0, az, 0, 1, 0, nx, 0, nz, PIPE_S, wallH, PIPE_S, grey(rng));
+        if (hidden(cx, cz, seg.base)) continue;
+        const cy = seg.base + segH * 0.5;
+        emitBox(mesh, cx, cy, cz, ax, 0, az, 0, 1, 0, nx, 0, nz, PIPE_S, segH, PIPE_S, grey(rng));
       }
     }
 
@@ -314,9 +357,11 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
       for (let k = 0; k < count; k++) {
         const s = (k + 0.5) * BALC_STEP;
         if (s < halfW || s > len - halfW) continue;
-        for (let fy = BALC_STEP; fy < Math.min(wallH, BALC_MAX); fy += BALC_STEP) {
+        for (let fy = BALC_STEP; fy < Math.min(segHi, BALC_MAX); fy += BALC_STEP) {
+          if (fy <= segLo) continue;
           const cx = a[0] + ax * s + nx * (BALC_D * 0.5);
           const cz = a[1] + az * s + nz * (BALC_D * 0.5);
+          if (hidden(cx, cz, wallBase + fy)) continue;
           const slab = grey(rng);
           emitBox(
             mesh,
@@ -370,18 +415,18 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
   for (let i = 0; i < nItems; i++) {
     const kind = Math.floor(rng() * 3);
     if (kind === 0) {
-      const at = tryPlace(rng, ring, bbox, TANK_R, TANK_R, true);
+      const at = tryPlace(rng, roof.ring, bbox, TANK_R, TANK_R, true);
       if (!at) continue;
-      emitOctagonPrism(mesh, at[0], roofY, at[1], TANK_R, TANK_H, grey(rng));
+      emitOctagonPrism(mesh, at[0], roof.top, at[1], TANK_R, TANK_H, grey(rng));
     } else if (kind === 1) {
       const hx = ROOF_AC[0]! * 0.5;
       const hz = ROOF_AC[2]! * 0.5;
-      const at = tryPlace(rng, ring, bbox, hx, hz, false);
+      const at = tryPlace(rng, roof.ring, bbox, hx, hz, false);
       if (!at) continue;
       emitBox(
         mesh,
         at[0],
-        roofY + ROOF_AC[1]! * 0.5,
+        roof.top + ROOF_AC[1]! * 0.5,
         at[1],
         1,
         0,
@@ -399,12 +444,12 @@ function emitBuilding(mesh: MeshBuilder, building: Building, heightAt: HeightFn)
       );
     } else {
       const h = MAST_S * 0.5;
-      const at = tryPlace(rng, ring, bbox, h, h, false);
+      const at = tryPlace(rng, roof.ring, bbox, h, h, false);
       if (!at) continue;
       emitBox(
         mesh,
         at[0],
-        roofY + MAST_H * 0.5,
+        roof.top + MAST_H * 0.5,
         at[1],
         1,
         0,
