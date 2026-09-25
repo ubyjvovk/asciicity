@@ -21,13 +21,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DATACATALOG,
   buildingChunks,
   meshBounds,
   meshesForBbox,
   parseBuilding,
   texturedPolygonIds,
 } from './citygml.mjs';
+import { meshFiles as catalogFiles, meshGml as cachedGml } from './fetch.mjs';
 import {
   checkBuildings,
   lod2Tiers,
@@ -47,39 +47,14 @@ function unproject(x, z, origin) {
   return [origin.lon + x / (Math.cos((origin.lat * Math.PI) / 180) * 111320), origin.lat - z / 110574];
 }
 
-/** GET JSON through a file cache. */
-async function cachedJson(url, file) {
-  if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'));
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  const json = await res.json();
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(json));
-  return json;
+/** Catalog entry for one mesh: every city's bldg file for it (`fetch.mjs`, shared cache). */
+function meshFiles(code) {
+  return catalogFiles(code, CACHE);
 }
 
-/** Catalog entry for one mesh: every city's bldg file for it. */
-async function meshFiles(code) {
-  const j = await cachedJson(`${DATACATALOG}/citygml/m:${code}`, join(CACHE, 'catalog', `m_${code}.json`));
-  const out = [];
-  for (const c of j.cities ?? []) {
-    for (const f of c.files?.bldg ?? []) if (f.code === code) out.push({ city: c.cityCode, year: c.year, ...f });
-  }
-  return out;
-}
-
-/** Download (gzip transfer-decoded by fetch) and cache a mesh GML; returns its path. */
-async function meshGml(file) {
-  const path = join(CACHE, 'raw', `${file.code}_bldg_${file.city}_${file.year}.gml`);
-  if (!existsSync(path)) {
-    const t = Date.now();
-    const res = await fetch(file.url, { headers: { 'Accept-Encoding': 'gzip' } });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${file.url}`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, Buffer.from(await res.arrayBuffer()));
-    console.log(`  downloaded ${file.code} (${file.city}) ${(file.fileSize / 1e6).toFixed(1)} MB in ${((Date.now() - t) / 1000).toFixed(1)} s`);
-  }
-  return path;
+/** Download and cache a mesh GML (`fetch.mjs`); returns its path. */
+function meshGml(file) {
+  return cachedGml(file, CACHE, console.log);
 }
 
 const pct = (a, b) => (b ? `${((100 * a) / b).toFixed(1)} %` : 'n/a');

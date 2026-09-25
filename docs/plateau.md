@@ -49,6 +49,8 @@ node scripts/plateau/fetch-cell.mjs [--tile 0_0] [--coverage]
 - `scripts/plateau/map.mjs` — PLATEAU → `Building`, roof classifier, LOD2
   tiers what-if, footprint IoU matching, a TS-free `validateCity` building
   re-check. `.d.ts` siblings for the tests / `tsc`.
+- `scripts/plateau/fetch.mjs` — catalog API + GML download with the file
+  cache (shared by `fetch-cell.mjs` and `tokyo.mjs` since T-0163).
 - `scripts/plateau/fetch-cell.mjs` — the CLI: tile rect → meshes → catalog
   API → cached GML (`.cache/plateau/raw/`, API answers in
   `.cache/plateau/catalog/`) → `.cache/plateau/out/<tile>.json`
@@ -59,6 +61,130 @@ node scripts/plateau/fetch-cell.mjs [--tile 0_0] [--coverage]
 
 A cold run of tile `0_0` (4 meshes, 641 MB of GML, 80 MB on the wire) takes
 ≈ 1 min; warm ≈ 5 s (parse 2.5 s, IoU matching 0.7 s).
+
+## Production converter (T-0163)
+
+```
+npm run fetch-data:tokyo-plateau
+# = node scripts/plateau/tokyo.mjs --data public/data/tokyo [--cache .cache/plateau]
+```
+
+Post-processes an EXISTING OSM-built tiled Tokyo dataset IN PLACE: only
+`buildings` in the tiles and `index.landmarks` / `index.tiles` change;
+roads, bridge roads, trees, woods, water, rivers, terrain and places are
+untouched. It refuses a dataset that already holds PLATEAU ids (ids in
+`[2^48, 2^49)`), so re-run it on a fresh OSM dataset
+(`npm run fetch-data:tokyo`), never twice on the same one. Files:
+
+- `scripts/plateau/tokyo.mjs` — the CLI (I/O, stats, validation);
+- `scripts/plateau/merge.mjs` — the pure half, unit-tested in
+  `tests/plateau.test.ts`: `convertBuilding`, `buildTiers`, `plateauId` /
+  `assignIds`, `osmPartFlags`, `coveredShare`, `mergeBuildings`, `retile`;
+- `scripts/plateau/map.mjs` — gains `unionFacetsWithHoles`, `splitHoles`,
+  `lod2Tiers(…, { splitHoles })`, tier checks in `checkBuildings`.
+
+**Pipeline** (rules: data-format.md "Tokyo from PLATEAU (wave 22)"):
+
+1. Every JIS 3rd-order mesh intersecting `index.bbox` (99) → catalog API
+   (latest year per ward) → one download per DISTINCT ward copy (same
+   `features` + `fileSize` = the same copy; 32 boundary meshes have two
+   copies of different byte size but identical `gml:id` sets) → cached
+   under `<cache>/raw/`. Buildings (and `BuildingPart`s, none so far) are
+   de-duplicated by `gml:id`, first copy wins (ward copies sorted by
+   feature count, then ward code).
+2. `convertBuilding` = `toBuilding` (rule 1: LOD1/LOD0 envelope, 0.1 m,
+   collinear vertices dropped, `measuredHeight` clamped [3, 650]; rule 2
+   roofs for gabled / hipped / skillion / pyramidal) + `buildTiers` for
+   `stepped` / `complex` LOD2 roofs. A building keeps it only when its
+   vertex-mean anchor lies in the bbox.
+3. **Tiers** (rule 2): the `lod2Tiers` levels (1.5 m clustering, facet
+   union by edge cancellation). A level's union can have HOLES (a podium
+   around its tower): `splitHoles` cuts a holed ring along a vertical line
+   through the hole into hole-free pieces, recursively, so tiers stay
+   simple rings and plan-disjoint. Each tier `h` = level top − LOD1 base,
+   clamped to `[1, h]`. Rejected (envelope only) when < 2 tiers survive,
+   > 64, or two tiers overlap by > 5 % of the smaller (overhanging LOD2
+   facets, T-junction unions). `roof` is deleted whenever tiers are set
+   (never both).
+4. **Ids** (rule 1): `plateauId` = low 48 bits of FNV-1a-64(`gml:id`) +
+   2^48 → `[2^48, 2^49)`, exact doubles, disjoint from OSM way ids and the
+   curated extras. `assignIds` walks the buildings sorted by `gml:id` and
+   bumps a collision by +1 (0 collisions on the real data).
+5. **OSM parts** (rule 5): our tiles no longer carry the
+   `building:part` tag, so `osmPartFlags` recognises parts by geometry — a
+   STACK is a set of OSM buildings linked by plan overlaps ≥ 50 % of the
+   smaller footprint; every member of a stack holding a raised part
+   (`minH > 0`) or ≥ 3 distinct heights is a part (Skytree's decks + mast,
+   Tokyo Tower's 30 concentric grounded tiers). Same-height duplicates and
+   outline + canopy pairs are not parts (without the 3-heights test,
+   944 buildings qualified, including duplicate outlines such as the Bank of
+   Japan's). Parts are kept and suppress every PLATEAU building whose
+   footprint is ≥ 30 % covered by the UNION of the parts (`coveredShare`,
+   so stacked parts count once).
+6. **Kept OSM** (rule 4): non-part OSM buildings covered < 20 % by the
+   union of the kept PLATEAU footprints stay as they are.
+7. **Names** (rule 3, non-part OSM only): the best-IoU partner's name at
+   IoU ≥ 0.5 (if that partner is named); else the named OSM building the
+   PLATEAU footprint covers ≥ 50 % (largest overlap); else the PLATEAU
+   `gml:name`; else none.
+8. **Retile** (`retile`, same anchor as `scripts/tile-city.mjs`: unrounded
+   vertex mean, `Math.floor(c / tileSize)`): each tile keeps its roads /
+   trees / woods and gets kept OSM buildings (old tile order) then PLATEAU
+   buildings (`gml:id` order); `index.tiles` stats are recomputed
+   (`bytes` = written length), new tiles are appended in (j, i) order,
+   tiles left empty are deleted, and `index.landmarks` is rebuilt from the
+   named buildings in tile scan order (tiler rule 4). Files are written
+   through `.tmp` + rename.
+9. **Validation**: `validateTileIndex(index)`, `validateCity` on every
+   tile's buildings and on all buildings as one city (global id
+   uniqueness; bridge roads + places), and `checkBuildings` (the `tiers`
+   rules until `validate.ts` learns them in T-0164). Any error → exit 1.
+   Stats go to `<cache>/tokyo.stats.json`.
+
+**Measured** (2026-09-25, a copy of the committed OSM dataset,
+`node scripts/plateau/tokyo.mjs --data .cache/plateau/tokyo-copy`, warm
+cache; the cold download of the 132 ward copies — 8.4 GB of GML on disk —
+took ≈ 2 min, 105 s of it transfers):
+
+| | |
+|---|---:|
+| meshes / ward copies parsed | 99 / 132 (8.88 GB GML) |
+| building chunks / unique `gml:id` | 309 419 / 225 989 |
+| PLATEAU in bbox (outside 32 799; < 2 m² footprints dropped 380) | 192 810 |
+| suppressed by OSM parts (rule 5) | 166 |
+| **PLATEAU buildings kept** | **192 644** |
+| OSM parts kept (rule 5) | 439 |
+| **OSM kept, < 20 % covered (rule 4)** | **7 341** |
+| OSM replaced by PLATEAU | 162 839 of 170 619 |
+| names: IoU partner / ≥ 50 % covered / PLATEAU `gml:name` | 13 854 / 752 / 688 |
+| roof kinds (in bbox) | LOD1-only 118 695, flat 35 823, stepped 15 514, complex 12 457, gabled 7 029, hipped 2 130, skillion 878, pyramidal 283 |
+| `roof` emitted | gabled 6 855, hipped 2 114, skillion 869, pyramidal 278 |
+| `tiers` emitted | 23 540 buildings, 92 900 tiers (max 63 per building) |
+| tiers rejected → envelope | single level 2 665, overlap 1 724, > 64 3 |
+| buildings / landmarks / tiles | 200 424 / 15 856 / 129 (none created or removed) |
+| **bytes** (index + tiles) | 28 325 662 → **50 460 465** (≤ 60 MB budget) |
+| **max tile** | 646 815 → **1 347 629** (`1_-3`) |
+| validation | 129 tiles + index + 200 424 buildings: 0 errors |
+| wall time (warm cache) | 128 s (PLATEAU parse + convert 73 s, merge 54 s) |
+| determinism | three runs on fresh copies: byte-identical (sha1 of every file) |
+
+Without `splitHoles` the overlap check rejected 6 837 tier sets (podiums
+around towers) and the dataset was 45.4 MB; with it, 23 540 buildings keep
+their massing for +5 MB.
+
+**Landmarks / presets** on the output: `Tokyo Skytree` (OSM part, 634 m,
+anchor unchanged), `Tokyo Tower` (OSM part stack kept — the curated
+333 m / `tower` override still applies; the PLATEAU tower block is
+suppressed), `Akihabara` (now a PLATEAU building, 20.3 m, anchor moved
+32 m), `Tokyo Station` (OSM, unchanged), `Shinjuku` (PLATEAU, 20.7 m, 10
+tiers) all resolve. **`Shibuya`** (the station-building outline; only
+comments in `spawn.ts` cite its anchor, the `shibuya` preset uses fixed
+coordinates) does NOT: PLATEAU splits the complex into buildings that
+neither match it at IoU ≥ 0.5 nor cover it ≥ 50 %. Across the dataset,
+455 of 14 496 distinct OSM building names (3 %) are lost the same way,
+682 new names come in (PLATEAU `gml:name`s). A rule-3 fallback ("a named
+OSM building whose name went nowhere → the PLATEAU building overlapping
+it most") would recover them. That is a PM rule change, not implemented.
 
 ## Q1 — Access
 
