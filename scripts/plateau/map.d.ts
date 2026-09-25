@@ -49,12 +49,17 @@ export function toBuilding(
 ): { building?: Building; roof: RoofClass; base?: number; skip?: string };
 /** Union of edge-sharing facets (outer rings only), or null. */
 export function unionFacets(rings: number[][][]): number[][][] | null;
+/** `unionFacets` keeping holes (negatively oriented rings), or null. */
+export function unionFacetsWithHoles(rings: number[][][]): { outers: number[][][]; holes: number[][][] } | null;
+/** Cut a polygon with holes into hole-free, plan-disjoint pieces. */
+export function splitHoles(outer: number[][], holes: number[][][]): number[][][];
 /** LOD2 tiers what-if: grounded prisms per roof-height cluster. */
 export function lod2Tiers(
   pb: PlateauBuilding,
   origin: Origin,
   base: number,
   id: number,
+  opts?: { splitHoles?: boolean },
 ): { tiers: Building[]; fallback: boolean };
 /** Even-odd point-in-polygon. */
 export function pointInRing(x: number, z: number, ring: number[][]): boolean;

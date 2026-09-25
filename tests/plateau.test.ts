@@ -3,6 +3,10 @@
  * `scripts/plateau/map.mjs`) on a tiny inline CityGML fixture, plus a
  * `validateCity` pass over the prototype output when it has been generated
  * (`node scripts/plateau/fetch-cell.mjs` → `.cache/plateau/out/0_0.json`).
+ *
+ * T-0163 — the production converter's pure half (`scripts/plateau/merge.mjs`):
+ * tile assignment = the tiler's rule, merge rules 3/4/5 on a hand-made
+ * fixture, the PLATEAU id range, tiers never with roof, determinism.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -21,14 +25,33 @@ import {
   checkBuildings,
   classifyRoof,
   cleanRing,
+  intersectionArea,
   iou,
   lod2Tiers,
   matchFootprints,
   numericId,
   ringArea,
+  splitHoles,
   toBuilding,
   unionFacets,
+  unionFacetsWithHoles,
 } from '../scripts/plateau/map';
+import {
+  PLATEAU_ID_BASE,
+  assignIds,
+  buildTiers,
+  buildingTileKey,
+  convertBuilding,
+  coveredShare,
+  isPlateauId,
+  mergeBuildings,
+  osmPartFlags,
+  plateauId,
+  retile,
+} from '../scripts/plateau/merge';
+import { tileCity } from '../scripts/tile-city';
+import type { Building, TileData, Vec2 } from '../src/data/types';
+import { syntheticCity } from '../src/data/synthetic';
 import { validateCity } from '../src/data/validate';
 
 const ORIGIN = { lat: 35.6812, lon: 139.7671 };
@@ -404,5 +427,297 @@ describe('validation', () => {
     expect(() =>
       validateCity({ v: 1, origin: ORIGIN, bbox: [139.692, 35.645, 139.82, 35.715], buildings, roads: [], places: [] }),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------- T-0163
+
+/** Axis-aligned box ring `[x0, z0]–[x1, z1]`. */
+function box(x0: number, z0: number, x1: number, z1: number): Vec2[] {
+  return [
+    [x0, z0],
+    [x1, z0],
+    [x1, z1],
+    [x0, z1],
+  ];
+}
+
+/** A PLATEAU-merge input row. */
+function prow(id: number, poly: Vec2[], plateauName?: string): { building: Building; plateauName?: string } {
+  return { building: { id: PLATEAU_ID_BASE + id, h: 20, poly }, ...(plateauName ? { plateauName } : {}) };
+}
+
+// Stepped tower: 30 × 30 m podium (top 15 m) around a 10 × 10 m tower (top
+// 60 m), ground at 5. The podium's roof facets form a ring with a HOLE where
+// the tower stands (four trapezoids sharing full edges, like a PLATEAU mesh).
+const PODIUM: P3[][] = [
+  [[0, 0, 20], [30, 0, 20], [20, 10, 20], [10, 10, 20]],
+  [[30, 0, 20], [30, 30, 20], [20, 20, 20], [20, 10, 20]],
+  [[30, 30, 20], [0, 30, 20], [10, 20, 20], [20, 20, 20]],
+  [[0, 30, 20], [0, 0, 20], [10, 10, 20], [10, 20, 20]],
+];
+const STEPPED = `<core:CityModel><core:cityObjectMember>
+<bldg:Building gml:id="bldg_stepped">
+  <bldg:measuredHeight uom="m">60</bldg:measuredHeight>
+  <bldg:lod0RoofEdge><gml:MultiSurface>${polygon('lod0-st', rect(0, 0, 30, 30, 0))}</gml:MultiSurface></bldg:lod0RoofEdge>
+  ${lod1(0, 0, 30, 30, 5, 65)}
+  ${PODIUM.map((r, k) => surface('RoofSurface', `st-podium-${k}`, r)).join('\n')}
+  ${surface('RoofSurface', 'st-tower', rect(10, 10, 20, 20, 65))}
+</bldg:Building>
+</core:cityObjectMember></core:CityModel>`;
+
+describe('T-0163 id range', () => {
+  it('plateauId is a stable hash of gml:id in [2^48, 2^49): no collision with OSM ids or curated extras', () => {
+    expect(PLATEAU_ID_BASE).toBe(2 ** 48);
+    expect(plateauId('bldg_a1b2c3')).toBe(306127763354995);
+    expect(plateauId('bldg_a1b2c3')).toBe(plateauId('bldg_a1b2c3'));
+    expect(plateauId('bldg_a1b2c4')).not.toBe(plateauId('bldg_a1b2c3'));
+    for (const g of ['bldg_house', 'bldg_x', '', 'bldg_0a4f5b1c-7d2e-4f6a-9b8c-1d2e3f4a5b6c']) {
+      const id = plateauId(g);
+      expect(Number.isSafeInteger(id)).toBe(true);
+      expect(id).toBeGreaterThanOrEqual(2 ** 48);
+      expect(id).toBeLessThan(2 ** 49);
+      expect(isPlateauId(id)).toBe(true);
+    }
+    // OSM way ids (≈ 1.4·10⁹ today, 2^40 headroom), curated extras, prototype ids.
+    for (const id of [1, 4247312, 1419103534, 2 ** 40, -1000, -999999, 131020003711]) expect(isPlateauId(id)).toBe(false);
+  });
+
+  it('assignIds walks in order and bumps collisions deterministically', () => {
+    const rows = [{ gmlId: 'a', building: { id: 0 } }, { gmlId: 'a', building: { id: 0 } }, { gmlId: 'b', building: { id: 0 } }];
+    expect(assignIds(rows)).toBe(1);
+    expect(rows[0]!.building.id).toBe(plateauId('a'));
+    expect(rows[1]!.building.id).toBe(plateauId('a') + 1);
+    expect(rows[2]!.building.id).toBe(plateauId('b'));
+  });
+});
+
+describe('T-0163 tile assignment = tile-city rule', () => {
+  it('buildingTileKey floors the unrounded vertex mean (negative keys, exact boundaries)', () => {
+    expect(buildingTileKey(box(0, 0, 10, 10), 1000)).toBe('0_0');
+    expect(buildingTileKey(box(-10, -10, 0, 0), 1000)).toBe('-1_-1');
+    expect(buildingTileKey(box(990, 1990, 1010, 2010), 1000)).toBe('1_2'); // mean exactly on the line
+    // A 3-vertex ring whose mean is 999.9666… stays in tile 0 (no rounding).
+    expect(buildingTileKey([[999.9, 0], [1000, 0], [1000, 10]], 1000)).toBe('0_0');
+  });
+
+  it('retile of a tileCity output with the same buildings reproduces tiles, stats and landmarks exactly', () => {
+    const city = syntheticCity(1, 12);
+    const tiled = tileCity(city, 100);
+    const out = retile(tiled.index, tiled.tiles, city.buildings);
+    expect(out.created).toEqual([]);
+    expect(out.removed).toEqual([]);
+    expect(out.index).toEqual(tiled.index);
+    expect([...out.tiles.keys()]).toEqual([...tiled.tiles.keys()]);
+    for (const [k, t] of tiled.tiles) expect(JSON.stringify(out.tiles.get(k))).toBe(JSON.stringify(t));
+  });
+
+  it('every building lands in the tile tileCity would put it in; new tiles are created, emptied ones dropped', () => {
+    const city = syntheticCity(2, 8);
+    const tiled = tileCity(city, 100);
+    const moved: Building[] = [
+      ...city.buildings.filter((b) => buildingTileKey(b.poly, 100) !== '0_0'),
+      { id: 9e6, h: 10, name: 'Far', poly: box(5000, 5000, 5010, 5010) },
+    ];
+    const expected = tileCity({ ...city, buildings: moved }, 100);
+    const out = retile(tiled.index, tiled.tiles, moved);
+    expect(out.created).toEqual(['50_50']);
+    for (const [k, t] of out.tiles) {
+      expect(t.buildings.map((b) => b.id)).toEqual(expected.tiles.get(k)?.buildings.map((b) => b.id) ?? []);
+    }
+    expect(out.index.landmarks).toEqual(expected.index.landmarks);
+    expect(out.tiles.get('50_50')!.roads).toEqual([]);
+    expect(out.index.tiles['50_50']).toEqual({
+      buildings: 1,
+      roads: 0,
+      trees: 0,
+      bytes: Buffer.byteLength(JSON.stringify(out.tiles.get('50_50')), 'utf8'),
+    });
+    // A tile with nothing but buildings disappears when they all move out.
+    const lone: TileData = { v: 1, buildings: [{ id: 1, h: 5, poly: box(10, 10, 20, 20) }], roads: [] };
+    const idx = { ...tiled.index, tiles: { '0_0': { buildings: 1, roads: 0, trees: 0, bytes: 1 } } };
+    const r = retile(idx, new Map([['0_0', lone]]), [{ id: 1, h: 5, poly: box(110, 10, 120, 20) }]);
+    expect(r.removed).toEqual(['0_0']);
+    expect(r.created).toEqual(['1_0']);
+    expect(Object.keys(r.index.tiles)).toEqual(['1_0']);
+  });
+});
+
+describe('T-0163 merge rules 3/4/5', () => {
+  const OSM: Building[] = [
+    { id: 1, h: 14, name: 'Alpha', poly: box(0, 0, 20, 20) }, // rule 3a partner of P1
+    { id: 2, h: 14, name: 'Beta', poly: box(100, 0, 110, 10) }, // inside P2 (IoU 1/9) → rule 3b
+    { id: 3, h: 14, poly: box(200, 0, 210, 10) }, // not covered → kept (rule 4)
+    { id: 4, h: 14, name: 'Delta', poly: box(300, 0, 310, 10) }, // covered by P5 → replaced, name moves
+    { id: 5, h: 14, poly: box(400, 0, 420, 20) }, // 25 % covered → replaced
+    { id: 6, h: 14, poly: box(500, 0, 520, 20) }, // 10 % covered → kept
+    { id: 7, h: 50, poly: box(600, 0, 620, 20) }, // grounded stack, 3 heights → parts
+    { id: 8, h: 100, poly: box(605, 5, 615, 15) },
+    { id: 9, h: 200, name: 'Tower', poly: box(608, 8, 612, 12) },
+    { id: 10, h: 30, minH: 10, poly: box(700, 0, 710, 10) }, // raised part: 1/3 of P10
+    { id: 11, h: 30, minH: 5, poly: box(740, 0, 745, 10) }, // raised part: 1/6 of P11
+    { id: 12, h: 14, poly: box(800, 0, 810, 10) }, // duplicated outline, same h → NOT parts
+    { id: 13, h: 14, poly: box(800, 0, 810, 10) },
+  ];
+  const PLATEAU = [
+    prow(1, box(0, 0, 20, 19)),
+    prow(2, box(95, -5, 125, 25)),
+    prow(3, box(900, 0, 910, 10), 'ぴー'),
+    prow(4, box(950, 0, 960, 10)),
+    prow(5, box(300, 0, 310, 10), 'PLATEAU name loses to OSM'),
+    prow(6, box(400, 0, 405, 20)),
+    prow(7, box(500, 0, 502, 20)),
+    prow(8, box(600, 0, 620, 20)),
+    prow(9, box(620, 0, 640, 20)),
+    prow(10, box(700, 0, 730, 10)),
+    prow(11, box(740, 0, 770, 10)),
+  ];
+
+  it('osmPartFlags: raised parts and ≥ 3-height stacks are parts; same-height duplicates are not', () => {
+    expect(osmPartFlags(OSM)).toEqual([false, false, false, false, false, false, true, true, true, true, true, false, false]);
+  });
+
+  it('coveredShare counts overlapping covers once', () => {
+    expect(coveredShare(box(0, 0, 20, 20), [box(0, 0, 10, 20), box(0, 0, 10, 20), box(5, 0, 15, 20)])).toBeCloseTo(0.75, 5);
+    expect(coveredShare(box(0, 0, 20, 20), [])).toBe(0);
+  });
+
+  const { buildings, stats } = mergeBuildings(PLATEAU, OSM);
+  const byId = new Map(buildings.map((b) => [b.id, b]));
+  const P = (k: number) => byId.get(PLATEAU_ID_BASE + k);
+
+  it('rule 5: OSM parts are kept and suppress PLATEAU buildings ≥ 30 % under them', () => {
+    for (const id of [7, 8, 9, 10, 11]) expect(byId.has(id)).toBe(true);
+    expect(P(8)).toBeUndefined(); // 100 % under the stack
+    expect(P(10)).toBeUndefined(); // 33 %
+    expect(P(9)).toBeDefined(); // adjacent, 0 %
+    expect(P(11)).toBeDefined(); // 17 %
+    expect(stats.suppressedByParts).toBe(2);
+    expect(stats.osmParts).toBe(5);
+  });
+
+  it('rule 4: non-part OSM buildings covered < 20 % by PLATEAU stay; the rest are replaced', () => {
+    const osmOut = buildings.filter((b) => !isPlateauId(b.id)).map((b) => b.id);
+    expect(osmOut).toEqual([3, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(stats.osmKeptUncovered).toBe(4);
+    expect(stats.osmDropped).toBe(4);
+  });
+
+  it('rule 3: IoU ≥ 0.5 partner name, else the named OSM building ≥ 50 % covered, else gml:name, else none', () => {
+    expect(P(1)!.name).toBe('Alpha');
+    expect(P(2)!.name).toBe('Beta');
+    expect(P(3)!.name).toBe('ぴー');
+    expect(P(4)!.name).toBeUndefined();
+    expect(P(5)!.name).toBe('Delta');
+    expect(P(9)!.name).toBeUndefined(); // no name from the neighbouring parts
+    expect(stats).toMatchObject({ namesByIou: 2, namesByCover: 1, namesFromPlateau: 1 });
+    // Key order stays id, h, name, …, poly; inputs are not mutated.
+    expect(Object.keys(P(1)!)).toEqual(['id', 'h', 'name', 'poly']);
+    expect(PLATEAU[0]!.building.name).toBeUndefined();
+  });
+
+  it('rule 3b: Shibuya-like split complex: name lands on the most-overlapping unnamed piece; an already named piece is never overwritten', () => {
+    const osm: Building[] = [
+      { id: 21, h: 30, name: 'Shibuya', poly: box(0, 0, 100, 40) }, // split in 3, no IoU/cover match
+      { id: 22, h: 30, name: 'Echo', poly: box(200, 0, 300, 40) }, // every piece already named
+    ];
+    const plateau = [
+      prow(21, box(0, 0, 30, 40)), // 1200 m² overlap, 1200 m² footprint
+      prow(22, box(30, 0, 70, 40), 'Named piece'), // most overlap (1600 m²) but named
+      prow(23, box(70, -40, 100, 40)), // 1200 m² overlap tie, larger footprint → wins
+      prow(24, box(200, 0, 240, 40), 'Gamma'),
+      prow(25, box(240, 0, 270, 40), 'Kappa'),
+      prow(26, box(270, 0, 300, 40), 'Lambda'),
+    ];
+    const m = mergeBuildings(plateau, osm);
+    const by = new Map(m.buildings.map((b) => [b.id, b]));
+    const name = (k: number) => by.get(PLATEAU_ID_BASE + k)!.name;
+    expect(m.buildings.some((b) => !isPlateauId(b.id))).toBe(false); // both OSM replaced
+    expect(name(23)).toBe('Shibuya');
+    expect(name(22)).toBe('Named piece');
+    expect(name(21)).toBeUndefined();
+    expect([name(24), name(25), name(26)]).toEqual(['Gamma', 'Kappa', 'Lambda']);
+    expect(m.stats).toMatchObject({ namesByIou: 0, namesByCover: 0, namesFromPlateau: 4, namesByFallback: 1, namesUnplaced: 1 });
+    // The main fixture transfers every name by rules 1–3: 3b does nothing there.
+    expect(stats).toMatchObject({ namesByFallback: 0, namesUnplaced: 0 });
+  });
+
+  it('determinism: the same input gives byte-identical merge + retile output', () => {
+    const again = mergeBuildings(
+      PLATEAU.map((r) => ({ ...r, building: { ...r.building } })),
+      OSM.map((b) => ({ ...b })),
+    );
+    expect(JSON.stringify(again)).toBe(JSON.stringify({ buildings, stats }));
+    const tiled = tileCity({ v: 1, origin: ORIGIN, bbox: [139, 35, 140, 36], buildings: OSM, roads: [], places: [] }, 100);
+    const a = retile(tiled.index, tiled.tiles, buildings);
+    const b = retile(tiled.index, tiled.tiles, again.buildings);
+    expect(JSON.stringify([a.index, [...a.tiles]])).toBe(JSON.stringify([b.index, [...b.tiles]]));
+  });
+});
+
+describe('T-0163 tiers', () => {
+  const [stepped] = [...buildingChunks(STEPPED)].map(parseBuilding);
+  const [house] = [...buildingChunks(FIXTURE)].map(parseBuilding);
+
+  it('unionFacetsWithHoles keeps the podium hole; splitHoles cuts it into plan-disjoint pieces', () => {
+    const u = unionFacetsWithHoles(PODIUM.map((r) => r.map(([x, z]) => [x, z])));
+    expect(u!.outers).toHaveLength(1);
+    expect(u!.holes).toHaveLength(1);
+    const pieces = splitHoles(u!.outers[0]!, u!.holes);
+    expect(pieces).toHaveLength(2);
+    expect(pieces.reduce((s, r) => s + ringArea(r), 0)).toBeCloseTo(800, 5);
+    expect(intersectionArea(pieces[0]!, pieces[1]!)).toBe(0);
+    for (const r of pieces) expect(intersectionArea(r, box(10, 10, 20, 20))).toBe(0);
+  });
+
+  it('stepped LOD2 → tiers (plan-disjoint, h in [1, h], union ≈ poly) and never a roof', () => {
+    const conv = convertBuilding(stepped!, ORIGIN);
+    expect(conv.kind).toBe('stepped');
+    const b = conv.building!;
+    expect(b.roof).toBeUndefined();
+    expect(Object.keys(b)).toEqual(['id', 'h', 'tiers', 'poly']);
+    const tiers = b.tiers!;
+    expect(tiers.map((t) => t.h).sort((p, q) => p - q)).toEqual([15, 15, 60]);
+    for (const t of tiers) expect(t.h).toBeLessThanOrEqual(b.h);
+    expect(tiers.reduce((s, t) => s + ringArea(t.poly), 0)).toBeCloseTo(ringArea(b.poly), 0);
+    for (let i = 0; i < tiers.length; i++) {
+      for (let j = i + 1; j < tiers.length; j++) expect(intersectionArea(tiers[i]!.poly, tiers[j]!.poly)).toBe(0);
+    }
+    expect(checkBuildings([b])).toEqual([]);
+  });
+
+  it('a sloped LOD2 roof keeps its roof and gets no tiers; the gml:name is returned, not set', () => {
+    const conv = convertBuilding(house!, ORIGIN);
+    expect(conv.building!.roof?.shape).toBe('gabled');
+    expect(conv.building!.tiers).toBeUndefined();
+    expect(conv.building!.name).toBeUndefined();
+    expect(conv.plateauName).toBe('テストハウス');
+  });
+
+  it('buildTiers rejects overlapping (overhanging) levels and single levels', () => {
+    const over = {
+      ...stepped!,
+      roofs: [
+        { ring: parsePosList(posList(rect(0, 0, 20, 20, 40))), polyIds: [] },
+        { ring: parsePosList(posList(rect(10, 0, 30, 20, 20))), polyIds: [] },
+      ],
+    };
+    expect(buildTiers(over, ORIGIN, 5, 35)).toEqual({ tiers: null, reason: 'overlap' });
+    const one = { ...stepped!, roofs: [{ ring: parsePosList(posList(rect(0, 0, 30, 30, 40))), polyIds: [] }] };
+    expect(buildTiers(one, ORIGIN, 5, 35)).toEqual({ tiers: null, reason: 'single' });
+  });
+
+  it('checkBuildings rejects roof + tiers together and tier h outside [1, h]', () => {
+    const poly = box(0, 0, 10, 10);
+    expect(
+      checkBuildings([
+        { id: 1, h: 10, roof: { shape: 'gabled', h: 2 }, tiers: [{ h: 5, poly }], poly },
+        { id: 2, h: 10, tiers: [{ h: 11, poly }, { h: 0.5, poly }], poly },
+      ]),
+    ).toEqual([
+      'buildings[0].tiers: together with roof',
+      'buildings[1].tiers[0].h: out of [1, h]',
+      'buildings[1].tiers[1].h: out of [1, h]',
+    ]);
   });
 });

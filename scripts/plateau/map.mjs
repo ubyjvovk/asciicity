@@ -270,7 +270,10 @@ export function toBuilding(pb, origin) {
   const building = { id: numericId(pb.buildingId, pb.gmlId), h };
   if (pb.name) building.name = pb.name;
   if (SCHEMA_SHAPES.has(roof.kind) && roof.h !== undefined && h - 1 >= 0.5 && roof.h >= 0.5) {
-    const r = { shape: roof.kind, h: round1(Math.min(Math.max(roof.h, 0.5), h - 1)) };
+    // Rounding can land 1 ulp above h − 1 (h = 3.3 → 2.3 > 2.2999…): step down.
+    let rh = round1(Math.min(Math.max(roof.h, 0.5), h - 1));
+    while (rh > h - 1) rh = round1(rh - 0.1);
+    const r = { shape: roof.kind, h: rh };
     if (roof.dir !== undefined) r.dir = roof.dir;
     building.roof = r;
   }
@@ -293,13 +296,24 @@ function signedArea(ring) {
  * Union of edge-sharing facets (a roof partition): orient every ring the
  * same way, cancel each edge that appears in both directions, chain what
  * is left into rings and keep the outer (positively oriented) ones — holes
- * are dropped, which is harmless for tiers because a higher tier fills
- * them. Vertices are keyed at 5 cm. Returns `null` when the leftover edges
- * do not chain into closed rings (T-junctions between facets).
+ * are dropped (see `unionFacetsWithHoles` to keep them). Vertices are keyed
+ * at 5 cm. Returns `null` when the leftover edges do not chain into closed
+ * rings (T-junctions between facets).
  * @param {number[][][]} rings open `[x, z, …]` rings
  * @returns {number[][][] | null}
  */
 export function unionFacets(rings) {
+  const u = unionFacetsWithHoles(rings);
+  return u && u.outers;
+}
+
+/**
+ * `unionFacets` keeping the holes: `outers` (positively oriented) and
+ * `holes` (negatively oriented) rings, or `null` on T-junctions.
+ * @param {number[][][]} rings open `[x, z, …]` rings
+ * @returns {{ outers: number[][][], holes: number[][][] } | null}
+ */
+export function unionFacetsWithHoles(rings) {
   const key = (p) => `${Math.round(p[0] * 20)},${Math.round(p[1] * 20)}`;
   const pts = new Map();
   const edges = new Map();
@@ -327,6 +341,7 @@ export function unionFacets(rings) {
     }
   }
   const result = [];
+  const holes = [];
   while (left > 0) {
     const start = [...out.keys()].find((k) => out.get(k).length > 0);
     const ring = [];
@@ -339,8 +354,90 @@ export function unionFacets(rings) {
       cur = next;
     } while (cur !== start);
     if (ring.length >= 3 && signedArea(ring) > 0) result.push(ring);
+    else if (ring.length >= 3 && signedArea(ring) < 0) holes.push(ring);
   }
-  return result;
+  return { outers: result, holes };
+}
+
+/**
+ * Cut a polygon with holes into hole-free, plan-disjoint pieces whose union
+ * is the polygon (`Building.tiers` rings must be simple, data-format "Tokyo
+ * from PLATEAU" rule 2). For the first hole, a vertical line through the
+ * middle of its x-extent (nudged off every vertex) splits the region into
+ * its `x < c` and `x > c` parts; each part is rebuilt from the clipped ring
+ * edges plus the inside intervals of the cut line, chained into rings, and
+ * the holes it still contains are cut recursively.
+ * @param {number[][]} outer open `[x, z]` ring
+ * @param {number[][][]} holes open rings inside `outer`
+ * @returns {number[][][]} positively oriented pieces
+ */
+export function splitHoles(outer, holes) {
+  const pos = signedArea(outer) < 0 ? [...outer].reverse() : outer;
+  if (!holes.length) return [pos];
+  const hs = holes.map((h) => (signedArea(h) > 0 ? [...h].reverse() : h));
+  const [hx0, , hx1] = ringBounds(hs[0]);
+  let c = (hx0 + hx1) / 2;
+  const all = [pos, ...hs];
+  while (all.some((r) => r.some((p) => Math.abs(p[0] - c) < 1e-6))) c += 0.0137;
+  // Crossings of every edge with x = c, computed once for both sides.
+  const cross = [];
+  for (const r of all) {
+    for (let i = 0; i < r.length; i++) {
+      const a = r[i];
+      const b = r[(i + 1) % r.length];
+      if ((a[0] < c) !== (b[0] < c)) cross.push(a[1] + ((c - a[0]) / (b[0] - a[0])) * (b[1] - a[1]));
+    }
+  }
+  cross.sort((p, q) => p - q);
+  const pieces = [];
+  for (const left of [true, false]) {
+    const inSide = (p) => (left ? p[0] < c : p[0] > c);
+    const edges = [];
+    for (const r of all) {
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i];
+        const b = r[(i + 1) % r.length];
+        const ia = inSide(a);
+        const ib = inSide(b);
+        if (!ia && !ib) continue;
+        const cut = () => [c, a[1] + ((c - a[0]) / (b[0] - a[0])) * (b[1] - a[1])];
+        edges.push([ia ? a : cut(), ib ? b : cut()]);
+      }
+    }
+    // Inside intervals of the cut line: the region's boundary along x = c
+    // runs +z on the left piece and −z on the right one (positive winding).
+    for (let k = 0; k + 1 < cross.length; k += 2) {
+      const p = [c, cross[k]];
+      const q = [c, cross[k + 1]];
+      edges.push(left ? [p, q] : [q, p]);
+    }
+    const key = (p) => `${p[0]},${p[1]}`;
+    const next = new Map();
+    for (const e of edges) {
+      const k = key(e[0]);
+      if (!next.has(k)) next.set(k, []);
+      next.get(k).push(e);
+    }
+    const outs = [];
+    const inner = [];
+    for (const e0 of edges) {
+      if (e0.used) continue;
+      const ring = [];
+      let e = e0;
+      while (e && !e.used) {
+        e.used = true;
+        ring.push(e[0]);
+        e = next.get(key(e[1]))?.find((f) => !f.used);
+      }
+      if (ring.length < 3) continue;
+      (signedArea(ring) > 0 ? outs : inner).push(ring);
+    }
+    for (const o of outs) {
+      const mine = inner.filter((h) => pointInRing(h[0][0], h[0][1], o));
+      pieces.push(...splitHoles(o, mine));
+    }
+  }
+  return pieces;
 }
 
 /**
@@ -349,13 +446,17 @@ export function unionFacets(rings) {
  * are clustered by their top height (1.5 m, highest first); each cluster
  * is unioned (`unionFacets`, falling back to the raw facets) and every
  * resulting ring ≥ 2 m² becomes `{ id: id × 1000 + k, h: top − base, poly }`.
+ * Holes of a level's union are dropped (a higher tier fills them) unless
+ * `opts.splitHoles`, which cuts holed rings into hole-free pieces
+ * (`splitHoles`) so the tiers stay plan-disjoint (production, T-0163).
  * @param {import('./citygml').PlateauBuilding} pb
  * @param {{ lat: number, lon: number }} origin
  * @param {number} base ground height (LOD1 base) in the file's height datum
  * @param {number} id parent building id
+ * @param {{ splitHoles?: boolean }} [opts]
  * @returns {{ tiers: object[], fallback: boolean }}
  */
-export function lod2Tiers(pb, origin, base, id) {
+export function lod2Tiers(pb, origin, base, id, opts = {}) {
   const facets = [];
   for (const { ring } of pb.roofs) {
     const local = ringToLocal(ring, origin);
@@ -374,11 +475,14 @@ export function lod2Tiers(pb, origin, base, id) {
   const tiers = [];
   let fallback = false;
   for (const c of clusters) {
-    let rings = unionFacets(c.rings);
-    if (!rings) {
+    let rings;
+    const u = unionFacetsWithHoles(c.rings);
+    if (!u) {
       fallback = true;
       rings = c.rings;
-    }
+    } else if (opts.splitHoles) {
+      rings = u.outers.flatMap((o) => splitHoles(o, u.holes.filter((h) => pointInRing(h[0][0], h[0][1], o))));
+    } else rings = u.outers;
     const h = Math.min(650, Math.max(3, round1(c.top - base)));
     for (const r of rings) {
       const poly = cleanRing(r);
@@ -503,7 +607,9 @@ export function matchFootprints(plateau, osm) {
 /**
  * TS-free re-check of the `validateCity` building rules (validate.ts):
  * unique finite ids, `h` in [3, 650], `minH` in [0, h − 1), `roof` shape /
- * `h` in [0.5, h − minH − 1] / `dir` in [0, 360), `poly` ≥ 3 finite points.
+ * `h` in [0.5, h − minH − 1] / `dir` in [0, 360), `poly` ≥ 3 finite points;
+ * `tiers` (data-format "Tokyo from PLATEAU" rules 2 / 6): ≤ 64, never with
+ * `roof`, each tier `h` finite in [1, h] with a ≥ 3-point finite `poly`.
  * @param {object[]} buildings
  * @returns {string[]} error messages (empty = valid)
  */
@@ -525,6 +631,18 @@ export function checkBuildings(buildings) {
       if (!(Number.isFinite(r.h) && r.h >= 0.5 && r.h <= b.h - minH - 1)) errs.push(`${at}.roof.h: out of range`);
       if (r.dir !== undefined && !(Number.isFinite(r.dir) && r.dir >= 0 && r.dir < 360)) {
         errs.push(`${at}.roof.dir: out of [0, 360)`);
+      }
+    }
+    if (b.tiers !== undefined) {
+      if (!Array.isArray(b.tiers) || b.tiers.length < 1 || b.tiers.length > 64) errs.push(`${at}.tiers: expected 1…64 tiers`);
+      else {
+        if (b.roof !== undefined) errs.push(`${at}.tiers: together with roof`);
+        b.tiers.forEach((t, k) => {
+          if (!(Number.isFinite(t.h) && t.h >= 1 && t.h <= b.h)) errs.push(`${at}.tiers[${k}].h: out of [1, h]`);
+          if (!Array.isArray(t.poly) || t.poly.length < 3 || !t.poly.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))) {
+            errs.push(`${at}.tiers[${k}].poly: invalid`);
+          }
+        });
       }
     }
     if (!Array.isArray(b.poly) || b.poly.length < 3) errs.push(`${at}.poly: < 3 points`);
