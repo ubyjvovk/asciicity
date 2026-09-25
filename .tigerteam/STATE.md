@@ -46,6 +46,25 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 21 COMPLETE + Wave 22 (Tokyo from PLATEAU) boarded — 2026-09-25 ~15:00
+- Wave 21 done: T-0158 converter, T-0159 roofs, T-0160 london+kyiv regen
+  (+ PM decisions: baselines by worker, Nelson's Column from OSM parts, thin
+  raised parts → 1.2 m slabs), T-0161 facades × OSM (PM wired wet.ts).
+  Main: 60 fps with all layers on the new data.
+- T-0162 spike accepted (opus, $5.60): FY2025 per-ward CityGML via the
+  catalog API (gzip, no deps, 0.85 GB wire), PDL 1.0 = CC BY 4.0-compatible,
+  ≈195 k buildings / 35 % LOD2 / measuredHeight 97 %, 86–98 % of shipped
+  OSM Tokyo buildings are at DEFAULT heights. PM GPU A/B on tile 0_0:
+  PLATEAU skyline clearly better; per-tier prisms (Option A) give rainbow
+  towers → PM chose Option B `Building.tiers` (types.ts landed).
+- PM groundwork 126013d: tiers schema, data-format "Tokyo from PLATEAU"
+  (8 rules), §4.2 tiers rendering + `exteriorWalls`, README/credits PDL
+  attribution (Tokyo footer), npm `fetch-data:tokyo-plateau`.
+- Tickets (all opus): T-0163 converter (C3), T-0164 validator, T-0165
+  tiers rendering + exteriorWalls + detail/neon (C3), T-0166 regen + e2e
+  (after 0163/0164/0165). Backlog candidates from the spike: texture mean
+  colours (DC-only JPEG decode), Douglas–Peucker footprint simplify.
+
 ## Wave 20b COMPLETE (2026-09-25 ~14:30)
 - All six accepted: T-0152 facades (grok→opus), T-0153 streets, T-0154
   detail, T-0155 props, T-0156 neon (EXPERIMENTAL, on by default, `N`),
