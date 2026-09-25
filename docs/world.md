@@ -63,6 +63,99 @@ Vertex colour is the **linear** `r,g,b` of `new THREE.Color(colorFor(building))`
 written on every vertex of that building so the window map is tinted per façade
 and roofs pick up the same hue under the grey material.
 
+## Real roofs (`Building.roof`, wave 21, T-0159)
+
+Contract: architecture §4.2 "Roofs + OSM facade data"; data: data-format
+"Simple 3D Buildings". Roofs are geometry, so every style shows them.
+Buildings **without** `roof` take exactly the old flat path (no
+densification; unit test 8 pins a checksum recorded before this change).
+A curated landmark `shape` wins: `roof` is then ignored entirely.
+
+With `roof`, walls stop at `wallTop = top + h − roof.h` and the roof peaks
+at `top + h`.
+
+**Frame.** Axis `a` = bearing `roof.dir` (`x = sin`, `z = −cos`), else the
+unit vector of the longest ring edge. `b = (−a.z, a.x)` (a rotated +90°,
+i.e. clockwise on the map: north → east). The ring projects to centre
+`(ac, bc)` and half-extents `L` (along `a`), `W` (along `b`); `s`, `t` are
+the local coordinates.
+
+**Height fields** (`roof y = wallTop + roof.h · f(s, t)`):
+
+| shape | f | crease lines (cut) |
+|---|---|---|
+| gabled | `1 − |t|/W` | ridge `t = 0` |
+| hipped | `clamp(min(1 − |t|/W, (L − |s|)/W), 0, 1)` | ridge (`t = 0`, or `s = 0` when `L < W`) + 4 hips `±s ± t = L − W` |
+| pyramidal | `clamp(1 − max(|s|/L, |t|/W), 0, 1)` | diagonals `s/L = ±t/W` |
+| skillion | `(t + W)/(2W)` (high side = `+b`) | none |
+| round | `sqrt(max(0, 1 − (t/W)²))` | 7 facet lines `t = W·cos(kπ/8)` (8-facet barrel) |
+
+**Mesh (deviates from the §4.2 text — see below).** Every shape except
+round is a min of ≤ 4 planes, so it is piecewise linear with creases along
+straight lines. The builder:
+
+1. `splitRing` inserts a ring vertex wherever an edge crosses an *active*
+   crease (gable ends peak exactly at their midpoint, hip ends meet their
+   hips).
+2. `cutRoof` triangulates that ring with `ShapeUtils.triangulateShape`
+   (the `emitRoof` triangulator). Ring vertices the triangulator drops as
+   collinear are fanned back in: from the opposite corner, or from the
+   triangle centroid when more than one edge lost points.
+3. Each crease line then cuts the triangles it crosses (1 → 2 through a
+   vertex, 1 → 3 across two edges). A crossing is *active* only where
+   `f` actually kinks there (`creaseActive`: `f(c) > mean f(c ± 1 mm·n)`).
+   So a hip line is cut only between the ridge end and the eaves; round's
+   facet lines are always cut. The decision and the crossing vertex are
+   cached per undirected edge, so both neighbours agree and there are no
+   T-junctions. Boundary edges are never split here.
+4. Roof vertices get `y` from `f`. Faces are flat-shaded, with the normal
+   = face normal and winding flipped so `n.y > 0`. They go in group 1.
+5. Walls: one trapezoid per split-ring edge, from the wall base to the
+   roof height at each end. u runs along the ring perimeter and
+   `v = (y − base)/24`. Walls and roof share every boundary vertex, so
+   there are no cracks (unit test 3 checks this on an L-shape for all five
+   shapes).
+
+Away from crease *end* points every roof triangle lies on one plane of `f`,
+so the roof is exact there. Round is an 8-facet approximation.
+
+**dome / onion.** Walls run to `wallTop`, with a flat cap (`emitRoof`) at
+`wallTop`. Then a 12-segment lathe is centred on the footprint area
+centroid, with `R = min(L, W)`, height `roof.h` and apex at `top + h`.
+The dome is a quarter circle (8 bands). The onion follows the §4.2 profile,
+widest at `1.25·R` at `0.3·roof.h`. Faces are flat-shaded and point
+outward. Everything is in group 1; roof UVs are `(0, 0)`.
+
+**Why not the §4.2 "2 m densify + 4 m midpoint refinement".** On london
+tile `0_0` (499 buildings, a 3 m gabled roof synthesised on every one):
+
+| mesh | wall tris | roof tris | total |
+|---|---|---|---|
+| flat | 14 192 | 6 098 | 20 290 |
+| §4.2 text (2 m densify + refine) | 62 092 | 303 510 | 365 602 |
+| crease cut (shipped) | 16 274 | 9 905 | 26 179 (bound 1.25·20 290 + 2 082 wall overhead = 27 445) |
+
+Across all london tiles with every building roofed, the crease cut gives
+these triangle ratios vs flat: gabled 1.36, hipped 1.76, pyramidal 1.81,
+skillion 1.00, round 5.08, dome 7.14, onion 6.32. Real data roofs only
+~18 % of London buildings, and dome/onion/round are rare.
+
+### OSM facade data → `extra` attribute
+
+`MATERIAL_CODE` (exported) maps `material` → code: brick 1, stone 2,
+concrete 3, glass 4, metal 5, wood 6, plaster 7; absent → 0. For a building
+with any of `osmColor` / `roofColor` / `material`:
+
+- walls (and landmark caps) get `(osmColor rgb, code)`;
+- roof-group vertices (roof, flat cap, lathe, bottom cap) get
+  `(roofColor rgb, code)`.
+
+Colours are 24-bit sRGB converted to linear per channel with
+`c ≤ 0.04045 ? c/12.92 : ((c + 0.055)/1.055)^2.4`, or `−1` when absent.
+`MeshBuilder.setExtra` is called only once some building carries such data.
+After that, buildings without it get `EXTRA_NONE`. A dataset with no OSM
+facade data therefore produces no `extra` attribute at all.
+
 ## Palette (`src/world/palette.ts`)
 
 ```
