@@ -21,6 +21,9 @@ const SURFACES: ReadonlySet<string> = new Set(['buildings', 'road', 'water', 'gr
 export class WetDressing {
   private readonly originals = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   private readonly mats: Record<Surface | 'roof', THREE.MeshStandardNodeMaterial>;
+  /** Wave 21 (T-0161): variants reading the `extra` OSM attribute. */
+  private readonly osmWalls: THREE.MeshStandardNodeMaterial;
+  private readonly osmRoof: THREE.MeshStandardNodeMaterial;
   /** Running time (s), drives the ripples. */
   readonly uTime = uniform(0);
   /** Master switch for ripple strength (0 when the rain is off). */
@@ -31,6 +34,8 @@ export class WetDressing {
     const f = makeFacadeMaterials(windowTex, u);
     const st = makeStreetMaterials(u);
     this.mats = { buildings: f.walls, roof: f.roof, road: st.road, water: st.water, ground: st.ground, terrain: st.terrain };
+    this.osmWalls = f.wallsOsm;
+    this.osmRoof = f.roofOsm;
   }
 
   /** Dress every tagged mesh under `root` that is not dressed yet. Cheap to call repeatedly. */
@@ -43,7 +48,11 @@ export class WetDressing {
       this.originals.set(o, o.material);
       o.material =
         surface === 'buildings'
-          ? [this.mats.buildings, this.mats.roof]
+          ? // Only geometry that carries OSM facade data may use the
+            // attribute-reading variants (a missing attribute fails to compile).
+            o.geometry.hasAttribute('extra')
+            ? [this.osmWalls, this.osmRoof]
+            : [this.mats.buildings, this.mats.roof]
           : this.mats[surface as Surface];
     });
   }
@@ -69,5 +78,7 @@ export class WetDressing {
   dispose(): void {
     this.restore();
     for (const m of Object.values(this.mats)) m.dispose();
+    this.osmWalls.dispose();
+    this.osmRoof.dispose();
   }
 }
