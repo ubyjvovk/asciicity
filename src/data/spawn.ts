@@ -903,7 +903,7 @@ function normalizeAngle(a: number): number {
  * road vertex, facing the building centroid. An **exact** (case-insensitive)
  * name match is preferred before a substring (`includes`) match; when several
  * buildings share the exact name, an extra (`id ≤ −1000`) wins over an OSM
- * footprint (Nelson's Column is both a 6 m plinth and a 52 m extra). When
+ * footprint (e.g. a curated extra sharing a landmark's OSM name). When
  * `city.landmarks` is present (tiled `index.landmarks`), the **first** matching
  * `{name, x, z}` entry supplies the centroid — first-entry-wins, so a later
  * duplicate name is ignored. The default target distance scales with the
