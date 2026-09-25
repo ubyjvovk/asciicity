@@ -1335,13 +1335,16 @@ async function main(): Promise<void> {
     api.render = post.style.id;
     document.body.dataset.render = post.style.id;
     api.groundGrid = groundGridFor(post.style);
+    // Engine first (T-0152 report): leaving cyberpunk restores the WebGL
+    // materials, so the grid map must be written AFTER that — otherwise it
+    // lands on a node material that `wet.restore()` then discards.
+    syncEngine();
     applyGroundGrid();
     api.cols = post.cols;
     api.rows = post.rows;
     toast.show(`RENDER: ${post.style.label}`);
     persist();
     relabelMenu();
-    syncEngine();
   };
   const setFly = (on: boolean): void => {
     if (state.fly === on) {
