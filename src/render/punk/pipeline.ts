@@ -137,7 +137,11 @@ export function createPipeline(
     reflections.quality.value = 0.5;
     reflections.intensity.value = 0.45;
     const ssrTex = reflections.getTextureNode();
-    beauty = vec4(color.rgb.add(ssrTex.rgb.mul(ssrTex.a)), color.a);
+    // Puddles (metalness 0.9) and water (0.95) mirror fully; damp asphalt /
+    // pavement (≈ 0.12) keeps 30 % — full SSR on every dry surface turned
+    // open squares into a field of sky-sheen glitter (PM GPU review, T-0153).
+    const wet = smoothstep(0.3, 0.8, mrTex.r).mul(0.7).add(0.3);
+    beauty = vec4(color.rgb.add(ssrTex.rgb.mul(ssrTex.a).mul(wet)), color.a);
   }
 
   const bloomPass = bloom(emissiveTex, 2.5, 0.45);
