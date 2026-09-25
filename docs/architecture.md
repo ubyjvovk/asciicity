@@ -173,8 +173,9 @@ data-format "Tokyo from PLATEAU" (`Building.tiers`). Every style draws them.
     walls, for curated shapes = the envelope). The cyberpunk detail geometry
     (`detailmesh.ts`) and neon placement (`neonplace.ts`) MUST use it, so no
     AC units or signs land on interior walls and upper tiers get their own.
-  - Budget: tiers add ≤ 2× the envelope triangles for the building
-    (unit-tested on the prototype's tile 0_0 tiers).
+  - Budget: over a realistic tile, tiered triangles ≤ 2 × envelope
+    triangles (T-0165 measured 1.36× on london 0_0 cut into 3 tiers; a
+    single box split into tiers naturally exceeds 2×).
 
 ### 4.3 Palette (src/world/palette.ts)
 
