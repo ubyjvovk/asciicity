@@ -54,7 +54,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/london/index.json',
     defaultSpawn: 'bigben',
     blurb: 'City of London & Westminster · flat',
-    sizeBytes: 256785,
+    sizeBytes: 270804, // wave 21 regen (T-0160), building:parts now included
     tiled: true,
   },
   {
@@ -63,7 +63,7 @@ export const CITIES: readonly CityInfo[] = [
     file: 'data/kyiv/index.json',
     defaultSpawn: 'maidan',
     blurb: 'Central Kyiv · Dnipro hills, 120 m of relief',
-    sizeBytes: 632439,
+    sizeBytes: 636674, // wave 21 regen (T-0160), building:parts now included
     tiled: true,
   },
   {

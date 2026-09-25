@@ -147,18 +147,25 @@ so the tiles now carry the Simple-3D-Buildings keys (`roof`, `osmColor`,
 
 | | London before → after | Kyiv before → after |
 |---|---|---|
-| tile bytes (index + tiles) | 3 434 093 → 4 426 114 | 3 604 059 → 3 862 872 |
-| largest tile | 322 774 → 421 815 | 201 204 → 248 743 |
+| total bytes (index + tiles) | 3 434 093 → 4 425 852 | 3 604 059 → 3 862 281 |
+| `index.json` (`cities.ts` `sizeBytes`) | 256 785 → 270 804 | 632 439 → 636 674 |
+| largest tile | 322 774 → 421 355 | 201 204 → 248 342 |
 | buildings | 9 061 → 13 865 | 8 183 → 9 129 |
-| with `minH` (parts) | 0 → 1 653 | 0 → 315 |
-| `roof` (all non-flat) | — → 14.1 % | — → 10.5 % |
-| `osmColor` | — → 28.3 % | — → 11.0 % |
-| `roofColor` | — → 36.1 % | — → 8.1 % |
+| with `minH` (raised parts) | 0 → 1 757 | 0 → 403 |
+| of those, 1.2 m slabs | — → 131 | — → 88 |
+| `roof` (all non-flat) | — → 13.8 % | — → 9.9 % |
+| `osmColor` | — → 28.6 % | — → 11.1 % |
+| `roofColor` | — → 36.3 % | — → 8.2 % |
 | `material` | — → 27.1 % | — → 5.3 % |
 
+London roads 7 803 → 8 194 unique ids, water 31 → 63 rings, places 99.
 The building growth is mostly `building:part` massing: both datasets were
 last converted before T-0086's part support reached them (T-0096 migrated
 the old monolithic files in place), so this is their first fetch with parts.
+Thin raised parts (`h − minH < 1.2`) now keep their altitude as 1.2 m slabs
+(data-format "Building parts" item 2) instead of being grounded into
+full-height blocks. Nelson's Column is now OSM's own parts (the named shaft
+is `minH 14, h 46`), so its landmark height fix and 52 m extra were removed.
 Kyiv `terrain` keeps its 323×270 @ 20 m grid; 201 of 87 210 heights moved
 (max 8.6 m) together with the water rings (51 → 57 `waterLevels`).
 Overpass mirrors served slightly different snapshots on back-to-back runs
