@@ -4,12 +4,16 @@ import {
   BAR_MS,
   BusyGate,
   SPINNER_FRAMES,
+  bootBar,
+  bootLine,
+  bootParts,
   SPINNER_MS,
   busyInputsFromStats,
   busyLabel,
   busyLine,
   type BusyInputs,
 } from '../src/hud/busy';
+import type { LoadProgress } from '../src/ui/loading';
 
 const IDLE: BusyInputs = { tilesPending: 0, engineLoading: false, cellsPending: 0, carsLoading: false };
 const ALL: BusyInputs = { tilesPending: 3, engineLoading: true, cellsPending: 7, carsLoading: true };
@@ -161,5 +165,95 @@ describe('BusyGate', () => {
     expect(g.step(false, 1000)).toBe(true);
     expect(g.step(false, 1599)).toBe(true);
     expect(g.step(false, 1600)).toBe(false);
+  });
+});
+
+describe('BusyGate.force', () => {
+  it('BusyGate.force: shown at once, idle hides after the 600 ms hold', () => {
+    const g = new BusyGate(300, 600);
+    g.force(1000);
+    expect(g.step(false, 1000)).toBe(true);
+    expect(g.step(false, 1599)).toBe(true);
+    expect(g.step(false, 1600)).toBe(false);
+  });
+});
+
+describe('bootLine (T-0174)', () => {
+  const dl = (received: number, total: number): LoadProgress => ({ phase: 'download', received, total });
+  const RE_SPIN = '[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]';
+
+  it('bootLine download: determinate bar (0 B → 0 cells, half → 4, total → 8) and DOWNLINK x.x/y.y MB', () => {
+    expect(bootBar(0, 14_700_000)).toBe('▱▱▱▱▱▱▱▱');
+    expect(bootBar(7_350_000, 14_700_000)).toBe('▰▰▰▰▱▱▱▱');
+    expect(bootBar(14_700_000, 14_700_000)).toBe('▰▰▰▰▰▰▰▰');
+    expect(bootBar(99_000_000, 14_700_000)).toBe('▰▰▰▰▰▰▰▰');
+    // Determinate: the bar does not move with time.
+    for (const t of [0, BAR_MS, 5 * BAR_MS, 12345]) {
+      expect(bootLine(dl(0, 14_700_000), 'London', t, false)).toMatch(
+        new RegExp(`^${RE_SPIN} JACK-IN ▱▱▱▱▱▱▱▱ DOWNLINK 0\\.0/14\\.7 MB$`),
+      );
+    }
+    expect(bootLine(dl(4_200_000, 14_700_000), 'London', 2 * SPINNER_MS, false)).toBe(
+      `${SPINNER_FRAMES[2]} JACK-IN ▰▰▱▱▱▱▱▱ DOWNLINK 4.2/14.7 MB`,
+    );
+    expect(bootLine(dl(7_350_000, 14_700_000), 'London', 0, false)).toBe(
+      `${SPINNER_FRAMES[0]} JACK-IN ▰▰▰▰▱▱▱▱ DOWNLINK ${(7.35).toFixed(1)}/14.7 MB`,
+    );
+    expect(bootLine(dl(14_700_000, 14_700_000), 'London', 0, false)).toBe(
+      `${SPINNER_FRAMES[0]} JACK-IN ▰▰▰▰▰▰▰▰ DOWNLINK 14.7/14.7 MB`,
+    );
+  });
+
+  it('bootLine parse / build (with and without step) wording exactly as above', () => {
+    const bar = '▱▰▰▰▱▱▱▱'; // busyBar step 1
+    const at = BAR_MS;
+    const spin = SPINNER_FRAMES[Math.floor(at / SPINNER_MS) % SPINNER_FRAMES.length];
+    expect(bootLine({ phase: 'parse', received: 1, total: 1 }, 'London', at, false)).toBe(
+      `${spin} DECRYPT ${bar} CITYGRID LONDON`,
+    );
+    expect(
+      bootLine({ phase: 'build', received: 0, total: 0, step: 'TERRAIN' }, 'London', at, false),
+    ).toBe(`${spin} COMPILE ${bar} TERRAIN`);
+    expect(
+      bootLine({ phase: 'build', received: 0, total: 1, step: 'TILE 3_4' }, 'kyiv', at, false),
+    ).toBe(`${spin} COMPILE ${bar} TILE 3_4`);
+    expect(bootLine({ phase: 'build', received: 0, total: 0 }, 'Kyiv', at, false)).toBe(
+      `${spin} COMPILE ${bar} KYIV`,
+    );
+    // parse/build bars ping-pong like busyBar.
+    expect(bootLine({ phase: 'parse', received: 1, total: 1 }, 'x', 0, false)).toContain(' ▰▰▰▱▱▱▱▱ ');
+    // No progress yet → the static index.html line (animated).
+    expect(bootParts(null, 'London', 0)).toEqual({ verb: 'JACK-IN', bar: '▰▰▰▱▱▱▱▱', label: 'LINKING NODE' });
+    expect(bootParts({ phase: 'ready', received: 0, total: 0 }, 'London', 0)).toBeNull();
+  });
+
+  it('bootLine ready === busyLine for the same inputs (delegation)', () => {
+    const ready: LoadProgress = { phase: 'ready', received: 0, total: 0 };
+    for (const t of [0, 77, 500, 12345]) {
+      for (const narrow of [false, true]) {
+        expect(bootLine(ready, 'London', t, narrow, ALL)).toBe(busyLine(ALL, t, narrow));
+        expect(bootLine(ready, 'London', t, narrow, IDLE)).toBe(busyLine(IDLE, t, narrow));
+        expect(bootLine(ready, 'London', t, narrow)).toBe('');
+      }
+    }
+  });
+
+  it('bootLine narrow drops the label in every phase', () => {
+    const phases: LoadProgress[] = [
+      { phase: 'download', received: 4_200_000, total: 14_700_000 },
+      { phase: 'parse', received: 1, total: 1 },
+      { phase: 'build', received: 0, total: 0, step: 'TERRAIN' },
+      { phase: 'build', received: 0, total: 0 },
+    ];
+    for (const p of phases) {
+      const wide = bootLine(p, 'London', 500, false);
+      const narrow = bootLine(p, 'London', 500, true);
+      expect(narrow).toMatch(new RegExp(`^${RE_SPIN} (JACK-IN|DECRYPT|COMPILE) [▰▱]{${BAR_CELLS}}$`));
+      expect(wide.startsWith(`${narrow} `)).toBe(true);
+      expect(wide.length).toBeGreaterThan(narrow.length + 1);
+    }
+    const ready: LoadProgress = { phase: 'ready', received: 0, total: 0 };
+    expect(bootLine(ready, 'London', 500, true, ALL)).toBe(busyLine(ALL, 500, true));
+    expect(bootLine(ready, 'London', 500, true, ALL)).not.toContain('SECTORS');
   });
 });

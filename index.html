@@ -16,6 +16,49 @@
     <meta name="twitter:image" content="https://ubyjvovk.github.io/asciicity/og.png" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>AsciiCity</title>
+    <!-- Boot #busy line (T-0174, docs/hud-busy.md): inline so it paints before
+         the bundle loads style.css (dev injects it from JS). -->
+    <style>
+      #busy.boot {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        height: 20px;
+        line-height: 20px;
+        padding: 0 8px;
+        box-sizing: border-box;
+        background: #000;
+        color: #48e06a;
+        font-family: monospace;
+        font-size: 11px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 11;
+        opacity: 0;
+      }
+      #busy.boot.on {
+        opacity: 1;
+      }
+      #busy.boot.neon {
+        color: #ff3ad8;
+        text-shadow: 0 0 6px currentColor;
+      }
+      #busy.boot.neon .busy-bar {
+        color: #3ef2ff;
+      }
+      #busy.boot .busy-bar {
+        animation: busy-boot-pulse 0.9s ease-in-out infinite alternate;
+      }
+      @keyframes busy-boot-pulse {
+        from { opacity: 0.35; }
+        to { opacity: 1; }
+      }
+      @media (max-width: 599px) {
+        #busy.boot .busy-label {
+          display: none;
+        }
+      }
+    </style>
   </head>
   <body>
     <canvas id="view"></canvas>
@@ -26,6 +69,7 @@
       <p>CLICK TO ENTER</p>
       <div id="menu"></div>
     </div>
+    <div id="busy" class="on boot" aria-hidden="true"><span class="busy-head">⠋ JACK-IN </span><span class="busy-bar">▱▱▱▱▱▱▱▱</span><span class="busy-label"> LINKING NODE</span></div>
     <script type="module" src="/src/main.ts"></script>
     <!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "810b464b788a4ab6a437744ac7348a0c"}'></script><!-- End Cloudflare Web Analytics -->
   </body>

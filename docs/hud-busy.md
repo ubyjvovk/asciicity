@@ -9,6 +9,44 @@ while any of that is still in flight.
 ⠹ SYNC ▱▰▰▰▱▱▱▱ SECTORS 3 · CARS
 ```
 
+## Boot phases (T-0174)
+
+`#busy` is also visible from the first paint of the page until
+`loading.phase === 'ready'`. `index.html` has a static
+`<div id="busy" class="on boot">` with the three spans and the text
+`⠋ JACK-IN ▱▱▱▱▱▱▱▱ LINKING NODE`. An inline `<style>` in `index.html` gives
+`#busy.boot` its look: position, HUD green, `.neon`, `z-index: 11` above the
+`#overlay` (10), and a 0.9 s opacity pulse on the bar. The rules are inline
+because `style.css` is only injected by the bundle (in dev, from JS), so it
+is not there on the first paint. `BusyView` adopts this element (no duplicate
+id) and creates one only if it is missing.
+
+Until `ready`, a boot `requestAnimationFrame` loop in `main.ts` calls
+`BusyView.boot(progress, cityLabel, t, neon, visible)`. The pure wording is
+`bootParts` / `bootLine` in `busy.ts` (`LoadProgress` from `src/ui/loading.ts`):
+
+| Phase | Line | Bar |
+|---|---|---|
+| no progress event yet | `⠋ JACK-IN ▱▰▰▰▱▱▱▱ LINKING NODE` | ping-pong |
+| city picker waiting | hidden (nothing is loading) | — |
+| `download` | `⠹ JACK-IN ▰▰▰▱▱▱▱▱ DOWNLINK 4.2/14.7 MB` | determinate: `floor(received·8/total)` cells (`bootBar`) |
+| `parse` | `⠹ DECRYPT ▱▰▰▰▱▱▱▱ CITYGRID LONDON` | ping-pong |
+| `build` | `⠹ COMPILE ▱▰▰▰▱▱▱▱ TERRAIN` / `TILE 3_4` (the builder step), or the city when there is no step | ping-pong |
+| `ready` | `bootLine` delegates to `busyLine(inputs, …)` | as below |
+
+- The spinner and bar timing are the same as the background line
+  (`SPINNER_MS`, `BAR_MS`). `narrow` drops the label, as `busyLine` does,
+  and so does the CSS below 600 px.
+- During boot the line shows regardless of the HUD setting, because the HUD
+  is not up yet. There is no 300 ms show delay, since it is already visible.
+- Colour: HUD green. `.neon` is on when the requested boot style
+  (`resolveBootRender(?render=, city default, saved setting)`) is `cyberpunk`.
+- Handover: the first `BusyView.update()` after `ready` removes `.boot`. If
+  the line is up, the gate is forced to shown (`BusyGate.force`), so the
+  normal rules take over from there: HUD setting, hysteresis, 600 ms hold
+  and fade. With `?hud=0` the line hides at once.
+- The `#overlay p` text (`formatLoading`) is unchanged.
+
 ## Look
 
 - **Placement:** the left end of the 20 px `#credits` bar (`left: 0;
@@ -42,8 +80,8 @@ while any of that is still in flight.
 
 ## Behaviour
 
-- **Visibility:** hidden while the first-load overlay is up
-  (`loading.phase !== 'ready'`), when the HUD is off (`settings.hud`,
+- **Visibility:** before `ready` the boot phases above apply. After it,
+  the line is hidden when the HUD is off (`settings.hud`,
   `?hud=0` / `H`), and when idle.
 - **Hysteresis (`BusyGate`):** the line shows only after the state has been
   continuously busy for 300 ms, so one quick tile does not flicker it. Once
@@ -61,14 +99,17 @@ while any of that is still in flight.
 - `src/hud/busy.ts` is pure (no DOM, no three) and unit-tested in
   `tests/busy.test.ts`. It exports `BusyInputs`, `busyInputsFromStats`,
   `busyLabel`, `busyLine`, the `busySpinner` / `busyBar` / `busyVerb`
-  pieces, `BusyGate`, and the constants.
-- `src/hud/busyview.ts` holds `BusyView`, a `<div id="busy">` with three
+  pieces, `BusyGate`, the constants, and the boot wording (`BootParts`,
+  `bootBar`, `bootParts`, `bootLine`).
+- `src/hud/busyview.ts` holds `BusyView`, which adopts or creates a `<div id="busy">` with three
   spans: `.busy-head` (spinner + verb), `.busy-bar`, `.busy-label`. Their
   concatenated `textContent` equals `busyLine(inputs, t, false)`.
 - `src/main.ts` mounts it next to `mountCredits` and runs a short
   poll + `update` block at the end of the frame loop.
 - `e2e/busy.spec.ts` covers the London teleport, which makes it appear and
-  then hide, and `?hud=0`, which keeps it hidden.
+  then hide, and `?hud=0`, which keeps it hidden after ready. Two more tests
+  delay the city `index.json` by 1.5–2 s and sample the line before
+  `ready`: the lore wording, opacity 1, and exactly one `#busy`.
 
 ## Adding a new source
 

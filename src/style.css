@@ -312,7 +312,9 @@ div.crt {
 /* Background-loading indicator (T-0171, docs/hud-busy.md): one terminal
    status line at the LEFT END of the 20 px #credits bar, above it
    (z-index 6) and at full opacity so it reads brighter than the credits.
-   Hidden unless `.on`; fades out over 0.25 s. `.neon` = cyberpunk style. */
+   Hidden unless `.on`; fades out over 0.25 s. `.neon` = cyberpunk style.
+   The boot look (`#busy.boot`, T-0174: z-index 11 above #overlay, bar pulse)
+   is an inline <style> in index.html so it paints before this file loads. */
 #busy {
   position: fixed;
   left: 0;
