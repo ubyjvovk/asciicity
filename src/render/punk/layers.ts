@@ -10,9 +10,17 @@ import { createPropsLayer } from './props';
 import { createHologramLayer } from './hologram';
 import { createVehiclesLayer } from './vehicles';
 import { createNeonLayer } from './neon';
+import { createMegaAdsLayer } from './megaads';
 
 /** Layer factories in draw order. */
-export const LAYER_FACTORIES: readonly (() => PunkLayer)[] = [createDetailLayer, createPropsLayer, createHologramLayer, createVehiclesLayer, createNeonLayer];
+export const LAYER_FACTORIES: readonly (() => PunkLayer)[] = [
+  createDetailLayer,
+  createPropsLayer,
+  createHologramLayer,
+  createVehiclesLayer,
+  createNeonLayer,
+  createMegaAdsLayer,
+];
 
 /** Layers that are experimental: toggled by a key, shown with an EXPERIMENTAL toast. */
 export const EXPERIMENTAL: ReadonlySet<string> = new Set(['neon']);
