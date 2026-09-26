@@ -3,8 +3,10 @@
  * `/?city=london` (tiled, SwiftShader / WebGL2), waits for `ready`, then
  * fast-travels to a preset in another tile and asserts the `#busy` line
  * fades in (opacity 1) while sectors stream, then hides again once
- * `__asciicity.tiles.pending === 0` + 1.5 s. With `?hud=0` it never shows.
- * Zero console errors throughout.
+ * `__asciicity.tiles.pending === 0` + 1.5 s. With `?hud=0` it never shows
+ * after ready. T-0174: with the city index fetch delayed 2 s, the boot line
+ * (JACK-IN / DOWNLINK / DECRYPT / COMPILE) is visible before `ready` — also
+ * with `?hud=0`. Zero console errors throughout.
  */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -27,6 +29,58 @@ function watchErrors(page: Page): string[] {
   });
   page.on('pageerror', (e) => errors.push(e.message));
   return errors;
+}
+
+/** One `#busy` sample taken by the boot sampler. */
+type BootSample = { o: number; text: string; count: number };
+
+/**
+ * Delay the city index fetch by `ms` and install a 50 ms sampler that records
+ * `#busy` (opacity, text, element count) into `window.__busySamples` until
+ * `__asciicity.ready`.
+ */
+async function throttleAndSampleBoot(page: Page, ms: number): Promise<void> {
+  await page.route('**/data/*/index.json', async (route) => {
+    await new Promise((r) => setTimeout(r, ms));
+    await route.continue();
+  });
+  await page.addInitScript(() => {
+    const w = window as unknown as { __busySamples: BootSample[]; __asciicity?: Api };
+    w.__busySamples = [];
+    const id = setInterval(() => {
+      if (w.__asciicity?.ready === true) {
+        clearInterval(id);
+        return;
+      }
+      const el = document.getElementById('busy');
+      if (!el) return;
+      w.__busySamples.push({
+        o: Number(getComputedStyle(el).opacity),
+        text: el.textContent ?? '',
+        count: document.querySelectorAll('#busy').length,
+      });
+    }, 50);
+  });
+}
+
+/** Boot samples at opacity 1; asserts they exist and use the lore wording. */
+async function expectBootLine(page: Page): Promise<string[]> {
+  const samples = await page.evaluate(
+    () => (window as unknown as { __busySamples: BootSample[] }).__busySamples,
+  );
+  const shown = samples.filter((s) => s.o === 1);
+  expect(shown.length).toBeGreaterThan(0);
+  for (const s of shown) {
+    expect(s.text).toMatch(/JACK-IN|DOWNLINK|DECRYPT|COMPILE/);
+    expect(s.count).toBe(1);
+  }
+  // Distinct lines with the spinner stripped, in order of appearance.
+  const seen: string[] = [];
+  for (const s of shown) {
+    const t = s.text.slice(2);
+    if (!seen.includes(t)) seen.push(t);
+  }
+  return seen;
 }
 
 async function waitReady(page: Page): Promise<void> {
@@ -121,10 +175,32 @@ test('busy: ?city=london teleport shows the SYNC line, then hides after tiles dr
   expect(errors).toEqual([]);
 });
 
-test('busy: ?hud=0 never shows the line', async ({ page }) => {
+test('busy: throttled boot shows the JACK-IN line before ready, then hands over and hides', async ({
+  page,
+}) => {
   const errors = watchErrors(page);
+  await throttleAndSampleBoot(page, 2000);
+  await page.goto('/?city=london');
+  await waitReady(page);
+  const lines = await expectBootLine(page);
+  console.log(`#busy during boot:\n  ${lines.join('\n  ')}`);
+  await expect(page.locator('#busy')).toHaveCount(1);
+  await expect(page.locator('#busy')).not.toHaveClass(/\bboot\b/);
+  await waitDrained(page);
+  await page.waitForTimeout(1500);
+  await expectHidden(page);
+  expect(errors).toEqual([]);
+});
+
+test('busy: ?hud=0 shows the boot line but never after ready', async ({ page }) => {
+  const errors = watchErrors(page);
+  await throttleAndSampleBoot(page, 1500);
   await page.goto('/?city=london&hud=0');
   await waitReady(page);
+  await expectBootLine(page);
+  await expect(page.locator('#busy')).toHaveCount(1);
+  await expect(page.locator('#busy')).not.toHaveClass(/\bon\b/);
+  await expectHidden(page);
   const seen = await travelAndWatch(page, 'tower', 3000);
   expect(seen.ok).toBe(true);
   expect(seen.maxOpacity).toBe(0);

@@ -2,8 +2,12 @@
  * Background-loading indicator — pure part (T-0171, docs/hud-busy.md).
  * Turns the loader sources (streamed tiles, the cyberpunk engine, cyberpunk
  * layer cells, car models) into one retro-terminal status line and gates it
- * with show/hide hysteresis. No DOM, no three.
+ * with show/hide hysteresis. No DOM, no three. Since T-0174 it also words
+ * the boot phases (`bootLine`: JACK-IN / DECRYPT / COMPILE) shown from the
+ * first paint until `ready`.
  */
+
+import type { LoadProgress } from '../ui/loading';
 
 /** Braille spinner frames, one per {@link SPINNER_MS}. */
 export const SPINNER_FRAMES: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -126,4 +130,75 @@ export class BusyGate {
     }
     return this.shown;
   }
+
+  /** Mark the line as already shown at `tMs` (boot → background handover): idle now hides after `holdMs`. */
+  force(tMs: number): void {
+    this.shown = true;
+    this.busySince = tMs;
+    this.idleSince = null;
+  }
+}
+
+/** Megabytes for the boot `DOWNLINK x.x/y.y MB` readout (matches `formatLoading`). */
+const MB = 1_000_000;
+
+/** One boot line split into the three `BusyView` spans (T-0174). */
+export interface BootParts {
+  /** Boot verb: `JACK-IN`, `DECRYPT` or `COMPILE`. */
+  verb: string;
+  /** 8-cell bar: determinate while downloading, else ping-pong. */
+  bar: string;
+  /** Label: `LINKING NODE`, `DOWNLINK x.x/y.y MB`, `CITYGRID <CITY>`, the build step or the city. */
+  label: string;
+}
+
+/** Determinate 8-cell bar: `floor(received·8/total)` cells lit, clamped. */
+export function bootBar(received: number, total: number): string {
+  const t = Math.max(1, total);
+  const r = Math.max(0, Math.min(received, total));
+  const filled = Math.min(BAR_CELLS, Math.floor((r * BAR_CELLS) / t));
+  return '▰'.repeat(filled) + '▱'.repeat(BAR_CELLS - filled);
+}
+
+/**
+ * Boot verb/bar/label for a pre-`ready` progress snapshot; `p === null`
+ * (no progress event yet) is the static `JACK-IN … LINKING NODE` line.
+ * `ready` has no boot parts (returns `null`) — use {@link busyLine}.
+ */
+export function bootParts(p: LoadProgress | null, cityLabel: string, tMs: number): BootParts | null {
+  if (p === null) return { verb: 'JACK-IN', bar: busyBar(tMs), label: 'LINKING NODE' };
+  const city = cityLabel.toUpperCase();
+  switch (p.phase) {
+    case 'download': {
+      const rec = (Math.max(0, Math.min(p.received, p.total)) / MB).toFixed(1);
+      const tot = (p.total / MB).toFixed(1);
+      return { verb: 'JACK-IN', bar: bootBar(p.received, p.total), label: `DOWNLINK ${rec}/${tot} MB` };
+    }
+    case 'parse':
+      return { verb: 'DECRYPT', bar: busyBar(tMs), label: `CITYGRID ${city}` };
+    case 'build':
+      return { verb: 'COMPILE', bar: busyBar(tMs), label: p.step ? p.step : city };
+    case 'ready':
+      return null;
+  }
+}
+
+/** Nothing loading — the default `inputs` of {@link bootLine}. */
+const IDLE_INPUTS: BusyInputs = { tilesPending: 0, engineLoading: false, cellsPending: 0, carsLoading: false };
+
+/**
+ * Boot status line (spinner, verb, bar, label unless `narrow`). At `ready`
+ * it delegates to {@link busyLine} with `inputs` (idle → `''`).
+ */
+export function bootLine(
+  p: LoadProgress,
+  cityLabel: string,
+  tMs: number,
+  narrow: boolean,
+  inputs: BusyInputs = IDLE_INPUTS,
+): string {
+  const parts = bootParts(p, cityLabel, tMs);
+  if (parts === null) return busyLine(inputs, tMs, narrow);
+  const head = `${busySpinner(tMs)} ${parts.verb} ${parts.bar}`;
+  return narrow ? head : `${head} ${parts.label}`;
 }

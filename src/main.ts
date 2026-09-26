@@ -534,8 +534,20 @@ async function main(): Promise<void> {
   // 1…9. On a choice the current query plus `city=<id>` is written to the URL
   // via `history.replaceState` (every other parameter kept), then data loading
   // and the rest of the boot continue below.
-  let pickerOpen = false;
   const needsPicker = !opts.synthetic && !cityById(opts.city);
+  let pickerOpen = needsPicker;
+  // Boot phases on the #busy line (T-0174, docs/hud-busy.md): driven by this
+  // rAF loop until `ready`, then the frame loop's `busyView.update` takes over.
+  // `bootLoading` stays null (static JACK-IN line) until the first progress event.
+  let bootLoading: LoadProgress | null = null;
+  let bootLabel = '';
+  const bootTick = (t: number): void => {
+    if (bootLoading?.phase === 'ready') return;
+    const neon = resolveBootRender(urlRender, cityById(opts.city), settings.render) === 'cyberpunk';
+    busyView.boot(bootLoading, bootLabel, t, neon, !pickerOpen);
+    requestAnimationFrame(bootTick);
+  };
+  bootTick(performance.now());
   if (needsPicker) {
     pickerOpen = true;
     opts.city = (await drawCityPicker(overlay, menuRoot)).id;
@@ -550,6 +562,7 @@ async function main(): Promise<void> {
   // `?synthetic=1` skips the download phase and starts at `build`.
   const initialInfo = cityById(opts.city) ?? CITIES[0];
   const loadingLabel = opts.synthetic ? 'SYNTHETIC' : initialInfo.label;
+  bootLabel = loadingLabel;
   const loading: LoadProgress = opts.synthetic
     ? { phase: 'build', received: 0, total: 0, step: 'TERRAIN' }
     : { phase: 'download', received: 0, total: initialInfo.sizeBytes };
@@ -581,6 +594,7 @@ async function main(): Promise<void> {
     loading.total = p.total;
     loading.step = undefined;
     paintLoading();
+    bootLoading = loading;
   };
   if (opts.synthetic) {
     city = syntheticCity(opts.seed, 12, opts.hills);
@@ -681,6 +695,7 @@ async function main(): Promise<void> {
     loading.phase = 'build';
     loading.step = step;
     paintLoading();
+    bootLoading = loading;
     await nextFrame();
   };
 
