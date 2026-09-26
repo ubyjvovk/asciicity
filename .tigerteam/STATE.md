@@ -46,6 +46,33 @@ OSM building footprints via Overpass (`docs/data-format.md`). "Done" for wave 1
   scratchpad `vantage.sh` (bank / bigben / maidan / fly, chromium-1234 +
   `--enable-unsafe-webgpu`), baseline frames captured.
 
+## Wave 25 (2026-09-26 night) — skyline, mega-ads, hologram, boot line — COMPLETE, NOT PUSHED
+- User (walking Sydney): distant HIGHRISES need sharper silhouettes, huge
+  neon ads, a 50 m BR2049-style anime hologram centrally in every city;
+  boot loading indicator from the start (lore); later: lens-rain glass off,
+  rain a notch lighter. User will review tomorrow and push themselves.
+- PM: height-attenuated scene fog (view.ts fogNode, FOG_H 25 m) + light-
+  pollution sky dome (31da12c); lens rain off by default (?glass=1 / G),
+  RAIN_COUNT 6500 → 4800 (5043ba4); hologram model Mia (ChamberSu, CC BY-NC,
+  public/models/holo, 44.5 k tris, dance loop) sourced + credited.
+- T-0173 hologram (opus-3, $4.35): anchors bank / maidan / shibuya /
+  circularquay / unionsquare / timessquare; GPU-reviewed (full figure from
+  ~110 m, pink→cyan gradient, projector disc, light column).
+  Note: HOLO_ORIGINS duplicates index.json origins (drift test guards it);
+  cleaner: add `origin` to PunkLayerContext.
+- T-0174 boot line (opus-2, $1.98): static #busy in index.html, JACK-IN /
+  DOWNLINK / DECRYPT / COMPILE, hands over to SYNC. GPU-checked (neon).
+- T-0172 mega-ads (opus-1, 2 attempts ~$1.10 + first): screens / roof
+  billboards / beacons / roofline strips, 1.6 km radius; merged with a
+  layers.ts conflict (resolved: one factory per line). GPU: skyline reads
+  from above; screens bloom-heavy — content hard to read at mid range.
+- Stutter harness after the wave: sydney/london/tokyo 0 frames > 100 ms.
+  Gate green on merged main (check-20260926-012628).
+- NEXT (tomorrow): screen emissive/readability tune (megaads gain 2.6 →
+  lower, maybe exposure by distance), more ads visible from harbour
+  vantages, hologram brightness at distance; e2e/cyberpunk.spec.ts 120 s
+  timeout is borderline under load (raise it); push after user review.
+
 ## Wave 24 (2026-09-26 ~00:00) — stutter fix (PM, measured)
 - User: "still stutters a lot, even without cars". PM harness
   (scratchpad stutter.mjs: sprint + turns 20 s, rAF frame times + long
